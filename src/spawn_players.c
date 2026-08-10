@@ -1127,11 +1127,11 @@ void spawn_and_set_player_spawns(void) {
                 D_80165230[3] = 0.0f;
                 D_80165210[3] = 200.0f;
                 D_80165230[0] = 200.0f;
-                // Count dispatch to a count-specific spawn arrangement. Widened
-                // from == 4 so eight players get the four-position layout rather
-                // than the three-position one, but neither is right: eight racers
-                // need eight start positions. A spawn_players_8p_battle arrangement
-                // is required before Block Fort supports more than four.
+                // Count dispatch to a count-specific spawn arrangement, widened
+                // from == 4 so a count above four takes the fuller layout. This
+                // arm only ever sees the quarter-screen mode, which caps at four
+                // racers; five or more select the eighth-screen mode and land in
+                // the arm below instead.
                 if (gPlayerCountSelection1 >= 4) {
                     spawn_players_4p_battle(D_80165210, D_80165230, temp);
                 } else {
