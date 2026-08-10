@@ -657,8 +657,33 @@ void rmonPrintf(const char*, ...);
 #define D_8018E0E8_SIZE 0x05
 #define TEXTURE_MAP_MAX 0xC8
 #define D_8018E768_SIZE 0x08
-#define D_8018E7E8_SIZE 0x05
-#define D_8018E810_SIZE 0x05
+
+/* Several tables here hold one entry per viewport PLUS a trailing sentinel
+ * entry that means "the whole screen" rather than any single viewport. The
+ * full-screen fades and wipes are keyed to that sentinel: func_8009CA6C tests
+ * `arg0 == <sentinel>` to decide whether it is drawing over one viewport or
+ * over everything.
+ *
+ * The sentinel sat at index 4 because four viewports occupied 0 through 3, so
+ * "4" appears throughout this file meaning "the whole screen" and NOT meaning
+ * "the fourth player". With eight viewports the sentinel moves to index 8, and
+ * every one of those literals would silently start referring to player five's
+ * viewport instead. Refer to it by name so the two meanings cannot be confused
+ * again, and so the size and the sentinel index can never drift apart.
+ *
+ * D_8018E7E8 and D_8018E810 were 5 for exactly this reason: 4 viewports plus
+ * the sentinel, not 4 rounded up. */
+#define SCREEN_FULLSCREEN_SLOT NUM_PLAYERS
+#define SCREEN_SLOT_COUNT (NUM_PLAYERS + 1)
+
+/* Flat offset of the eight-player run in D_800F0B1C, which render_screens()
+ * takes as its `someId` argument. The runs ahead of it total
+ * 1 + 2 + 2 + 3 + 4 = 12 entries -- one per viewport of each earlier screen
+ * mode. See the table in menu_items.c for the full layout. */
+#define SCREEN_ID_TABLE_8P_BASE 12
+
+#define D_8018E7E8_SIZE SCREEN_SLOT_COUNT
+#define D_8018E810_SIZE SCREEN_SLOT_COUNT
 #define MENU_TEXTURE_BUFFER_MAX 500
 
 /* This is where I'd put my static data, if I had any */

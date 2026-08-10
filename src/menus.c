@@ -2170,8 +2170,8 @@ void set_sound_mode(void) {
  * interacted while a fade transition is active
  */
 bool is_screen_being_faded(void) {
-    if ((gTransitionType[4] == 2) || (gTransitionType[4] == 3) || (gTransitionType[4] == 4) ||
-        (gTransitionType[4] == 7)) {
+    if ((gTransitionType[SCREEN_FULLSCREEN_SLOT] == 2) || (gTransitionType[SCREEN_FULLSCREEN_SLOT] == 3) || (gTransitionType[SCREEN_FULLSCREEN_SLOT] == 4) ||
+        (gTransitionType[SCREEN_FULLSCREEN_SLOT] == 7)) {
         return true;
     }
     return false;

@@ -880,11 +880,11 @@ void race_render_frame(void) {
                 if (i == gPlayerWinningIndex) {
                     continue;
                 }
-                render_screens(&gScreenContexts[i], RENDER_SCREEN_MODE_8P_PLAYER_ONE + i, 12 + i, i);
+                render_screens(&gScreenContexts[i], RENDER_SCREEN_MODE_8P_PLAYER_ONE + i, SCREEN_ID_TABLE_8P_BASE + i, i);
             }
             if ((gPlayerWinningIndex >= PLAYER_ONE) && (gPlayerWinningIndex < NUM_PLAYERS)) {
                 render_screens(&gScreenContexts[gPlayerWinningIndex],
-                               RENDER_SCREEN_MODE_8P_PLAYER_ONE + gPlayerWinningIndex, 12 + gPlayerWinningIndex,
+                               RENDER_SCREEN_MODE_8P_PLAYER_ONE + gPlayerWinningIndex, SCREEN_ID_TABLE_8P_BASE + gPlayerWinningIndex,
                                gPlayerWinningIndex);
             }
             break;

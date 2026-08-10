@@ -87,23 +87,31 @@ Gfx* sGfxPtr;
 s32 gNumD_8018E768Entries;
 struct_8018E768_entry D_8018E768[D_8018E768_SIZE];
 s32 gCycleFlashMenu;
-s8 gTransitionType[5];
-u32 gTransitionDuration[5];
-u32 gCurrentTransitionTime[5];
+s8 gTransitionType[SCREEN_SLOT_COUNT];
+u32 gTransitionDuration[SCREEN_SLOT_COUNT];
+u32 gCurrentTransitionTime[SCREEN_SLOT_COUNT];
 struct UnkStruct_8018E7E8 D_8018E7E8[D_8018E7E8_SIZE];
 struct UnkStruct_8018E7E8 D_8018E810[D_8018E810_SIZE];
 s8 D_8018E838[NUM_PLAYERS]; // Import to C was required for matching.
 s32 D_8018E83C;
 
-/* UNRESOLVED for eight players. Written as D_8018E840[arg0] inside
-   func_8009E2A8 / func_8009E2F0, whose only reached caller passes
-   D_800F0B1C[arg0] -- a table lookup, so the value's range could not be
-   established from the call sites. It behaves like an animation counter keyed
-   to a menu element rather than a racer (it indexes D_800F0B28 and is bounded
-   against 0x1B), which is why it is left at four rather than widened on
-   suspicion. Confirm before the eighth-screen mode becomes selectable: if the
-   index turns out to be a player, this is an out-of-bounds write. */
-s32 D_8018E840[4]; // This may all be one big array.
+/* RESOLVED: the index is a per-screen index, and this was an out-of-bounds
+   write, exactly as the earlier note here suspected.
+
+   The chain is func_80093A30(someId) -> func_8009E2A8(D_800F0B1C[someId]) ->
+   func_8009E2F0(arg0), and D_800F0B1C turned out to be a triangular table: one
+   run of entries per screen mode, each run counting 0..screens-1. So the value
+   IS a screen index, reaching NUM_PLAYERS - 1 once the eight-screen mode is
+   selectable. func_8009E2F0 does D_8018E840[arg0]++ , which at four entries
+   wrote past the end for screens five through eight.
+
+   What made this hard to settle from the call sites is that the value is also
+   used to index D_800F0B28 and is bounded against 0x1B, which reads like an
+   animation counter keyed to a menu element rather than to a racer. It is
+   both: an animation counter, held per screen.
+
+   D_8018E838 alongside it was already NUM_PLAYERS, which is the same index. */
+s32 D_8018E840[NUM_PLAYERS];
 s32 D_8018E850[2]; // This is probably incorrect. Fix after decomping code.
 s32 D_8018E858[2];
 s8 gTextColor;
@@ -719,9 +727,35 @@ char* gPlaceText[] = {
 };
 
 const s8 gGPPointRewards[] = { 9, 6, 3, 1 };
+/* A triangular table: one run per screen mode, each run numbering that mode's
+ * viewports from zero. render_screens() is called with a flat offset into this
+ * table (the `someId` argument), and the value looked up is the viewport's
+ * index within its own mode -- which then indexes the per-screen animation
+ * state in func_8009E2F0.
+ *
+ *   offset  0      1 viewport   -- SCREEN_MODE_1P
+ *   offset  1..2   2 viewports  -- SCREEN_MODE_2P_SPLITSCREEN_VERTICAL
+ *   offset  3..4   2 viewports  -- SCREEN_MODE_2P_SPLITSCREEN_HORIZONTAL
+ *   offset  5..7   3 viewports  -- SCREEN_MODE_3P_4P_SPLITSCREEN, three players
+ *   offset  8..11  4 viewports  -- SCREEN_MODE_3P_4P_SPLITSCREEN, four players
+ *   offset 12..19  8 viewports  -- SCREEN_MODE_8P
+ *
+ * The eight-viewport run is new. Without it the SCREEN_MODE_8P arm in main.c
+ * passed offsets 12 through 19 into a twelve-entry table; AddressSanitizer
+ * caught the read one byte past the end. */
 const s8 D_800F0B1C[] = {
-    0, 0, 1, 0, 1, 0, 1, 2, 0, 1, 2, 3,
+    0,                      /* 1P */
+    0, 1,                   /* 2P vertical */
+    0, 1,                   /* 2P horizontal */
+    0, 1, 2,                /* 3P */
+    0, 1, 2, 3,             /* 4P */
+    0, 1, 2, 3, 4, 5, 6, 7, /* 8P */
 };
+
+/* main.c indexes the eight-player run as SCREEN_ID_TABLE_8P_BASE + screen, so
+ * the run must be exactly NUM_PLAYERS long and must sit at the end. */
+_Static_assert(ARRAY_COUNT(D_800F0B1C) == SCREEN_ID_TABLE_8P_BASE + NUM_PLAYERS,
+               "D_800F0B1C needs a run of NUM_PLAYERS entries for the eight-player screen mode");
 const s8 D_800F0B28[] = {
     0, 1, 2, 1, 2, 1, 2, 1, 2, 0, 0, 1, 2, 2, 1, 2, 2, 1, 2, 2,
     1, 2, 2, 1, 2, 2, 1, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
@@ -2426,7 +2460,7 @@ void func_80093C98(s32 arg0) {
     handle_menus_special();
     if (arg0 == 0) {
         func_800A54EC();
-        func_8009CA6C(4);
+        func_8009CA6C(SCREEN_FULLSCREEN_SLOT);
         D_80165754 = gMatrixEffectCount;
         gMatrixEffectCount = 0;
         // ClearEffectsMatrixPool();
@@ -2842,7 +2876,7 @@ void setup_menus(void) {
 void func_80095574(void) {
     s32 var_v0;
 
-    if ((unref_D_8018EE0C < 3) || (gTransitionType[4] != 0)) {
+    if ((unref_D_8018EE0C < 3) || (gTransitionType[SCREEN_FULLSCREEN_SLOT] != 0)) {
         handle_menus_default();
     }
     if (gDebugMenuSelection >= 2) {
@@ -4614,7 +4648,7 @@ Gfx* render_menu_textures(Gfx* arg0, MenuTexture* arg1, s32 column, s32 row) {
         }
         temp_v0_3 = (u8*) func_8009B8C4(arg1->textureData);
         if (temp_v0_3 != NULL) {
-            if (gTransitionType[4] != 4) {
+            if (gTransitionType[SCREEN_FULLSCREEN_SLOT] != 4) {
                 arg0 = func_80095E10(arg0, var_s4, 0x00000400, 0x00000400, 0, 0, arg1->width, arg1->height,
                                      arg1->dX + column, arg1->dY + row, arg1->textureData, arg1->width, arg1->height);
             } else {
@@ -4654,7 +4688,7 @@ Gfx* render_menu_textures_alt(Gfx* arg0, MenuTexture* arg1, s32 column, s32 row)
                 gSPDisplayList(arg0++, D_02007728);
                 break;
         }
-        if (gTransitionType[4] != 4) {
+        if (gTransitionType[SCREEN_FULLSCREEN_SLOT] != 4) {
             arg0 = func_80095E10_alt(arg0, var_s4, 0x00000400, 0x00000400, 0, 0, arg1->width, arg1->height,
                                      arg1->dX + column, arg1->dY + row, arg1->textureData, arg1->width, arg1->height);
         } else {
@@ -4989,23 +5023,26 @@ Gfx* func_8009C708(Gfx* arg0, struct_8018DEE0_entry* arg1, s32 arg2, s32 arg3, U
 void func_8009C918(void) {
     s32 someIndex;
 
-    for (someIndex = 0; someIndex < 4; someIndex++) {
+    /* One entry per viewport, then the whole-screen sentinel. The loop bound
+     * is the viewport count, which is NOT the table length -- the table has one
+     * more slot than there are screens. */
+    for (someIndex = 0; someIndex < NUM_PLAYERS; someIndex++) {
         D_8018E7E8[someIndex].x = gScreenContexts[someIndex].screenStartX;
         D_8018E7E8[someIndex].y = gScreenContexts[someIndex].screenStartY;
         D_8018E810[someIndex].x = gScreenContexts[someIndex].screenWidth;
         D_8018E810[someIndex].y = gScreenContexts[someIndex].screenHeight;
     }
 
-    D_8018E7E8[4].x = SCREEN_WIDTH / 2;
-    D_8018E7E8[4].y = SCREEN_HEIGHT / 2;
-    D_8018E810[4].x = SCREEN_WIDTH;
-    D_8018E810[4].y = SCREEN_HEIGHT;
+    D_8018E7E8[SCREEN_FULLSCREEN_SLOT].x = SCREEN_WIDTH / 2;
+    D_8018E7E8[SCREEN_FULLSCREEN_SLOT].y = SCREEN_HEIGHT / 2;
+    D_8018E810[SCREEN_FULLSCREEN_SLOT].x = SCREEN_WIDTH;
+    D_8018E810[SCREEN_FULLSCREEN_SLOT].y = SCREEN_HEIGHT;
 }
 
 void func_8009CA2C(void) {
     s32 var_s0;
 
-    for (var_s0 = 0; var_s0 < 5; var_s0++) {
+    for (var_s0 = 0; var_s0 < SCREEN_SLOT_COUNT; var_s0++) {
         func_8009CA6C(var_s0);
     }
 }
@@ -5013,12 +5050,12 @@ void func_8009CA2C(void) {
 void func_8009CA6C(s32 arg0) {
     s32 var_a1;
 
-    if ((arg0 == 4) || ((find_menu_items(0x000000AA) == NULL) && (find_menu_items(0x000000AB) == NULL) &&
+    if ((arg0 == SCREEN_FULLSCREEN_SLOT) || ((find_menu_items(0x000000AA) == NULL) && (find_menu_items(0x000000AB) == NULL) &&
                         (find_menu_items(0x000000B9) == NULL) && (find_menu_items(0x000000BA) == NULL) &&
                         (find_menu_items(0x000000AC) == NULL) && (find_menu_items(0x000000B0) == NULL))) {
         var_a1 = 0;
         gSPDisplayList(gDisplayListHead++, D_0D0076F8);
-        if ((arg0 != 4) && (gIsGamePaused != 0)) {
+        if ((arg0 != SCREEN_FULLSCREEN_SLOT) && (gIsGamePaused != 0)) {
             var_a1 = 1;
         }
         switch (gTransitionType[arg0]) {
@@ -5108,7 +5145,7 @@ void draw_fade_in(s32 arg0, s32 arg1, s32 arg2) {
                     gDisplayListHead, x - (w / 2), y - (h / 2), rightEdge + ((w / 2) + x), (h / 2) + y, color->red,
                     color->green, color->blue,
                     0xFF - (gCurrentTransitionTime[arg0] * 0xFF / gTransitionDuration[arg0]));
-            } else if ((arg0 == 4)) { // arg0 is the screenId. Why is it 4 in the Menu?
+            } else if ((arg0 == SCREEN_FULLSCREEN_SLOT)) { // arg0 is the screenId; the sentinel means the whole screen, not a viewport.
                 gDisplayListHead = draw_box_wide(gDisplayListHead, x - (w / 2), y - (h / 2), (w / 2) + x, (h / 2) + y,
                                                  color->red, color->green, color->blue,
                                                  0xFF - (gCurrentTransitionTime[arg0] * 0xFF / gTransitionDuration[arg0]));
@@ -5170,7 +5207,7 @@ void func_8009CE64(s32 arg0) {
         }
     } else if (gGamestate == 4) {
         if (gTransitionType[arg0] == 2) {
-            if (arg0 != 4) {
+            if (arg0 != SCREEN_FULLSCREEN_SLOT) {
                 gTransitionType[arg0] = 5;
             } else {
                 var_a1 = 0;
@@ -5569,7 +5606,7 @@ void func_8009D77C(s32 arg0, s32 arg1, s32 arg2) {
                 gDisplayListHead = draw_box_wide_pause_background(gDisplayListHead, var_t3 - temp_v1, var_t4 - temp_t8,
                                                                   rightEdge + someMath0, someMath1, temp_v0_2->red,
                                                                   temp_v0_2->green, temp_v0_2->blue, var_t2);
-            } else if ((arg0 == 4)) { // arg0 is the screenId. Why is it 4 in the Menu?
+            } else if ((arg0 == SCREEN_FULLSCREEN_SLOT)) { // arg0 is the screenId; the sentinel means the whole screen, not a viewport.
                 gDisplayListHead = draw_box_wide(gDisplayListHead, var_t3 - temp_v1, var_t4 - temp_t8, someMath0, someMath1,
                                                  temp_v0_2->red, temp_v0_2->green, temp_v0_2->blue, var_t2);
             }
@@ -5658,12 +5695,12 @@ void func_8009D998(s32 arg0) {
 void func_8009DAA8(void) {
     u32 var_t0;
 
-    gCurrentTransitionTime[4]++;
-    if (gCurrentTransitionTime[4] >= (gTransitionDuration[4] + 1)) {
-        func_8009CE64(4);
+    gCurrentTransitionTime[SCREEN_FULLSCREEN_SLOT]++;
+    if (gCurrentTransitionTime[SCREEN_FULLSCREEN_SLOT] >= (gTransitionDuration[SCREEN_FULLSCREEN_SLOT] + 1)) {
+        func_8009CE64(SCREEN_FULLSCREEN_SLOT);
     }
     gDPPipeSync(gDisplayListHead++);
-    var_t0 = (gCurrentTransitionTime[4] * 255) / gTransitionDuration[4];
+    var_t0 = (gCurrentTransitionTime[SCREEN_FULLSCREEN_SLOT] * 255) / gTransitionDuration[SCREEN_FULLSCREEN_SLOT];
     if ((s32) var_t0 >= 0x100) {
         var_t0 = 0x000000FF;
     }
@@ -5677,23 +5714,23 @@ void func_8009DB8C(void) {
     u32 var_s3;
     s32 var_v1;
 
-    gCurrentTransitionTime[4]++;
+    gCurrentTransitionTime[SCREEN_FULLSCREEN_SLOT]++;
     // why?
-    var_v1 = gCurrentTransitionTime[4];
-    if ((u32) var_v1 >= gTransitionDuration[4]) {
-        if ((u32) var_v1 == gTransitionDuration[4]) {
+    var_v1 = gCurrentTransitionTime[SCREEN_FULLSCREEN_SLOT];
+    if ((u32) var_v1 >= gTransitionDuration[SCREEN_FULLSCREEN_SLOT]) {
+        if ((u32) var_v1 == gTransitionDuration[SCREEN_FULLSCREEN_SLOT]) {
             for (var_s0 = 0; var_s0 < 0x4B0; var_s0++) {
                 sTKMK00_LowResBuffer[var_s0] = 1;
             }
         } else {
-            func_8009CE64(4);
+            func_8009CE64(SCREEN_FULLSCREEN_SLOT);
         }
     } else {
         var_s0 = 0;
         var_s3 = 0;
-        while (var_s3 < (0x4B0U / gTransitionDuration[4])) {
+        while (var_s3 < (0x4B0U / gTransitionDuration[SCREEN_FULLSCREEN_SLOT])) {
             if ((sTKMK00_LowResBuffer[var_s0] == 0) &&
-                (random_int((0x4B0U - gCurrentTransitionTime[4]) / gTransitionDuration[4]) == 0)) {
+                (random_int((0x4B0U - gCurrentTransitionTime[SCREEN_FULLSCREEN_SLOT]) / gTransitionDuration[SCREEN_FULLSCREEN_SLOT]) == 0)) {
                 var_s3 += 1;
                 sTKMK00_LowResBuffer[var_s0] = 1;
             }
@@ -5715,7 +5752,7 @@ void func_8009DB8C(void) {
         }
     }
     gDPPipeSync(gDisplayListHead++);
-    var_v1 = (gCurrentTransitionTime[4] * 255) / gTransitionDuration[4];
+    var_v1 = (gCurrentTransitionTime[SCREEN_FULLSCREEN_SLOT] * 255) / gTransitionDuration[SCREEN_FULLSCREEN_SLOT];
     if (var_v1 >= 0x100) {
         var_v1 = 0x000000FF;
     }
@@ -5726,13 +5763,13 @@ void func_8009DEF8(u32 arg0, u32 arg1) {
     if (arg0 == 0) {
         arg0 = 1;
     }
-    if ((gTransitionType[4] != 1) && (gTransitionType[4] != 6)) {
-        gTransitionType[4] = arg1;
-        gTransitionDuration[4] = arg0;
-        if (gTransitionDuration[4] >= 0x100U) {
-            gTransitionDuration[4] = 0xFFU;
+    if ((gTransitionType[SCREEN_FULLSCREEN_SLOT] != 1) && (gTransitionType[SCREEN_FULLSCREEN_SLOT] != 6)) {
+        gTransitionType[SCREEN_FULLSCREEN_SLOT] = arg1;
+        gTransitionDuration[SCREEN_FULLSCREEN_SLOT] = arg0;
+        if (gTransitionDuration[SCREEN_FULLSCREEN_SLOT] >= 0x100U) {
+            gTransitionDuration[SCREEN_FULLSCREEN_SLOT] = 0xFFU;
         }
-        gCurrentTransitionTime[4] = 0;
+        gCurrentTransitionTime[SCREEN_FULLSCREEN_SLOT] = 0;
     }
 }
 
@@ -5748,13 +5785,13 @@ void func_8009DF8C(u32 arg0, u32 arg1) {
     if (arg0 == 0) {
         arg0 = 1;
     }
-    if ((gTransitionType[4] != 2) && (gTransitionType[4] != 5)) {
-        gTransitionType[4] = arg1;
-        gTransitionDuration[4] = arg0;
-        if (gTransitionDuration[4] >= 0x100U) {
-            gTransitionDuration[4] = 0xFFU;
+    if ((gTransitionType[SCREEN_FULLSCREEN_SLOT] != 2) && (gTransitionType[SCREEN_FULLSCREEN_SLOT] != 5)) {
+        gTransitionType[SCREEN_FULLSCREEN_SLOT] = arg1;
+        gTransitionDuration[SCREEN_FULLSCREEN_SLOT] = arg0;
+        if (gTransitionDuration[SCREEN_FULLSCREEN_SLOT] >= 0x100U) {
+            gTransitionDuration[SCREEN_FULLSCREEN_SLOT] = 0xFFU;
         }
-        gCurrentTransitionTime[4] = 0;
+        gCurrentTransitionTime[SCREEN_FULLSCREEN_SLOT] = 0;
     }
 }
 
@@ -5805,13 +5842,13 @@ void func_8009E088(s32 arg0, s32 arg1) {
 void func_8009E0F0(s32 arg0) {
     s32 var_v0;
 
-    if (gTransitionType[4] != 3) {
-        gTransitionType[4] = 3;
-        gTransitionDuration[4] = arg0;
-        if (gTransitionDuration[4] >= 0x100U) {
-            gTransitionDuration[4] = 0x000000FF;
+    if (gTransitionType[SCREEN_FULLSCREEN_SLOT] != 3) {
+        gTransitionType[SCREEN_FULLSCREEN_SLOT] = 3;
+        gTransitionDuration[SCREEN_FULLSCREEN_SLOT] = arg0;
+        if (gTransitionDuration[SCREEN_FULLSCREEN_SLOT] >= 0x100U) {
+            gTransitionDuration[SCREEN_FULLSCREEN_SLOT] = 0x000000FF;
         }
-        gCurrentTransitionTime[4] = 0;
+        gCurrentTransitionTime[SCREEN_FULLSCREEN_SLOT] = 0;
         for (var_v0 = 0; var_v0 < 0x4B0; var_v0++) {
             sTKMK00_LowResBuffer[var_v0] = 0;
         }
@@ -5819,13 +5856,13 @@ void func_8009E0F0(s32 arg0) {
 }
 
 void func_8009E17C(u32 arg0) {
-    if (gTransitionType[4] != 4) {
-        gTransitionType[4] = 4;
-        gTransitionDuration[4] = arg0;
-        if (gTransitionDuration[4] >= 0x100U) {
-            gTransitionDuration[4] = 0x000000FFU;
+    if (gTransitionType[SCREEN_FULLSCREEN_SLOT] != 4) {
+        gTransitionType[SCREEN_FULLSCREEN_SLOT] = 4;
+        gTransitionDuration[SCREEN_FULLSCREEN_SLOT] = arg0;
+        if (gTransitionDuration[SCREEN_FULLSCREEN_SLOT] >= 0x100U) {
+            gTransitionDuration[SCREEN_FULLSCREEN_SLOT] = 0x000000FFU;
         }
-        gCurrentTransitionTime[4] = 0;
+        gCurrentTransitionTime[SCREEN_FULLSCREEN_SLOT] = 0;
     }
 }
 
