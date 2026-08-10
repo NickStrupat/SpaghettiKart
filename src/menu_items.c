@@ -92,9 +92,17 @@ u32 gTransitionDuration[5];
 u32 gCurrentTransitionTime[5];
 struct UnkStruct_8018E7E8 D_8018E7E8[D_8018E7E8_SIZE];
 struct UnkStruct_8018E7E8 D_8018E810[D_8018E810_SIZE];
-s8 D_8018E838[4]; // Import to C was required for matching.
+s8 D_8018E838[NUM_PLAYERS]; // Import to C was required for matching.
 s32 D_8018E83C;
 
+/* UNRESOLVED for eight players. Written as D_8018E840[arg0] inside
+   func_8009E2A8 / func_8009E2F0, whose only reached caller passes
+   D_800F0B1C[arg0] -- a table lookup, so the value's range could not be
+   established from the call sites. It behaves like an animation counter keyed
+   to a menu element rather than a racer (it indexes D_800F0B28 and is bounded
+   against 0x1B), which is why it is left at four rather than widened on
+   suspicion. Confirm before the eighth-screen mode becomes selectable: if the
+   index turns out to be a player, this is an out-of-bounds write. */
 s32 D_8018E840[4]; // This may all be one big array.
 s32 D_8018E850[2]; // This is probably incorrect. Fix after decomping code.
 s32 D_8018E858[2];
