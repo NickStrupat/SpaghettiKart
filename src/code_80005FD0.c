@@ -179,7 +179,10 @@ s32 gNumPathPointsTraversed[10];
 s16 gGetPlayerByCharacterId[10];
 s32 D_8016448C;
 TrackPathPoint* gCurrentTrackPath;
-f32 D_80164498[4];
+/* Indexed by playerIndex and cameraId, so four is not enough once players five
+   through eight exist. Sized to the camera range to match its siblings in
+   camera.c and to stay valid for any camera id a caller passes. */
+f32 D_80164498[NUM_CAMERAS];
 f32 gLapCompletionPercentByPlayerId[10];    // D_801644A8
 f32 gCourseCompletionPercentByPlayerId[10]; // D_801644D0
 s16 bInMultiPathSection[12];

@@ -24,7 +24,28 @@
 #include "engine/GameAPI.h"
 #include "port/Game.h"
 
-f32 D_800DDB30[] = { 0.4f, 0.6f, 0.275f, 0.3f };
+/**
+ * Indexed directly by gActiveScreenMode -- one entry per screen mode, no bounds
+ * check at any of its six read sites. A subscript is not a branch: no default
+ * arm protects it, and a missing entry reads whatever the linker placed after
+ * the array rather than taking a wrong path. Adding SCREEN_MODE_8P without
+ * adding a row here would have made all six reads out of bounds.
+ *
+ * Sized by NUM_SCREEN_MODES so the coupling is explicit and a future mode added
+ * without a row here zero-fills instead of running off the end -- a wrong value
+ * rather than a memory-safety bug.
+ *
+ * The values are a camera floor that tracks viewport shape: the widest mode
+ * (two-player horizontal, 2.667) takes the largest, the tallest (two-player
+ * vertical, 0.667) the smallest, and equal aspects still differ by viewport
+ * size -- full-screen 1P takes 0.4 where the same-aspect quadrant takes 0.3.
+ *
+ * The eighth-screen cell is 80x120, the same 0.667 aspect as the vertical split,
+ * so its value starts there. That is a derivation from the pattern, not a
+ * measured figure; it is the one number in this commit that wants checking by
+ * eye once the mode is playable.
+ */
+f32 D_800DDB30[NUM_SCREEN_MODES] = { 0.4f, 0.6f, 0.275f, 0.3f, 0.275f };
 
 Camera cameras[NUM_CAMERAS]; // This size should be 5 but there is an overflow somewhere in Bowser's Castle, so we allocate 8 cameras to avoid it.
 Camera* camera1 = &cameras[0];
@@ -49,7 +70,11 @@ UNUSED s32 D_801649D0[2];
 f32 D_801649D8[NUM_CAMERAS];
 f32 D_801649E8[NUM_CAMERAS];
 f32 D_801649F8[NUM_CAMERAS];
-s32 D_80164A08[4];
+/* Indexed by cameraId and by playerIndex at various sites, so it must cover the
+   camera range, not four. Every sibling array here is already NUM_CAMERAS; this
+   one was left at 4 and would read and write out of bounds for players five
+   through eight. Same reasoning as the allocation comment on cameras[] above. */
+s32 D_80164A08[NUM_CAMERAS];
 s32 D_80164A18[NUM_CAMERAS];
 s32 D_80164A28;
 s32 D_80164A2C;
@@ -151,7 +176,15 @@ void camera_init(Vec3f pos, s16 rot, u32 mode, s32 cameraId) {
                         camera->unk_3C[2] = 30.0f;
                     }
                     break;
+                /* The eighth-screen cell is 80x120: the quadrant's height, half
+                   its width. These offsets are hand-tuned camera feel rather
+                   than anything derivable from the viewport -- the arms above
+                   do not vary monotonically with size -- so the nearest
+                   existing shape is the honest starting point. Worth a look by
+                   eye once the mode is playable; the kart may want to sit
+                   further back in a narrower window. */
                 case SCREEN_MODE_3P_4P_SPLITSCREEN:
+                case SCREEN_MODE_8P:
                     if (gModeSelection == BATTLE) {
                         camera->unk_30[0] = 0.0f;
                         camera->unk_30[1] = 11.6f;
@@ -295,6 +328,7 @@ void freecam_init(Vec3f pos, s16 rot, u32 mode, s32 cameraId) {
                     }
                     break;
                 case SCREEN_MODE_3P_4P_SPLITSCREEN:
+                case SCREEN_MODE_8P:
                     if (gModeSelection == BATTLE) {
                         camera->unk_30[0] = 0.0f;
                         camera->unk_30[1] = 11.6f;
@@ -491,6 +525,7 @@ void func_8001CCEC(Player* player, Camera* camera, Vec3f arg2, f32* arg3, f32* a
             case SCREEN_MODE_2P_SPLITSCREEN_HORIZONTAL:
             case SCREEN_MODE_2P_SPLITSCREEN_VERTICAL:
             case SCREEN_MODE_3P_4P_SPLITSCREEN:
+            case SCREEN_MODE_8P:
                 move_f32_towards(&D_80164A90[index], 20, 0.02f);
                 move_f32_towards(&D_80164AA0[index], 10, 0.02f);
                 break;
@@ -1269,6 +1304,7 @@ void func_8001F394(Player* player) {
         case SCREEN_MODE_2P_SPLITSCREEN_HORIZONTAL:
         case SCREEN_MODE_2P_SPLITSCREEN_VERTICAL:
         case SCREEN_MODE_3P_4P_SPLITSCREEN:
+        case SCREEN_MODE_8P:
             var_f0 = func_80014EE4(camera->fieldOfView, playerIndex);
             break;
     }
