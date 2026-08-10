@@ -29,6 +29,7 @@ void init_course_object(void);
 void init_hud_one_player(void);
 void init_hud_two_player_vertical(void);
 void init_hud_three_four_player(void);
+void init_hud_eight_player(void);
 void init_hud_two_player_horizontal(void);
 
 extern s32 gMinimapOnePlayerX;

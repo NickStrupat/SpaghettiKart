@@ -2,6 +2,7 @@
 #include <macros.h>
 #include <memory.h>
 #include <defines.h>
+#include <screen_grid.h>
 #include <mk64.h>
 #include <stubs.h>
 
@@ -56,13 +57,7 @@ void init_hud(void) {
             init_hud_three_four_player();
             break;
         case SCREEN_MODE_8P:
-            // PLACEHOLDER: there is no init_hud_eight_player(). Without any arm
-            // the HUD would be left uninitialised entirely, which is worse than
-            // wrong, so this borrows the quadrant layout to keep the HUD present
-            // while the eight-view layout is written. It positions for a 2x2
-            // grid, so expect markers in the wrong cells until then -- the same
-            // column-awareness job the rank slide and item box are waiting on.
-            init_hud_three_four_player();
+            init_hud_eight_player();
             break;
     }
     func_80070148();
@@ -888,6 +883,71 @@ void init_hud_two_player_horizontal() {
         case BATTLE:
             D_8018D158 = 2;
             return;
+    }
+}
+
+/**
+ * HUD layout for the 4x2 eighth-screen grid.
+ *
+ * Derived from init_hud_three_four_player() below rather than hand-placed. Its
+ * four players sit at the cell centres this file's grid helper computes, and
+ * every other field is a fixed offset from that centre:
+ *
+ *     rank   outward from centre   +-43 across,  +40 top row / +30 bottom
+ *     lap    inward from centre    -+60 across,  +36 top row / +32 bottom
+ *
+ * The 4x2 grid keeps the same two rows as the 2x2 one, so its cells are still
+ * 120 tall and the vertical offsets carry over untouched. Only the width halves,
+ * from 160 to 80, so the horizontal offsets are halved with them.
+ *
+ * The item box starts off whichever screen edge its cell is nearer and slides
+ * in. That slide distance is set in update_objects.c and is still sized for a
+ * 160-wide cell, so it will overshoot an 80-wide one -- the box will settle too
+ * far in until that distance is derived from cell width too. Noted rather than
+ * fixed here because it belongs with the slide, not the layout.
+ */
+void init_hud_eight_player(void) {
+    s32 i;
+
+    find_unused_obj_index(&D_80183DA0);
+    for (i = PLAYER_ONE; i < NUM_PLAYERS; i++) {
+        find_unused_obj_index(&gItemWindowObjectByPlayerId[i]);
+    }
+
+    init_object_list_index();
+
+    if (CVarGetInteger("gMultiplayerNoFeatureCuts", false) == true) {
+        for (i = PLAYER_ONE; (i < gPlayerCountSelection1) && (i < NUM_PLAYERS); i++) {
+            func_8007055C(&gScreenContexts[i]);
+        }
+    }
+
+    init_course_object();
+
+    for (i = PLAYER_ONE; i < NUM_PLAYERS; i++) {
+        s32 centerX = screen_cell_center_x(SCREEN_MODE_8P, i);
+        s32 centerY = screen_cell_center_y(SCREEN_MODE_8P, i);
+        s32 rightHalf = screen_cell_is_right_half(SCREEN_MODE_8P, i);
+        s32 topRow = (screen_player_row(SCREEN_MODE_8P, i) == 0);
+
+        playerHUD[i].itemBoxX = rightHalf ? 0x175 : -0x36;
+        playerHUD[i].itemBoxY = topRow ? 0x36 : 0x2D;
+        playerHUD[i].slideItemBoxX = 0;
+        playerHUD[i].slideItemBoxY = 0;
+
+        playerHUD[i].unk_4A = centerX;
+        playerHUD[i].unk_4C = centerY;
+
+        playerHUD[i].rankX = centerX + (rightHalf ? 21 : -21);
+        playerHUD[i].rankY = centerY + (topRow ? 40 : 30);
+        playerHUD[i].slideRankX = 0;
+        playerHUD[i].slideRankY = 0;
+
+        playerHUD[i].lapX = centerX + (rightHalf ? -30 : 30);
+        playerHUD[i].lapY = centerY + (topRow ? 36 : 32);
+
+        playerHUD[i].unk_6C = rightHalf ? 0xC8 : 0xDE;
+        playerHUD[i].unk_6E = topRow ? 0xC8 : 0xC0;
     }
 }
 
