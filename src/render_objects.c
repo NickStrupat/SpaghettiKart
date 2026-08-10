@@ -1648,7 +1648,13 @@ void render_texture_rectangle_wide(s32 x, s32 y, s32 width, s32 height, s32 arg4
         // gSPTextureRectangle(gDisplayListHead++, xl, yl, xh, yh, G_TX_RENDERTILE, arg4 << 5, (arg5 << 5), 4 << 10,
         //                     1 << 10);
     } else { // minimap
-        // DEFERRED for eight players: these centres are hardcoded for a 2x2
+        // DEFERRED for eight players. Confirmed to need plumbing rather than a
+        // formula: this is a generic draw helper taking only coordinates, its
+        // callers are generic too, and there is no global naming the screen
+        // currently being rendered -- so nothing here can ask which cell it is
+        // drawing into. A player or screen id has to be threaded down from the
+        // per-screen render loop before the grid helper is usable at this site.
+        // Centres below are hardcoded for a 2x2
         // grid -- three players centre the item in the unused fourth quadrant,
         // four centre it on the screen midline. A 4x2 grid has four column
         // centres at 40/120/200/280 and no spare cell, so this needs the

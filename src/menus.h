@@ -193,8 +193,11 @@ enum ControllerPakScrollDirectionTypes {
     CONTROLLER_PAK_SCROLL_DIR_UP
 };
 
-#define NUM_ROWS_GAME_MODE_MENU 4
-#define NUM_COLUMN_GAME_MODE_SUB_MENU 4
+/* One row per reachable player count: these index gGameModeMenuColumn and
+ * friends as [gPlayerCount - 1], so the extent must follow the roster. */
+#define NUM_ROWS_GAME_MODE_MENU NUM_PLAYERS
+/* Also indexed [gPlayerCount - 1], despite the name saying column. */
+#define NUM_COLUMN_GAME_MODE_SUB_MENU NUM_PLAYERS
 #define NUM_ROWS_GAME_MODE_SUB_MENU 3
 
 // This really, really shouldn't be in this header file, but I don't know where else to put it

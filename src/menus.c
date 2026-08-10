@@ -71,12 +71,13 @@ s8 gCharacterSelections[NUM_PLAYERS] = { MARIO, LUIGI, YOSHI, TOAD };
 
 // The current row selected in the mode column for each player indexed
 // 0-1 1p / 0-2 2p´/ 0-1 3p / 0-1 4p
-s8 gGameModeMenuColumn[NUM_ROWS_GAME_MODE_MENU] = { 0, 0, 0, 0 };
+s8 gGameModeMenuColumn[NUM_ROWS_GAME_MODE_MENU] = { 0, 0, 0, 0, 0, 0, 0, 0 };
 
 // For Grand Prix and Versus, this will be the CC mode selected. For Time Trials, it will
 // be whether 'Begin' or 'Data' is selected. Not used for Battle.
 // indexed as [column][row]
-s8 gGameModeSubMenuColumn[NUM_COLUMN_GAME_MODE_SUB_MENU][NUM_ROWS_GAME_MODE_SUB_MENU] = { 
+s8 gGameModeSubMenuColumn[NUM_COLUMN_GAME_MODE_SUB_MENU][NUM_ROWS_GAME_MODE_SUB_MENU] = {
+    { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 },
     { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }
 };
 
@@ -97,10 +98,11 @@ u32 sVIGammaOffDitherOn = (OS_VI_GAMMA_OFF | OS_VI_DITHER_FILTER_ON);
 // Sets the actual screen mode based on values set in sScreenModePlayerCount
 const s8 sScreenModePlayerTable[] = { SCREEN_MODE_1P, SCREEN_MODE_2P_SPLITSCREEN_HORIZONTAL,
                                       SCREEN_MODE_2P_SPLITSCREEN_VERTICAL, SCREEN_MODE_3P_4P_SPLITSCREEN,
-                                      SCREEN_MODE_3P_4P_SPLITSCREEN };
+                                      SCREEN_MODE_3P_4P_SPLITSCREEN, SCREEN_MODE_8P,
+                                      SCREEN_MODE_8P, SCREEN_MODE_8P, SCREEN_MODE_8P };
 
 // Sets how many players can load on each screen mode set in sScreenModePlayerTable
-const s8 sScreenModePlayerCount[] = { 1, 2, 2, 3, 4 };
+const s8 sScreenModePlayerCount[] = { 1, 2, 2, 3, 4, 5, 6, 7, 8 };
 
 // Set indexed slots numbers for one-two-three-four mode selection
 const s8 gPlayerModeSelection[] = { 1, 2, 2, 2 }; // @port 3p and 4p add Grand Prix
@@ -111,6 +113,10 @@ const s8 sGameModePlayerColumnDefault[][3] = {
     { 2, 2, 0 }, // 2p (GP options, VS options, Battle)
     { 2, 2, 0 }, // 3p (GP options, VS options, Battle)
     { 2, 2, 0 }, // 4p (GP options, VS options, Battle)
+    { 2, 2, 0 }, // 5p (GP options, VS options, Battle)
+    { 2, 2, 0 }, // 6p
+    { 2, 2, 0 }, // 7p
+    { 2, 2, 0 }, // 8p
 };
 
 // Limit for each index column in one-two-three-four mode selection
@@ -120,6 +126,10 @@ const s8 sGameModePlayerColumnExtra[][3] = {
     { 3, 3, 0 }, // 2p (GP options, VS options, Battle)
     { 3, 3, 0 }, // 3p (GP options, VS options, Battle)
     { 3, 3, 0 }, // 4p (GP options, VS options, Battle)
+    { 3, 3, 0 }, // 5p
+    { 3, 3, 0 }, // 6p
+    { 3, 3, 0 }, // 7p
+    { 3, 3, 0 }, // 8p
 };
 
 // Modes to select in one-two-three-four mode selection
@@ -128,6 +138,10 @@ const s32 gGameModePlayerSelection[][3] = {
     { GRAND_PRIX, VERSUS, BATTLE },          // 2p game modes
     { GRAND_PRIX, VERSUS, BATTLE },          // 3p game modes (@port: Grand Prix added)
     { GRAND_PRIX, VERSUS, BATTLE },          // 4p game modes (@port: Grand Prix added)
+    { GRAND_PRIX, VERSUS, BATTLE },          // 5p game modes
+    { GRAND_PRIX, VERSUS, BATTLE },          // 6p game modes
+    { GRAND_PRIX, VERSUS, BATTLE },          // 7p game modes
+    { GRAND_PRIX, VERSUS, BATTLE },          // 8p game modes
 };
 
 // Map from character grid position id to character id
@@ -153,7 +167,10 @@ const s8 unref_800F2BDC[4] = { 1, 0, 0, 0 };
 
 // Uses player count to set gScreenModeListIndex, the latter variable then selects a mode
 // from sScreenModePlayerTable, note the 2 is not set since that's for vertical 2p screen
-const s8 sScreenModeIdxFromPlayerMode[4] = { 0, 1, 3, 4 };
+/* Player count minus one -> index into sScreenModePlayerTable. Counts five
+   through eight all select the eighth-screen mode, whose rows follow the
+   original five. */
+const s8 sScreenModeIdxFromPlayerMode[NUM_PLAYERS] = { 0, 1, 3, 4, 5, 6, 7, 8 };
 
 const union GameModePack sSoundMenuPack = { { SOUND_STEREO, SOUND_HEADPHONES, SOUND_SURROUND, SOUND_MONO } };
 
