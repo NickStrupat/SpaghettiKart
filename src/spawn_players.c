@@ -282,22 +282,25 @@ void spawn_player(Player* player, s8 playerIndex, f32 startingRow, f32 startingC
 
     idx = playerIndex;
 
-    gLastAnimFrameSelector[0][idx] = 0;
-    gLastAnimFrameSelector[1][idx] = 0;
-    gLastAnimFrameSelector[2][idx] = 0;
-    gLastAnimFrameSelector[3][idx] = 0;
-    gLastAnimGroupSelector[0][idx] = 0;
-    gLastAnimGroupSelector[1][idx] = 0;
-    gLastAnimGroupSelector[2][idx] = 0;
-    gLastAnimGroupSelector[3][idx] = 0;
-    D_80165190[0][idx] = 0;
-    D_80165190[1][idx] = 0;
-    D_80165190[2][idx] = 0;
-    D_80165190[3][idx] = 0;
-    D_801651D0[0][idx] = 0;
-    D_801651D0[1][idx] = 0;
-    D_801651D0[2][idx] = 0;
-    D_801651D0[3][idx] = 0;
+    /* Every screen, not the first four. D_801651D0[screen][player] is used as the
+       leading index into D_802BFB80.arraySize8, whose first dimension is 2, so an
+       uninitialised entry is not a wrong value -- it is an arbitrary index into a
+       megabyte-sized buffer, written through. That is what corrupted the audio
+       heap and killed the sequence player two crashes running.
+
+       Written as a loop because these were unrolled per screen, which is how the
+       fifth through eighth were missed when the arrays were widened. */
+    {
+        s32 screen;
+
+        for (screen = 0; screen < NUM_PLAYERS; screen++) {
+            gLastAnimFrameSelector[screen][idx] = 0;
+            gLastAnimGroupSelector[screen][idx] = 0;
+            D_80165150[screen][idx] = 0;
+            D_80165190[screen][idx] = 0;
+            D_801651D0[screen][idx] = 0;
+        }
+    }
 
     gFrameSinceLastACombo[idx] = 0;
     gCountASwitch[idx] = 0;
