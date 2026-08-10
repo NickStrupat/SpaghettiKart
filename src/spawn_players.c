@@ -750,6 +750,32 @@ void spawn_players_gp_many(f32* arg0, f32* arg1, f32 arg2) {
     func_80039AE4();
 }
 
+/**
+ * Grand Prix / Versus spawn for the eighth-screen mode: every slot human.
+ *
+ * Modelled on spawn_players_gp_two_player() above, which puts two humans in
+ * slots zero and one and fills the remaining six with CPUs. Eight players claim
+ * all eight, so there are no CPU slots left to choose characters for and the
+ * whole cpu_forTwoPlayer selection step falls away.
+ *
+ * The grid itself is unchanged: the caller lays out the same eight staggered
+ * positions every other Grand Prix arm uses, and D_80165270 permutes slot order
+ * onto them so the starting order matches the rank the race expects.
+ */
+void spawn_players_gp_eight_player(f32* arg0, f32* arg1, f32 arg2) {
+    s32 i;
+
+    func_80039DA4();
+
+    for (i = PLAYER_ONE; i < NUM_PLAYERS; i++) {
+        spawn_player(&gPlayers[i], i, arg0[D_80165270[i]], arg1[D_80165270[i]], arg2, 32768.0f,
+                     gCharacterSelections[i], PLAYER_EXISTS | PLAYER_START_SEQUENCE | PLAYER_HUMAN);
+    }
+
+    D_80164A28 = 0;
+    func_80039AE4();
+}
+
 void spawn_players_versus_two_player(f32* arg0, f32* arg1, f32 arg2) {
     spawn_player(gPlayerThree, 2, arg0[1], arg1[1], arg2, 32768.0f, gCharacterSelections[0],
                  PLAYER_START_SEQUENCE | PLAYER_CPU);
@@ -1065,6 +1091,24 @@ void spawn_and_set_player_spawns(void) {
                         spawn_players_versus_two_player(D_80165210, D_80165230, sp5A);
                         break;
                 }
+                break;
+
+            case SCREEN_MODE_8P:
+                /* Same eight-position starting grid every Grand Prix arm uses --
+                   staggered columns, rows stepping back from the line. Versus
+                   shares it here rather than using the tighter versus spacing,
+                   because with eight humans the field is a full grid either way. */
+                D_80165210[0] = (D_80165210[2] = (D_80165210[4] = (D_80165210[6] = sp5E + 0x14)));
+                D_80165210[1] = (D_80165210[3] = (D_80165210[5] = (D_80165210[7] = sp5E - 0x14)));
+                D_80165230[0] = sp5C + 0x1E;
+                D_80165230[1] = sp5C + 0x32;
+                D_80165230[2] = sp5C + 0x46;
+                D_80165230[3] = sp5C + 0x5A;
+                D_80165230[4] = sp5C + 0x6E;
+                D_80165230[5] = sp5C + 0x82;
+                D_80165230[6] = sp5C + 0x96;
+                D_80165230[7] = sp5C + 0xAA;
+                spawn_players_gp_eight_player(D_80165210, D_80165230, sp5A);
                 break;
 
             case SCREEN_MODE_3P_4P_SPLITSCREEN:
