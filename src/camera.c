@@ -47,23 +47,29 @@
  */
 f32 D_800DDB30[NUM_SCREEN_MODES] = { 0.4f, 0.6f, 0.275f, 0.3f, 0.275f };
 
-Camera cameras[NUM_CAMERAS]; // This size should be 5 but there is an overflow somewhere in Bowser's Castle, so we allocate 8 cameras to avoid it.
+/* Slots are handed out sequentially by GameCamera, which claims &cameras[_count]
+   as each one is constructed. The original comment here noted the count only
+   needed to be five but was raised to eight to absorb an overflow in Bowser's
+   Castle; the extent is now driven by NUM_CAMERAS, which follows the roster. */
+Camera cameras[NUM_CAMERAS];
 Camera* camera1 = &cameras[0];
 Camera* camera2 = &cameras[1];
 Camera* camera3 = &cameras[2];
 Camera* camera4 = &cameras[3];
 /* Player cameras are indexed by player id, so slots 4-7 belong to players five
-   through eight. Freecam previously sat at index 4 and would have been aliased
-   onto player five's camera the moment an eighth-screen mode spawned one --
-   two systems writing one camera, which reads as freecam drifting or a player
-   view snapping rather than as an obvious fault. Moved clear of the player
-   range; NUM_CAMERAS is 16, so index 8 is well inside the allocation. Nothing
-   refers to freecam by index, only through this pointer. */
+   through eight. Freecam originally sat at index 4, where it would have aliased
+   player five's camera as soon as an eighth-screen mode spawned one.
+
+   Moving it to index 8 was not far enough: GameCamera claims slots from a
+   running counter, so eight players take 0-7 for their own cameras and 8-15 for
+   their look-behind cameras, and index 8 aliased the first look-behind. It now
+   sits in the last slot, past everything the sequential allocator hands out.
+   Nothing refers to freecam by index, only through this pointer. */
 Camera* camera5 = &cameras[4];
 Camera* camera6 = &cameras[5];
 Camera* camera7 = &cameras[6];
 Camera* camera8 = &cameras[7];
-Camera* gFreecamCamera = &cameras[8];
+Camera* gFreecamCamera = &cameras[NUM_CAMERAS - 1];
 
 UNUSED s32 D_801649D0[2];
 

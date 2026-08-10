@@ -17,7 +17,20 @@
 #define BAD_RETURN(cmd) cmd
 #endif
 
-#define NUM_CAMERAS 16
+#include <defines.h> /* NUM_PLAYERS, which sizes the camera pool below */
+
+/* Sized from the roster rather than fixed, because the spawn path allocates
+ * per player: spawn_multiplayer_cameras() creates a main camera AND a
+ * look-behind camera for every screen, then spawn_players_and_cameras()
+ * adds a freecam and a tour camera. Eight players therefore need 8*2 + 2 =
+ * 18 slots, where four needed 10 and fit comfortably in the old 16.
+ *
+ * At 16 the pool ran out exactly at the freecam -- the sixteen player and
+ * look-behind cameras filled it, CM_AddFreeCamera returned null, and the
+ * game aborted with a message naming the freecam rather than the count.
+ * The spare two are headroom for the single-player path, which allocates a
+ * slightly different set. */
+#define NUM_CAMERAS ((NUM_PLAYERS * 2) + 4)
 
 typedef enum RenderMode {
     RENDER_TRACK_SECTIONS,
