@@ -5,6 +5,7 @@
 #include <common_structs.h>
 #include <defines.h>
 #include <screen_class.h>
+#include "debug/assert_8p.h"
 #include <sounds.h>
 #include "engine/TrackBrowser.h"
 #include "camera.h"
@@ -468,6 +469,8 @@ void start_race(void) {
         gRaceState = RACE_IN_PROGRESS;
     }
 
+    assert_8p_race_start();
+
     for (i = 0; i < NUM_PLAYERS; i++) {
 
         if ((gPlayers[i].type & PLAYER_EXISTS) == 0) {
@@ -643,6 +646,10 @@ void update_race_position_data(void) {
             gPlayerPositionLUT[position] = i;
         }
     }
+
+    // Ranks have just been written, so this is the point where the per-frame
+    // invariants are meaningful. Each distinct failure prints once per race.
+    assert_8p_frame();
 }
 
 void func_8028F474(void) {
