@@ -1981,8 +1981,15 @@ void load_menu_states(s32 menuSelection) {
             if (gPlayerCount <= 0) {
                 gPlayerCount = 1;
             }
-            if (gPlayerCount >= 5) {
-                gPlayerCount = 4;
+            /* Upper clamp follows the roster rather than sitting at four. This
+               runs whenever the title menu is rebuilt, which includes every time
+               a debug menu value changes -- so with a literal 4 the screen-mode
+               picker could step to five players and be snapped straight back on
+               the same frame, indistinguishable from the picker refusing to move.
+               The clamp still matters: it guards the subscript below, which reads
+               sScreenModeIdxFromPlayerMode[gPlayerCount - 1]. */
+            if (gPlayerCount > NUM_PLAYERS) {
+                gPlayerCount = NUM_PLAYERS;
             }
             gScreenModeListIndex = sScreenModeIdxFromPlayerMode[gPlayerCount - 1];
             func_800CA008(0, 0);
