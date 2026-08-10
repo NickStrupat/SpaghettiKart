@@ -771,6 +771,36 @@ void func_8028F588(void) {
             gScreenThreeCtx->screenHeight = screenWidth;
             gScreenFourCtx->screenHeight = screenWidth;
             break;
+        case SCREEN_MODE_8P:
+            /* This is the race-start grow animation: every arm scales its cell
+               by D_802BA034 until it reaches full size. Without an arm here the
+               eighth-screen viewports would stay at the 4x4 that set_screen
+               starts them from and never open.
+
+               The stored value is twice the pixel dimension, clamped four short
+               of the maximum -- 320 wide clamps at 0x280 to 0x027C, 160 at
+               0x140 to 0x013C. An 80-wide cell therefore clamps at 0xA0 to
+               0x9C, and the 120 height is identical to the quadrant arm above.
+               Written as a loop because eight contexts do not unroll usefully. */
+            screenWidth = (s16) (s32) (80.0f * D_802BA034);
+            if (screenWidth <= 0) {
+                screenWidth = 1;
+            } else if (screenWidth >= 0xA0) {
+                screenWidth = 0x9C;
+            }
+            for (size_t s = 0; s < NUM_PLAYERS; s++) {
+                gScreenContexts[s].screenWidth = screenWidth;
+            }
+            screenWidth = (s16) (s32) (120.0f * D_802BA034);
+            if (screenWidth <= 0) {
+                screenWidth = 1;
+            } else if (screenWidth >= 0xF0) {
+                screenWidth = 0x00EC;
+            }
+            for (size_t s = 0; s < NUM_PLAYERS; s++) {
+                gScreenContexts[s].screenHeight = screenWidth;
+            }
+            break;
     }
 }
 
@@ -1290,6 +1320,11 @@ void func_80290B14(void) {
             func_8001EE98(gPlayerTwo, camera2, 1);
             func_8001EE98(gPlayerThree, camera3, 2);
             func_8001EE98(gPlayerFour, camera4, 3);
+            break;
+        case SCREEN_MODE_8P:
+            for (size_t i = 0; i < NUM_PLAYERS; i++) {
+                func_8001EE98(&gPlayers[i], &cameras[i], i);
+            }
             break;
     }
 }

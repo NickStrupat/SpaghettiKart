@@ -333,6 +333,17 @@ void func_80028864(Player* player, Camera* camera, s8 playerId, s8 screenId) {
                 }
                 sp1E = check_player_camera_collision_rubberbanding(player, camera4, (f32) D_8016557C, 0.0f);
                 break;
+            case SCREEN_MODE_8P:
+                // Same early-out chain as the arms above, written as a loop
+                // because eight unrolled copies would obscure it. camera1 is
+                // &cameras[0], so indexing is equivalent to the named pointers.
+                for (size_t cam = 0; cam < NUM_PLAYERS; cam++) {
+                    sp1E = check_player_camera_collision_rubberbanding(player, &cameras[cam], (f32) D_8016557C, 0.0f);
+                    if (sp1E == 1) {
+                        break;
+                    }
+                }
+                break;
         }
         if ((sp1E == 1) || ((player->type & PLAYER_INVISIBLE_OR_BOMB) == PLAYER_INVISIBLE_OR_BOMB) ||
             (gModeSelection == BATTLE) || ((player->lakituProps & HELD_BY_LAKITU) != 0) || (player->lakituProps & LAKITU_SCENE) ||
@@ -4460,6 +4471,15 @@ void handle_a_press_for_all_players_during_race(void) {
             handle_a_press_for_player_during_race(gPlayerThree, gControllerThree, 2);
             if (gPlayerCountSelection1 >= 4) {
                 handle_a_press_for_player_during_race(gPlayerFour, gControllerFour, 3);
+            }
+            break;
+        case SCREEN_MODE_8P:
+            // gPlayerOne is &gPlayers[0] and gControllerOne is &gControllers[0],
+            // so this is the arms above generalised rather than a new policy.
+            // Bounded by the selected count, matching how the quadrant arm gates
+            // its fourth player.
+            for (size_t i = 0; (i < (size_t) gPlayerCountSelection1) && (i < NUM_PLAYERS); i++) {
+                handle_a_press_for_player_during_race(&gPlayers[i], &gControllers[i], i);
             }
             break;
     }
