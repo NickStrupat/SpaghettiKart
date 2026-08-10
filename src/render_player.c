@@ -791,7 +791,7 @@ void func_8002276C(void) {
                     if (gPlayerCountSelection1 >= 3) {
                         func_80022A98(gPlayerThree, 2);
                     }
-                    if (gPlayerCountSelection1 == 4) {
+                    if (gPlayerCountSelection1 >= 4) {
                         func_80022A98(gPlayerFour, 3);
                     }
                     break;
@@ -829,7 +829,7 @@ void func_8002276C(void) {
                 func_80022A98(gPlayerOne, 0);
                 func_80022A98(gPlayerTwo, 1);
                 func_80022A98(gPlayerThree, 2);
-                if (gPlayerCountSelection1 == 4) {
+                if (gPlayerCountSelection1 >= 4) {
                     func_80022A98(gPlayerFour, 3);
                 }
             }

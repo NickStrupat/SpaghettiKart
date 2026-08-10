@@ -4458,7 +4458,7 @@ void handle_a_press_for_all_players_during_race(void) {
             handle_a_press_for_player_during_race(gPlayerOne, gControllerOne, 0);
             handle_a_press_for_player_during_race(gPlayerTwo, gControllerTwo, 1);
             handle_a_press_for_player_during_race(gPlayerThree, gControllerThree, 2);
-            if (gPlayerCountSelection1 == 4) {
+            if (gPlayerCountSelection1 >= 4) {
                 handle_a_press_for_player_during_race(gPlayerFour, gControllerFour, 3);
             }
             break;

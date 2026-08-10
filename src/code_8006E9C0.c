@@ -259,7 +259,12 @@ void func_8006F8CC(void) {
         D_801657F0 = 0;
         D_801657E8 = 1;
         D_80165800[0] = D_80165800[1] = 1;
-        if (gPlayerCount == 4) {
+        // Count dispatch, not a maximum test: this ladder picks a HUD layout per
+        // player count. Widened from == 4 so an eight-player count lands on the
+        // fullest existing arm rather than falling past every branch and leaving
+        // the defaults set above. That is the least wrong option, not a correct
+        // one -- eight views need their own HUD arm.
+        if (gPlayerCount >= 4) {
             if (gModeSelection != 3) {
                 gHUDModes = 1;
                 D_801657F0 = 1;
@@ -891,7 +896,7 @@ void init_hud_three_four_player(void) {
         func_8007055C(gScreenOneCtx);
         func_8007055C(gScreenTwoCtx);
         func_8007055C(gScreenThreeCtx);
-        if (gPlayerCountSelection1 == 4) {
+        if (gPlayerCountSelection1 >= 4) {
             func_8007055C(gScreenFourCtx);
         }
     }
