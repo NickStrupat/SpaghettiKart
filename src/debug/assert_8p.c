@@ -246,6 +246,10 @@ void assert_8p_race_start(void) {
             printf(" [%d]=%d", i, (s32) gPlayers[i].characterId);
         }
         printf("\n");
+        /* stdout is block-buffered when redirected, so closing the window threw
+           this away last run. These fire once per race; flushing costs nothing
+           and means the output survives however the process ends. */
+        fflush(stdout);
     }
 }
 

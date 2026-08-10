@@ -7,6 +7,12 @@
 #include <ultra64.h>
 #endif
 
+/* NUM_PLAYERS sizes the per-screen arrays inside Player below. defines.h has no
+ * includes of its own, so there is no cycle. It was previously only referenced
+ * here by a macro definition, which is expanded at its use sites rather than
+ * here, so nothing had yet required it to actually be in scope. */
+#include <defines.h>
+
 typedef f32 Vec3f[3];
 typedef f32 Vec4f[4];
 
@@ -290,8 +296,22 @@ typedef struct {
     /* 0x0042 */ s16 unk_042;
     /* 0x0044 */ s16 kartProps;
     /* 0x0046 */ u16 unk_046;
-    /* 0x0048 */ Vec4s unk_048;
-    /* 0x0050 */ Vec4s unk_050;
+    /* These are per-SCREEN, not per-anything-else: every site indexes them with
+     * a screenId. They were Vec4s because there were four screens. With eight,
+     * writing index 4 through 7 runs off the end of the field and straight into
+     * the next member of this very struct -- which keeps it inside gPlayers, so
+     * AddressSanitizer cannot see it. It is not a buffer overflow it can catch;
+     * it is one field quietly overwriting another.
+     *
+     * unk_050[4] lands on unk_058, an f32, so a rotation value written as s16
+     * arrives as a garbage float: karts tilting and jumping absurdly high.
+     * See also animGroupSelector below, which landed on characterId.
+     *
+     * NOTE: widening these shifts every offset comment after them. The comments
+     * record the original ROM layout and are kept for cross-referencing the
+     * decompilation, but they no longer describe this struct's real offsets. */
+    /* 0x0048 */ s16 unk_048[NUM_PLAYERS];
+    /* 0x0050 */ s16 unk_050[NUM_PLAYERS];
     /* 0x0058 */ f32 unk_058;
     /* 0x005C */ f32 unk_05C;
     /* 0x0060 */ f32 unk_060;
@@ -327,8 +347,9 @@ typedef struct {
     /* 0x00C6 */ s16 alpha;
     /* 0x00C8 */ s16 unk_0C8;
     /* 0x00CA */ s16 lakituProps;
-    /* 0x00CC */ Vec4s unk_0CC;
-    /* 0x00D4 */ Vec4s unk_0D4;
+    /* Per-screen, same as unk_048 above. */
+    /* 0x00CC */ s16 unk_0CC[NUM_PLAYERS];
+    /* 0x00D4 */ s16 unk_0D4[NUM_PLAYERS];
     /* 0x00DC */ s16 boostTimer;
     /* 0x00DE */ u16 oobProps;
     /* 0x00E0 */ s16 unk_0E0;
@@ -374,8 +395,12 @@ typedef struct {
     /* 0x023A */ s16 unk_23A;
     /* 0x023C */ f32 unk_23C;
     /* 0x0240 */ s32 tyreSpeed;
-    /* 0x0244 */ u16 animFrameSelector[4]; // [0] Active texture group
-    /* 0x024C */ u16 animGroupSelector[4]; // Based on screen
+    /* Per-screen. animGroupSelector[4] used to land exactly on characterId
+     * below, so with five or more screens a player's character changed to
+     * whatever animation group was being written -- DK becoming Peach
+     * mid-race. animFrameSelector[4] landed on animGroupSelector[0]. */
+    /* 0x0244 */ u16 animFrameSelector[NUM_PLAYERS]; // [0] Active texture group
+    /* 0x024C */ u16 animGroupSelector[NUM_PLAYERS]; // Based on screen
     /* 0x0254 */ u16 characterId;
     /* 0x0256 */ u16 unk_256;
     /* 0x0258 */ UnkPlayerStruct258 particlePool0[10];
