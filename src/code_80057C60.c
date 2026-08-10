@@ -1181,6 +1181,11 @@ void func_80059AC8(void) {
                 func_80059A88(PLAYER_THREE);
                 func_80059A88(PLAYER_FOUR);
                 break;
+            case SCREEN_MODE_8P:
+                for (s32 i = PLAYER_ONE; i < NUM_PLAYERS; i++) {
+                    func_80059A88(i);
+                }
+                break;
         }
 
         CM_TickObjects60fps();
@@ -1296,6 +1301,17 @@ void func_80059D00(void) {
                         // func_8007AA44(3);
                     }
                     func_8005D1F4(3);
+                }
+                break;
+            case SCREEN_MODE_8P:
+                // The quadrant arm above, generalised: seed from player one's
+                // controller once, then run the same per-player trio for every
+                // occupied slot up to the selected count.
+                randomize_seed_from_controller(PLAYER_ONE);
+                for (s32 i = PLAYER_ONE; (i < gPlayerCountSelection1) && (i < NUM_PLAYERS); i++) {
+                    func_80059820(i);
+                    func_8005D0FC(i);
+                    func_8005D1F4(i);
                 }
                 break;
         }
@@ -2472,8 +2488,17 @@ void func_8005CB60(s32 playerId, s32 lapCount) {
         }
     } else {
         f32_step_towards(&playerHUD[playerId].rankScaling, 1.0f, 0.125f);
+        /* DEFERRED for eight players: the quadrant arm below slides the rank
+           marker left or right from (playerId & 1), which reads a 2x2 grid's
+           column off the low bit of the player id. A 4x2 grid has four columns,
+           so the column is (playerId & 3) and the marker needs four offsets
+           rather than two. Falls through to no arm meanwhile, leaving the rank
+           marker at its initial position.
+
+           Case labels named while here: this switch used bare integers, so no
+           search for SCREEN_MODE_ would ever have found it. */
         switch (gScreenModeSelection) { /* irregular */
-            case 0:
+            case SCREEN_MODE_1P:
                 s16_step_towards(&playerHUD[playerId].slideRankX, 0x001C, 7);
                 if (D_8018D1FC != 0) {
                     s16_step_towards(&playerHUD[playerId].slideRankY, -0x0028, 1);
@@ -2481,11 +2506,11 @@ void func_8005CB60(s32 playerId, s32 lapCount) {
                     s16_step_towards(&playerHUD[playerId].slideRankY, -0x0010, 4);
                 }
                 break;
-            case 2:
+            case SCREEN_MODE_2P_SPLITSCREEN_VERTICAL:
                 s16_step_towards(&playerHUD[playerId].slideRankX, 0x001C, 7);
                 s16_step_towards(&playerHUD[playerId].slideRankY, -0x0010, 4);
                 break;
-            case 1:
+            case SCREEN_MODE_2P_SPLITSCREEN_HORIZONTAL:
                 s16_step_towards(&playerHUD[playerId].slideRankX, 0x001C, 7);
                 s16_step_towards(&playerHUD[playerId].slideRankY, -0x0010, 4);
                 s16_step_towards(&playerHUD[playerId].lap1CompletionTimeX, 0x00E4, 0x0010);
@@ -2493,7 +2518,7 @@ void func_8005CB60(s32 playerId, s32 lapCount) {
                 s16_step_towards(&playerHUD[playerId].lap3CompletionTimeX, 0x00E4, 0x0010);
                 s16_step_towards(&playerHUD[playerId].totalTimeX, 0x00E4, 0x0010);
                 break;
-            case 3:
+            case SCREEN_MODE_3P_4P_SPLITSCREEN:
                 if ((playerId & 1) == 1) {
                     s16_step_towards(&playerHUD[playerId].slideRankX, -8, 2);
                 } else {
@@ -6362,6 +6387,10 @@ void func_8006CEC0(Player* player, s16 arg1, s8 arg2, s8 arg3) {
             case SCREEN_MODE_2P_SPLITSCREEN_HORIZONTAL:
             case SCREEN_MODE_2P_SPLITSCREEN_VERTICAL:
             case SCREEN_MODE_3P_4P_SPLITSCREEN:
+            case SCREEN_MODE_8P:
+                // Needed despite the default arm above, not because of it: that
+                // default breaks without drawing, so an eighth-screen mode would
+                // silently skip this effect while every other split mode draws it.
                 if (((player->type & PLAYER_HUMAN) != 0) && ((player->effects & 0x04000000) != 0x04000000) &&
                     ((player->effects & 0x400) != 0x400) && ((player->effects & 0x01000000) != 0x01000000)) {
                     if (((player->lakituProps & HELD_BY_LAKITU) != HELD_BY_LAKITU) && ((player->lakituProps & FRIGID_EFFECT) != FRIGID_EFFECT) && !(player->lakituProps & WENT_OVER_OOB)) {
@@ -6709,6 +6738,14 @@ void func_8006E058(void) {
                 }
             }
 
+            break;
+        case SCREEN_MODE_8P:
+            // Unlike the quadrant arm this is not gated on Versus or Battle:
+            // Grand Prix is the mode eight players are for, and the 1P arm above
+            // already calls this for all eight slots in Grand Prix.
+            for (s32 i = PLAYER_ONE; (i < gPlayerCountSelection1) && (i < NUM_PLAYERS); i++) {
+                func_8006E420(&gPlayers[i], i, 0);
+            }
             break;
     }
 }
