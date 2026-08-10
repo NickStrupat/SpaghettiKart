@@ -263,8 +263,18 @@ struct UnkPlayerInner {
 
 typedef struct {
     /* 0x0000 */ u16 type; // playerType?
-    /* 0x0002 */ u16 unk_002;
-    /* 0x0004 */ s16 currentRank;
+    /* Four bits per screen, addressed as flag << (screenId * 4), so its width is
+       the screen count times four. At u16 that was exactly four screens: a fifth
+       shifts past the top of the field and its bits are discarded silently. Those
+       bits gate whether a kart is drawn at all -- render_player and
+       try_rendering_player both test them -- so the effect is an entire row of
+       viewports rendering nothing, with no error anywhere.
+
+       Widening moves every field after it by two bytes. Nothing does raw offset
+       arithmetic on Player, and this is a port rather than a matching decomp, so
+       the layout is ours to change. */
+    /* 0x0002 */ u32 unk_002;
+    /*        */ s16 currentRank;
     /* 0x0006 */ u16 unk_006;
     /* 0x0008 */ s16 lapCount;
     /* 0x000A */ char unk_00A[0x2];
