@@ -125,6 +125,8 @@ extern struct Controller* gControllerOne;
 extern struct Controller* gControllerTwo;
 extern struct Controller* gControllerThree;
 extern struct Controller* gControllerFour;
+extern struct Controller gCombinedControllers;
+extern struct Controller* gControllerAny; /* OR of all physical controllers; NOT player five */
 extern struct Controller* gControllerFive;
 extern struct Controller* gControllerSix;
 extern struct Controller* gControllerSeven;

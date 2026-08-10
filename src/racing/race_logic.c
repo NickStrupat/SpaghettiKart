@@ -672,8 +672,8 @@ void func_8028F474(void) {
 
 void func_8028F4E8(void) {
     if (gEnableDebugMode) {
-        if (((gControllerFive->button & R_TRIG) != 0) && ((gControllerFive->button & L_TRIG) != 0) &&
-            ((gControllerFive->button & A_BUTTON) != 0) && ((gControllerFive->button & B_BUTTON) != 0)) {
+        if (((gControllerAny->button & R_TRIG) != 0) && ((gControllerAny->button & L_TRIG) != 0) &&
+            ((gControllerAny->button & A_BUTTON) != 0) && ((gControllerAny->button & B_BUTTON) != 0)) {
 
             func_800CA330(0x19);
             func_800CA388(0x19);
@@ -921,7 +921,7 @@ void func_8028FC34(void) {
         return;
     }
     D_802BA038--;
-    if (gControllerFive->buttonPressed != 0) {
+    if (gControllerAny->buttonPressed != 0) {
         func_8028FBD4();
         gMenuSelection = START_MENU;
         return;
@@ -1012,7 +1012,7 @@ void func_8028FCBC(void) {
             if (gDemoMode) {
                 start_race();
             }
-            if ((gEnableDebugMode) && (gControllerFive->buttonPressed & Z_TRIG)) {
+            if ((gEnableDebugMode) && (gControllerAny->buttonPressed & Z_TRIG)) {
                 start_race();
             }
             func_8028F4E8();

@@ -228,6 +228,25 @@ void assert_8p_race_start(void) {
            "gPlayerCount %d, per-player passes cover %d slots.\n",
            occupied, humans, occupied - humans, gActiveScreenMode, (s32) screen_mode_class(gActiveScreenMode),
            (s32) gPlayerCount, racers_to_process(gActiveScreenMode));
+
+    /* Every kart rendering as the same character means characterId is uniform,
+       but spawn reads gCharacterSelections[i] and that is the only write to a
+       player's characterId. Print both sides so it is clear whether the menu
+       failed to vary the selections or the spawn failed to apply them, rather
+       than inferring it from what the karts look like. */
+    {
+        s32 i;
+
+        printf("[8P-ASSERT] gCharacterSelections:");
+        for (i = 0; i < NUM_PLAYERS; i++) {
+            printf(" [%d]=%d", i, (s32) gCharacterSelections[i]);
+        }
+        printf("\n[8P-ASSERT] spawned characterId:");
+        for (i = 0; i < NUM_PLAYERS; i++) {
+            printf(" [%d]=%d", i, (s32) gPlayers[i].characterId);
+        }
+        printf("\n");
+    }
 }
 
 void assert_8p_frame(void) {

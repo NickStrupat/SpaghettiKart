@@ -74,7 +74,19 @@ struct Controller* gControllerOne = &gControllers[0];
 struct Controller* gControllerTwo = &gControllers[1];
 struct Controller* gControllerThree = &gControllers[2];
 struct Controller* gControllerFour = &gControllers[3];
-struct Controller* gControllerFive = &gControllers[4]; // All physical controllers combined.`
+/* The bitwise OR of every physical controller, used by menu code that means
+ * "any player pressed this" rather than "player N pressed this".
+ *
+ * This USED to live in gControllers[4], one slot past the four players, and
+ * read_controllers() overwrote it every frame. With eight players that slot is
+ * player five's controller, so player five mirrored whatever players one
+ * through four did -- pressing A on controller one made two karts jump.
+ *
+ * It now has storage of its own. gControllerAny is the name for the aggregate;
+ * gControllerFive means player five, like every other gControllerN. */
+struct Controller gCombinedControllers;
+struct Controller* gControllerAny = &gCombinedControllers;
+struct Controller* gControllerFive = &gControllers[4];
 struct Controller* gControllerSix = &gControllers[5];
 struct Controller* gControllerSeven = &gControllers[6];
 struct Controller* gControllerEight = &gControllers[7];
@@ -422,24 +434,24 @@ void update_controller(s32 index) {
 }
 
 /**
- * Updates controller five, which holds the combined state of controllers one to four.
+ * Updates gControllerAny, which holds the combined state of controllers one to four.
  */
 void combine_controllers(void) {
-    gControllerFive->button = (s16) (((gControllerOne->button | gControllerTwo->button) | gControllerThree->button) |
+    gControllerAny->button = (s16) (((gControllerOne->button | gControllerTwo->button) | gControllerThree->button) |
                                      gControllerFour->button);
-    gControllerFive->buttonPressed =
+    gControllerAny->buttonPressed =
         (s16) (((gControllerOne->buttonPressed | gControllerTwo->buttonPressed) | gControllerThree->buttonPressed) |
                gControllerFour->buttonPressed);
-    gControllerFive->buttonDepressed = (s16) (((gControllerOne->buttonDepressed | gControllerTwo->buttonDepressed) |
+    gControllerAny->buttonDepressed = (s16) (((gControllerOne->buttonDepressed | gControllerTwo->buttonDepressed) |
                                                gControllerThree->buttonDepressed) |
                                               gControllerFour->buttonDepressed);
-    gControllerFive->stickDirection =
+    gControllerAny->stickDirection =
         (s16) (((gControllerOne->stickDirection | gControllerTwo->stickDirection) | gControllerThree->stickDirection) |
                gControllerFour->stickDirection);
-    gControllerFive->stickPressed =
+    gControllerAny->stickPressed =
         (s16) (((gControllerOne->stickPressed | gControllerTwo->stickPressed) | gControllerThree->stickPressed) |
                gControllerFour->stickPressed);
-    gControllerFive->stickDepressed =
+    gControllerAny->stickDepressed =
         (s16) (((gControllerOne->stickDepressed | gControllerTwo->stickDepressed) | gControllerThree->stickDepressed) |
                gControllerFour->stickDepressed);
 }

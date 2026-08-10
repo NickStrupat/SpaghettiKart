@@ -77,12 +77,12 @@ void UpdateMenuController() {
         combine_controllers();
         return;
     }
-    gControllerFive->button = gControllerOne->button;
-    gControllerFive->buttonPressed = gControllerOne->buttonPressed;
-    gControllerFive->buttonDepressed = gControllerOne->buttonDepressed;
-    gControllerFive->stickDirection = gControllerOne->stickDirection;
-    gControllerFive->stickPressed = gControllerOne->stickPressed;
-    gControllerFive->stickDepressed = gControllerOne->stickDepressed;
+    gControllerAny->button = gControllerOne->button;
+    gControllerAny->buttonPressed = gControllerOne->buttonPressed;
+    gControllerAny->buttonDepressed = gControllerOne->buttonDepressed;
+    gControllerAny->stickDirection = gControllerOne->stickDirection;
+    gControllerAny->stickPressed = gControllerOne->stickPressed;
+    gControllerAny->stickDepressed = gControllerOne->stickDepressed;
 }
 
 // The section names must match SimSection.h. C files' globals come first: SimState_RestoreBaseline() restores only
