@@ -295,16 +295,36 @@ void func_802A4300(void) {
             gDPFillWideRectangle(gDisplayListHead++, OTRGetRectDimensionFromLeftEdge(0), 119,
                                  OTRGetGameRenderWidth(), 121);
             break;
-        case SCREEN_MODE_8P:
-            // Three verticals at the 80/160/240 column boundaries, following the
-            // convention above of filling the three pixels left of the boundary.
-            // Only one horizontal is needed: the 4x2 grid has a single row split.
-            gDPFillRectangle(gDisplayListHead++, 77, 0, 79, 239);
-            gDPFillRectangle(gDisplayListHead++, 157, 0, 159, 239);
-            gDPFillRectangle(gDisplayListHead++, 237, 0, 239, 239);
+        case SCREEN_MODE_8P: {
+            /* Three verticals at the quarter boundaries, following the convention
+             * above of filling the three units left of each boundary. Only one
+             * horizontal is needed: the 4x2 grid has a single row split.
+             *
+             * The boundaries CANNOT be the fixed 80/160/240 of the 320-wide
+             * layout. Widescreen widens the rendered area about the centre, so in
+             * 320-space the window spans OTRGetDimensionFromLeftEdge(0) to
+             * OTRGetDimensionFromRightEdge(SCREEN_WIDTH) -- that is 160-120*aspect
+             * to 160+120*aspect -- and a quarter boundary sits at 160-60*aspect,
+             * not at 80.
+             *
+             * The centre boundary works out to exactly 160 whatever the aspect,
+             * which is why the 2P vertical and 3P/4P dividers above get away with
+             * a literal and why this only became visible with a four-column grid:
+             * the middle divider tracked the window while the outer two stayed
+             * put, so they bunched toward the centre as the window widened. */
+            f32 leftEdge = OTRGetDimensionFromLeftEdge(0);
+            f32 span = OTRGetDimensionFromRightEdge(SCREEN_WIDTH) - leftEdge;
+            s32 column;
+
+            for (column = 1; column < 4; column++) {
+                s32 boundary = (s32) (leftEdge + ((span * column) / 4.0f));
+
+                gDPFillWideRectangle(gDisplayListHead++, boundary - 3, 0, boundary - 1, SCREEN_HEIGHT - 1);
+            }
             gDPFillWideRectangle(gDisplayListHead++, OTRGetRectDimensionFromLeftEdge(0), 119,
                                  OTRGetGameRenderWidth(), 121);
             break;
+        }
     }
     gDPPipeSync(gDisplayListHead++);
     gDPSetCycleType(gDisplayListHead++, G_CYC_1CYCLE);
