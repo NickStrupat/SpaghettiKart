@@ -579,18 +579,25 @@ void func_800C2274(u8 player) {
 
     var_a2 = 0xF;
     if (gSequencePlayers[player].enabled != 0) {
+        // Labels were bare integers, so no SCREEN_MODE_ search would find
+        // this. Named while adding the eighth-screen arm.
         switch (gScreenModeSelection) { /* irregular */
-            case 0:
+            case SCREEN_MODE_1P:
                 break;
-            case 1:
+            case SCREEN_MODE_2P_SPLITSCREEN_HORIZONTAL:
                 var_a2 = 0xE;
                 break;
-            case 3:
+            case SCREEN_MODE_3P_4P_SPLITSCREEN:
                 if (gPlayerCountSelection1 == 3) {
                     var_a2 = 0xD;
                 } else {
                     var_a2 = 0xC;
                 }
+                break;
+            case SCREEN_MODE_8P:
+                // Four-or-more channel assignment, as the quadrant arm gives
+                // any count above three.
+                var_a2 = 0xC;
                 break;
         }
         temp_s0 = gSequencePlayers[player].channels[var_a2]->soundScriptIO[0];

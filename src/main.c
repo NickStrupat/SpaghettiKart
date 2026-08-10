@@ -867,6 +867,27 @@ void race_render_frame(void) {
                 render_screens(gScreenFourCtx, RENDER_SCREEN_MODE_3P_4P_PLAYER_FOUR, 11, 3);
             }
             break;
+        case SCREEN_MODE_8P:
+            /* The arms above spell out one ordering per winner because four
+               players give four permutations; eight would give eight, so this
+               expresses the rule they encode instead. The winner's viewport is
+               drawn last so it lands on top when it expands to take over the
+               screen -- everyone else first, in order.
+
+               gPlayerWinningIndex is -1 or out of range until someone wins, in
+               which case no screen is special and plain order is correct. */
+            for (s32 i = PLAYER_ONE; i < NUM_PLAYERS; i++) {
+                if (i == gPlayerWinningIndex) {
+                    continue;
+                }
+                render_screens(&gScreenContexts[i], RENDER_SCREEN_MODE_8P_PLAYER_ONE + i, 12 + i, i);
+            }
+            if ((gPlayerWinningIndex >= PLAYER_ONE) && (gPlayerWinningIndex < NUM_PLAYERS)) {
+                render_screens(&gScreenContexts[gPlayerWinningIndex],
+                               RENDER_SCREEN_MODE_8P_PLAYER_ONE + gPlayerWinningIndex, 12 + gPlayerWinningIndex,
+                               gPlayerWinningIndex);
+            }
+            break;
     }
 
     display_debug_info();

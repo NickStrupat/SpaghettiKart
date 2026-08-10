@@ -834,6 +834,14 @@ void func_8002276C(void) {
                 }
             }
             break;
+        case SCREEN_MODE_8P:
+            // Not gated on Versus or Battle: the full-screen arm above already
+            // calls this for all eight slots in Grand Prix, which is the mode
+            // eight players exist for.
+            for (s32 i = PLAYER_ONE; (i < gPlayerCountSelection1) && (i < NUM_PLAYERS); i++) {
+                func_80022A98(&gPlayers[i], i);
+            }
+            break;
     }
 }
 

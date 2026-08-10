@@ -21,6 +21,9 @@ extern "C" {
 #define RENDER_SCREEN_MODE_3P_4P_PLAYER_TWO PLAYER_TWO + SCREEN_MODE_3P_4P_SPLITSCREEN + 5
 #define RENDER_SCREEN_MODE_3P_4P_PLAYER_THREE PLAYER_THREE + SCREEN_MODE_3P_4P_SPLITSCREEN + 5
 #define RENDER_SCREEN_MODE_3P_4P_PLAYER_FOUR PLAYER_FOUR + SCREEN_MODE_3P_4P_SPLITSCREEN + 5
+/* Continues the numbering above: the quadrant arm occupies 8-11, so the
+   eight-screen ids run 12-19, one per player. */
+#define RENDER_SCREEN_MODE_8P_PLAYER_ONE (PLAYER_ONE + SCREEN_MODE_8P + 8)
 
 typedef struct {
     char unk_00[0x4];

@@ -55,6 +55,15 @@ void init_hud(void) {
         case SCREEN_MODE_3P_4P_SPLITSCREEN:
             init_hud_three_four_player();
             break;
+        case SCREEN_MODE_8P:
+            // PLACEHOLDER: there is no init_hud_eight_player(). Without any arm
+            // the HUD would be left uninitialised entirely, which is worse than
+            // wrong, so this borrows the quadrant layout to keep the HUD present
+            // while the eight-view layout is written. It positions for a 2x2
+            // grid, so expect markers in the wrong cells until then -- the same
+            // column-awareness job the rank slide and item box are waiting on.
+            init_hud_three_four_player();
+            break;
     }
     func_80070148();
 }

@@ -620,6 +620,10 @@ void func_80041D34(void) {
             }
             break;
         case SCREEN_MODE_3P_4P_SPLITSCREEN:
+        case SCREEN_MODE_8P:
+            // Note this is the full 320x240 basis, not the cell size -- the
+            // quadrant arm does the same, so HUD coordinates stay in screen
+            // space and the viewport transform does the rest.
             guOrtho(GetOrthoMatrix(), 0.0f, 320.0f, 240.0f, 0.0f, -1.0f, 1.0f, 1.0f);
             break;
     }

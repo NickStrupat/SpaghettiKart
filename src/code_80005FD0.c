@@ -643,9 +643,12 @@ s32 set_vehicle_render_distance_flags(Vec3f vehiclePos, f32 renderDistance, s32 
             numScreens = 2;
             break;
         case SCREEN_MODE_3P_4P_SPLITSCREEN:
+        case SCREEN_MODE_8P:
             numScreens = gPlayerCount;
             break;
         default:
+            // Reached only by an unrecognised mode. One screen is the safe
+            // floor; a mode that wants more should have a case above.
             numScreens = 1;
             break;
     }

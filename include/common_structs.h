@@ -539,6 +539,8 @@ typedef struct {
     /* 0x83 */ s8 unk_83;
 } hud_player; // size = 0x84
 
-#define HUD_PLAYERS_SIZE 4
+/* Bounds the loops and the memset that clear playerHUD, so it must match
+ * that array's extent or the tail entries are never initialised. */
+#define HUD_PLAYERS_SIZE NUM_PLAYERS
 
 #endif

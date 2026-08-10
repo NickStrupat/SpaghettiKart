@@ -335,7 +335,11 @@ s32 gObjectParticle4[gObjectParticle4_SIZE];
  * trees when you bonk into them
  */
 s32 gLeafParticle[gLeafParticle_SIZE];
-hud_player playerHUD[4];
+/* One entry per racer, indexed by playerId and cameraId throughout. Was a
+   literal 4 rather than HUD_PLAYERS_SIZE, and the sweep in 3617362 missed
+   it because that search enumerated primitive types and hud_player is not
+   one -- the fourth distinct shape this class of bug has taken. */
+hud_player playerHUD[NUM_PLAYERS];
 /**
  * List of object list indices used by the clouds and stars in some stages
  * Also used for snowflakes like gObjectParticle1? Not sure what's up with that
