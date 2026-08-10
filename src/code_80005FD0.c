@@ -6623,19 +6623,58 @@ void func_80019B50(s32 cameraIndex, u16 arg1) {
     D_801646C0[cameraIndex] = (s16) var_v0;
 }
 
+/* Which player owns a camera, or -1 for the cameras that belong to nobody.
+ *
+ * A camera id and a player id used to be the same number, so the two were
+ * used interchangeably throughout this file. They are not the same thing:
+ * spawn_multiplayer_cameras() creates TWO cameras per screen (the race camera
+ * and its look-behind counterpart), and spawn_players_and_cameras() adds a
+ * freecam and a tour camera on top. So camera ids run to NUM_CAMERAS (20)
+ * while player ids stop at NUM_PLAYERS (8), and every place that fed a camera
+ * id to something expecting a player id now reads past the end of an array.
+ *
+ * That is what AddressSanitizer caught here: func_80019FB4 indexing
+ * gControllers, which is NUM_PLAYERS long, with a camera id.
+ *
+ * The identity held by accident for four players because the code only ever
+ * reached the first few cameras. It does not hold for eight. */
+static s32 camera_owner_player(s32 cameraId) {
+    s16 playerId;
+
+    if ((cameraId < 0) || (cameraId >= NUM_CAMERAS)) {
+        return -1;
+    }
+
+    playerId = cameras[cameraId].playerId;
+    if ((playerId < 0) || (playerId >= NUM_PLAYERS)) {
+        return -1;
+    }
+
+    return playerId;
+}
+
 void func_80019C50(s32 arg0) {
+    /* arg0 is a camera id. The counters below are camera-indexed and stay
+     * that way; only the sound call needs the owning player, because
+     * func_800C9060 indexes D_800EA0EC and D_800E9F7C by player. */
+    s32 playerId = camera_owner_player(arg0);
+
     switch (D_80164678[arg0]) {
         case 0:
             if (D_80164608[arg0] == 1) {
                 D_80164678[arg0] = 1;
-                func_800C9060(arg0, SOUND_ARG_LOAD(0x19, 0x00, 0x90, 0x4F));
+                if (playerId >= 0) {
+                    func_800C9060(playerId, SOUND_ARG_LOAD(0x19, 0x00, 0x90, 0x4F));
+                }
                 D_80164670[arg0] = D_80164678[arg0];
             }
             break;
         case 1:
             if (D_80164608[arg0] == 1) {
                 D_80164678[arg0] = 0;
-                func_800C9060(arg0, SOUND_ARG_LOAD(0x19, 0x00, 0x90, 0x50));
+                if (playerId >= 0) {
+                    func_800C9060(playerId, SOUND_ARG_LOAD(0x19, 0x00, 0x90, 0x50));
+                }
                 D_80164670[arg0] = D_80164678[arg0];
             }
             break;
@@ -6644,19 +6683,27 @@ void func_80019C50(s32 arg0) {
 
 void look_behind_toggle(s32 cameraIdx) {
     static bool lookBehindActive[NUM_CAMERAS] = {0};
-    bool pressed = gControllers[cameraIdx].button & L_CBUTTONS; // button held
+    /* playerId, not cameraIdx: gControllers is NUM_PLAYERS long while camera
+     * ids run to NUM_CAMERAS. Same mismatch as func_80019FB4, and the bounds
+     * check that used to sit below is now folded into the helper, which also
+     * replaces a hardcoded 4 that silently disabled look-behind for players
+     * five through eight. */
+    s32 playerId = camera_owner_player(cameraIdx);
+    bool pressed;
     ScreenContext* screenCtx = NULL;
 
     if (CVarGetInteger("gLookBehind", false) == false) {
         return;
     }
 
-    if (cameras[cameraIdx].playerId < 0 || cameras[cameraIdx].playerId >= 4) {
+    if (playerId < 0) {
         return;
     }
 
+    pressed = gControllers[playerId].button & L_CBUTTONS; // button held
+
     // Get the screen context
-    screenCtx = &gScreenContexts[cameras[cameraIdx].playerId];
+    screenCtx = &gScreenContexts[playerId];
 
     if (gRaceState == RACE_IN_PROGRESS) {
         // Flip the camera
@@ -6738,25 +6785,34 @@ void func_80019ED0(void) {
 }
 
 void func_80019FB4(s32 cameraId) {
-    struct Controller* controller;
+    /* Was &gControllerOne[cameraId], which indexes gControllers -- NUM_PLAYERS
+     * long -- with a camera id that runs to NUM_CAMERAS. AddressSanitizer
+     * caught the 2-byte read of buttonPressed past the end of the array.
+     * See camera_owner_player() for why the two indices diverged.
+     *
+     * Cameras with no owning player (the freecam and the tour camera) read as
+     * no-buttons-held rather than returning early, so the hold counters below
+     * still get reset instead of freezing at whatever they last held. The
+     * counters stay camera-indexed; only the input source is per player. */
+    s32 playerId = camera_owner_player(cameraId);
+    u16 buttonPressed = (playerId >= 0) ? gControllers[playerId].buttonPressed : 0;
 
-    controller = &gControllerOne[cameraId];
-    if (controller->buttonPressed & 2) {
+    if (buttonPressed & 2) {
         D_801645D0[cameraId] += 1;
     } else {
         D_801645D0[cameraId] = 0;
     }
-    if (controller->buttonPressed & 4) {
+    if (buttonPressed & 4) {
         D_801645E8[cameraId] += 1;
     } else {
         D_801645E8[cameraId] = 0;
     }
-    if (controller->buttonPressed & 8) {
+    if (buttonPressed & 8) {
         D_80164608[cameraId] += 1;
     } else {
         D_80164608[cameraId] = 0;
     }
-    if (controller->buttonPressed & 1) {
+    if (buttonPressed & 1) {
         D_80164628[cameraId] += 1;
     } else {
         D_80164628[cameraId] = 0;
