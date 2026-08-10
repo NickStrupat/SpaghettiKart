@@ -295,6 +295,16 @@ void func_802A4300(void) {
             gDPFillWideRectangle(gDisplayListHead++, OTRGetRectDimensionFromLeftEdge(0), 119,
                                  OTRGetGameRenderWidth(), 121);
             break;
+        case SCREEN_MODE_8P:
+            // Three verticals at the 80/160/240 column boundaries, following the
+            // convention above of filling the three pixels left of the boundary.
+            // Only one horizontal is needed: the 4x2 grid has a single row split.
+            gDPFillRectangle(gDisplayListHead++, 77, 0, 79, 239);
+            gDPFillRectangle(gDisplayListHead++, 157, 0, 159, 239);
+            gDPFillRectangle(gDisplayListHead++, 237, 0, 239, 239);
+            gDPFillWideRectangle(gDisplayListHead++, OTRGetRectDimensionFromLeftEdge(0), 119,
+                                 OTRGetGameRenderWidth(), 121);
+            break;
     }
     gDPPipeSync(gDisplayListHead++);
     gDPSetCycleType(gDisplayListHead++, G_CYC_1CYCLE);
@@ -496,6 +506,11 @@ void func_802A4D18(void) {
         case SCREEN_MODE_3P_4P_SPLITSCREEN: /* switch 1 */
             gScreenAspect = 1.33333334f;
             return;
+        case SCREEN_MODE_8P:
+            /* 80x120 cell in the 4x2 grid. Same ratio as the vertical two-player
+               split, which is also 80 wide per eye of the 320 space. */
+            gScreenAspect = 0.66666667f;
+            return;
     }
 }
 
@@ -519,6 +534,16 @@ void func_802A4EF4(void) {
             func_8001F394(gPlayerThree);
             func_8001F394(gPlayerFour);
             break;
+        case SCREEN_MODE_8P:
+            func_8001F394(gPlayerOne);
+            func_8001F394(gPlayerTwo);
+            func_8001F394(gPlayerThree);
+            func_8001F394(gPlayerFour);
+            func_8001F394(gPlayerFive);
+            func_8001F394(gPlayerSix);
+            func_8001F394(gPlayerSeven);
+            func_8001F394(gPlayerEight);
+            break;
     }
 }
 
@@ -538,6 +563,10 @@ void race_begin_viewport(ScreenContext* screen) {
     switch(gActiveScreenMode) {
         case SCREEN_MODE_2P_SPLITSCREEN_HORIZONTAL:
         case SCREEN_MODE_3P_4P_SPLITSCREEN:
+        case SCREEN_MODE_8P:
+            // Eight viewports share one depth buffer, so each must clear only
+            // its own region before drawing -- same reasoning as the quadrant
+            // mode, more so with eight tenants instead of four.
             func_802A39E0(screen); // Clear z-buffer only for this screen
             break;
     }
@@ -725,6 +754,23 @@ void render_screens(ScreenContext* screen, s32 mode, s32 someId, s32 playerId) {
 }
 
 // Makes the screen small at the start of a race
+/**
+ * Viewport centres for the eighth-screen mode: a 4x2 grid over the 320x240
+ * space, four columns of 80 and two rows of 120. Players 1-4 occupy the top
+ * row left to right, 5-8 the bottom.
+ *
+ * These are centres rather than corners, matching the convention of every other
+ * arm in set_screen() -- 1P sits at (160,120), the middle of the screen, and the
+ * quadrant arm uses (80,60) through (240,180).
+ *
+ * Each cell is 80x120, which is portrait in the internal 4:3 space and close to
+ * square once the port stretches to a widescreen display. A 2x4 grid would give
+ * 160x60 letterbox slots instead; neither is the original aspect, and this one
+ * keeps more vertical view, which matters more for seeing the track ahead.
+ */
+static const s16 sScreen8pCentreX[NUM_PLAYERS] = { 40, 120, 200, 280, 40, 120, 200, 280 };
+static const s16 sScreen8pCentreY[NUM_PLAYERS] = { 60, 60, 60, 60, 180, 180, 180, 180 };
+
 void set_screen(void) {
     ScreenContext* wrapper = &gScreenContexts[0];
     Player* player = &gPlayers[0];
@@ -734,8 +780,12 @@ void set_screen(void) {
     // struct? size = 0x10. unk++ doesn't work cause s32 too small.
     s32* unk = &D_8015F790[0];
     s32 i;
+    /* Every existing mode initialises exactly four contexts regardless of how
+       many it actually displays, so this stays 4 for them and behaviour is
+       unchanged. Only the eighth-screen mode walks the full array. */
+    s32 screenCount = (gActiveScreenMode == SCREEN_MODE_8P) ? NUM_PLAYERS : 4;
 
-    for (i = 0; i < 4; i++) {
+    for (i = 0; i < screenCount; i++) {
         wrapper->controllers = controller;
 //        wrapper->camera = &cameras[i]; // Done in spawn_players now
         wrapper->player = player;
@@ -790,6 +840,10 @@ void set_screen(void) {
                     wrapper->screenStartX = 240;
                     wrapper->screenStartY = 180;
                 }
+                break;
+            case SCREEN_MODE_8P:
+                wrapper->screenStartX = sScreen8pCentreX[i];
+                wrapper->screenStartY = sScreen8pCentreY[i];
                 break;
         }
         player++;
