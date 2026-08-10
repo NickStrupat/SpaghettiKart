@@ -20,6 +20,7 @@ extern "C" {
 #include "code_8006E9C0.h"
 #include "code_80057C60.h"
 #include "defines.h"
+#include "screen_class.h"
 #include "racing/math_util.h"
 #include "audio/external.h"
 #include "code_80005FD0.h"
@@ -265,7 +266,7 @@ void WarioStadium::Draw(ScreenContext* arg0) {
 
     D_800DC5DC = 88;
     D_800DC5E0 = 72;
-    if (gActiveScreenMode == SCREEN_MODE_1P) {
+    if (screen_mode_class(gActiveScreenMode) == SCREEN_CLASS_FULL) {
         prevFrame = (s16) sRenderedFramebuffer - 1;
         if (prevFrame < 0) {
             prevFrame = 2;

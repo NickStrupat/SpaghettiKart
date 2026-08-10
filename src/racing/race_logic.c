@@ -4,6 +4,7 @@
 #include <mk64.h>
 #include <common_structs.h>
 #include <defines.h>
+#include <screen_class.h>
 #include <sounds.h>
 #include "engine/TrackBrowser.h"
 #include "camera.h"
@@ -802,7 +803,7 @@ void func_8028F970(void) {
             continue;
         }
 
-        if (gActiveScreenMode != SCREEN_MODE_3P_4P_SPLITSCREEN) {
+        if (screen_mode_class(gActiveScreenMode) < SCREEN_CLASS_QUARTER) {
             if ((controller->buttonPressed & L_TRIG) && !(controller->button & R_TRIG)) {
                 controller->buttonPressed &= 0xFFDF;
 

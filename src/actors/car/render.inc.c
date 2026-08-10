@@ -1,6 +1,7 @@
 #include <racing/actors.h>
 #include <main.h>
 #include <defines.h>
+#include <screen_class.h>
 #include <assets/models/tracks/toads_turnpike/toads_turnpike_offsets.h>
 
 /**
@@ -33,7 +34,7 @@ void render_actor_car(Camera* camera, struct Actor* arg1) {
         mtxf_scale(spC8, 0.1f);
         if (render_set_position(spC8, 0) != 0) {
 
-            if (gActiveScreenMode == SCREEN_MODE_1P) {
+            if (screen_mode_class(gActiveScreenMode) == SCREEN_CLASS_FULL) {
                 if (temp_f0 < 160000.0f) {
                     gSPDisplayList(gDisplayListHead++, toads_turnpike_dl_9);
                 } else if (temp_f0 < 640000.0f) {

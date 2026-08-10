@@ -2,6 +2,7 @@
 #include <libultra/gbi.h>
 #include <main.h>
 #include <defines.h>
+#include <screen_class.h>
 
 /**
  * @brief Renders the school bus actor.
@@ -38,7 +39,7 @@ void render_actor_school_bus(Camera* camera, struct Actor* arg1) {
     mtxf_pos_rotation_xyz(spC8, arg1->pos, arg1->rot);
     if (render_set_position(spC8, 0) != 0) {
 
-        if (gActiveScreenMode == SCREEN_MODE_1P) {
+        if (screen_mode_class(gActiveScreenMode) == SCREEN_CLASS_FULL) {
             if (temp_f0 < 160000.0f) {
                 gSPDisplayList(gDisplayListHead++, &toads_turnpike_dl_3);
             } else if (temp_f0 < 640000.0f) {

@@ -20,6 +20,7 @@ extern "C" {
     #include "code_8006E9C0.h"
     #include "code_80057C60.h"
     #include "defines.h"
+    #include "screen_class.h"
     #include "racing/math_util.h"
     #include "audio/external.h"
     #include "code_80005FD0.h"
@@ -137,7 +138,7 @@ void MarioRaceway::Load() {
     generate_collision_mesh_with_defaults((Gfx*) d_course_mario_raceway_packed_dl_1140);
     
     // Generate pipe collision mesh
-    if (gScreenModeSelection == SCREEN_MODE_1P) {
+    if (screen_mode_class(gScreenModeSelection) == SCREEN_CLASS_FULL) {
         // d_course_mario_raceway_packed_dl_8E8
         generate_collision_mesh_with_defaults((Gfx*) d_course_mario_raceway_packed_dl_8E8);
     } else {
@@ -239,7 +240,7 @@ void MarioRaceway::SetStaffGhost() {
 }
 
 void render_mario_raceway_pipe(void) {
-    if (gScreenModeSelection == SCREEN_MODE_1P) {
+    if (screen_mode_class(gScreenModeSelection) == SCREEN_CLASS_FULL) {
         // d_course_mario_raceway_packed_dl_8E8
         gSPDisplayList(gDisplayListHead++, (Gfx*) d_course_mario_raceway_packed_dl_8E8);
     } else {

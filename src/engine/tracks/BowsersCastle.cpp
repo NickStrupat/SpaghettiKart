@@ -22,6 +22,7 @@ extern "C" {
     #include "code_8006E9C0.h"
     #include "code_80057C60.h"
     #include "defines.h"
+    #include "screen_class.h"
     #include "racing/math_util.h"
     #include "audio/external.h"
     #include "code_80005FD0.h"
@@ -306,7 +307,7 @@ void BowsersCastle::Waypoints(Player* player, int8_t playerId) {
 
 void BowsersCastle::DrawTransparency(ScreenContext* screen, uint16_t pathCounter, uint16_t cameraRot,
                               uint16_t playerDirection) {
-    if (gActiveScreenMode != SCREEN_MODE_1P) {
+    if (screen_mode_class(gActiveScreenMode) != SCREEN_CLASS_FULL) {
         return;
     }
     if (pathCounter < 6) {

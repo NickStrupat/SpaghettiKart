@@ -23,6 +23,7 @@ extern "C" {
 #include "render_objects.h"
 #include "code_80057C60.h"
 #include "defines.h"
+#include "screen_class.h"
 #include "code_80005FD0.h"
 #include "math_util_2.h"
 #include "racing/collision.h"
@@ -274,7 +275,7 @@ void OThwomp::func_80080A4C(s32 objectIndex, s32 cameraPlayerId) {
     Camera* camera = &camera1[cameraPlayerId];
     Player* player = &gPlayerOne[cameraPlayerId];
 
-    if (gScreenModeSelection != SCREEN_MODE_3P_4P_SPLITSCREEN) {
+    if (screen_mode_class(gScreenModeSelection) < SCREEN_CLASS_QUARTER) {
         if ((func_80072320(objectIndex, 0x00000010) != 0) &&
             (is_within_horizontal_distance_of_player(objectIndex, player, 500.0f) != false)) {
             func_8001CA10(camera);

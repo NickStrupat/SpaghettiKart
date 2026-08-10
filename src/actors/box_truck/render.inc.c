@@ -2,6 +2,7 @@
 #include <libultra/gbi.h>
 #include <main.h>
 #include <defines.h>
+#include <screen_class.h>
 #include <assets/models/tracks/toads_turnpike/toads_turnpike_offsets.h>
 #include <assets/models/tracks/toads_turnpike/toads_turnpike_data.h>
 
@@ -48,7 +49,7 @@ void render_actor_box_truck(Camera* camera, struct Actor* arg1) {
                 break;
         }
 
-        if (gActiveScreenMode == SCREEN_MODE_1P) {
+        if (screen_mode_class(gActiveScreenMode) == SCREEN_CLASS_FULL) {
             if (temp_f0 < 160000.0f) {
                 gSPDisplayList(gDisplayListHead++, &toads_turnpike_dl_0);
             } else if (temp_f0 < 640000.0f) {

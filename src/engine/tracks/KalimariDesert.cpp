@@ -22,6 +22,7 @@ extern "C" {
     #include "code_8006E9C0.h"
     #include "code_80057C60.h"
     #include "defines.h"
+    #include "screen_class.h"
     #include "racing/math_util.h"
     #include "audio/external.h"
     #include "code_80005FD0.h"
@@ -187,7 +188,7 @@ void KalimariDesert::BeginPlay() {
 
             if (CVarGetInteger("gMultiplayerNoFeatureCuts", 0) == false) {
                 // Multiplayer modes have no tender and no carriages
-                if (gActiveScreenMode != SCREEN_MODE_1P) {
+                if (screen_mode_class(gActiveScreenMode) != SCREEN_CLASS_FULL) {
                     _tender = ATrain::TenderStatus::NO_TENDER;
                     _numCarriages = 0;
                 }

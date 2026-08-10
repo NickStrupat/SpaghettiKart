@@ -24,6 +24,7 @@ extern "C" {
 #include "render_objects.h"
 #include "code_80057C60.h"
 #include "defines.h"
+#include "screen_class.h"
 #include "code_80005FD0.h"
 #include "racing/collision.h"
 #include "assets/models/tracks/bowsers_castle/bowsers_castle_data.h"
@@ -163,7 +164,7 @@ void OLakitu::Draw(s32 cameraId) {
 
             gDPSetAlphaCompare(gDisplayListHead++, G_AC_NONE);
         }
-        if (gScreenModeSelection == SCREEN_MODE_1P) {
+        if (screen_mode_class(gScreenModeSelection) == SCREEN_CLASS_FULL) {
             var_f0 = object->pos[0] - camera->pos[0];
             var_f2 = object->pos[2] - camera->pos[2];
             if (var_f0 < 0.0f) {

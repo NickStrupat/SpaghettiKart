@@ -16,6 +16,7 @@
 #include "code_800029B0.h"
 #include "racing/memory.h"
 #include <defines.h>
+#include <screen_class.h>
 #include "racing/math_util.h"
 #include "math_util_2.h"
 #include "code_80005FD0.h"
@@ -6425,7 +6426,7 @@ void func_8006D474(Player* player, s8 playerId, s8 screenId) {
             FrameInterpolation_RecordOpenChild("smoke_dust", TAG_SMOKE_DUST((playerId << 8) | (screenId << 4) | var_s2));
             switch (player->particlePool0[var_s2].type) {
                 case 1:
-                    if (gActiveScreenMode == SCREEN_MODE_3P_4P_SPLITSCREEN) {
+                    if (screen_mode_class(gActiveScreenMode) >= SCREEN_CLASS_QUARTER) {
                         if (screenId == playerId) {
                             func_8006538C(player, playerId, var_s2, screenId);
                         }
@@ -6434,11 +6435,11 @@ void func_8006D474(Player* player, s8 playerId, s8 screenId) {
                     }
                     break;
                 case 6:
-                    if (gActiveScreenMode == SCREEN_MODE_3P_4P_SPLITSCREEN) {
-                        if (screenId == playerId) {
-                            func_80066BAC(player, playerId, var_s2, screenId);
-                        }
-                    } else if (screenId == playerId) {
+                    // Both arms of the former screen-mode test were identical, so the
+                    // mode never affected the outcome: this particle only ever draws on
+                    // its owner's screen. Collapsed so it does not read as a mode
+                    // dependency that a new screen mode would have to account for.
+                    if (screenId == playerId) {
                         func_80066BAC(player, playerId, var_s2, screenId);
                     }
                     break;
@@ -6510,7 +6511,7 @@ void func_8006D474(Player* player, s8 playerId, s8 screenId) {
             FrameInterpolation_RecordOpenChild("smoke_dust3", TAG_SMOKE_DUST((playerId << 8) | (screenId << 4) | var_s2));
             switch (player->particlePool1[var_s2].type) {
                 case DRIFT_PARTICLE:
-                    if (gActiveScreenMode == SCREEN_MODE_3P_4P_SPLITSCREEN) {
+                    if (screen_mode_class(gActiveScreenMode) >= SCREEN_CLASS_QUARTER) {
                         if (screenId == playerId) {
                             render_player_drift_particles(player, playerId, var_s2, screenId);
                         }
@@ -6522,7 +6523,7 @@ void func_8006D474(Player* player, s8 playerId, s8 screenId) {
                 case GRASS_PARTICLE:
                 case 4:
                 case 5:
-                    if (gActiveScreenMode == SCREEN_MODE_3P_4P_SPLITSCREEN) {
+                    if (screen_mode_class(gActiveScreenMode) >= SCREEN_CLASS_QUARTER) {
                         if (screenId == playerId) {
                             render_player_ground_particles(player, playerId, var_s2, screenId);
                         }
@@ -6531,7 +6532,7 @@ void func_8006D474(Player* player, s8 playerId, s8 screenId) {
                     }
                     break;
                 case 9:
-                    if (gActiveScreenMode == SCREEN_MODE_3P_4P_SPLITSCREEN) {
+                    if (screen_mode_class(gActiveScreenMode) >= SCREEN_CLASS_QUARTER) {
                         if (screenId == playerId) {
                             func_800664E0(player, (s32) playerId, var_s2, screenId);
                         }
@@ -6540,11 +6541,9 @@ void func_8006D474(Player* player, s8 playerId, s8 screenId) {
                     }
                     break;
                 case 11:
-                    if (gActiveScreenMode == SCREEN_MODE_3P_4P_SPLITSCREEN) {
-                        if (screenId == playerId) {
-                            func_8006A01C(player, playerId, var_s2, screenId);
-                        }
-                    } else if (screenId == playerId) {
+                    // As with case 6 above: both arms were identical, so the screen mode
+                    // was never load-bearing here.
+                    if (screenId == playerId) {
                         func_8006A01C(player, playerId, var_s2, screenId);
                     }
                     break;
@@ -6584,7 +6583,7 @@ void func_8006DD3C(Player* player, s8 playerId, s8 screenId) {
                 if (temp_v0 == 5) {
                     func_8006A280(player, playerId, temp_s0, screenId);
                 }
-            } else if (gActiveScreenMode == SCREEN_MODE_3P_4P_SPLITSCREEN) {
+            } else if (screen_mode_class(gActiveScreenMode) >= SCREEN_CLASS_QUARTER) {
                 if (screenId == playerId) {
                     func_80066998(player, playerId, temp_s0, screenId);
                 }

@@ -1,6 +1,7 @@
 #include <racing/actors.h>
 #include <main.h>
 #include <defines.h>
+#include <screen_class.h>
 
 /**
  * @brief Renders the tanker truck actor.
@@ -33,7 +34,7 @@ void render_actor_tanker_truck(Camera* camera, struct Actor* arg1) {
         mtxf_pos_rotation_xyz(spC8, arg1->pos, arg1->rot);
         if (render_set_position(spC8, 0) != 0) {
 
-            if (gActiveScreenMode == SCREEN_MODE_1P) {
+            if (screen_mode_class(gActiveScreenMode) == SCREEN_CLASS_FULL) {
                 if (temp_f0 < 160000.0f) {
 
                     gSPDisplayList(gDisplayListHead++, toads_turnpike_dl_6);
