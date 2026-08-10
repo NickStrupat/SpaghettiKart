@@ -121,8 +121,20 @@ OSIoMesg gDmaIoMesg;
 OSMesgQueue gSIEventMesgQueue;
 OSMesg gSIEventMesgBuf[3];
 
-OSContStatus gControllerStatuses[4];
-OSContPad gControllerPads[4];
+/* These must hold one entry per ControlDeck port, not per N64 hardware port.
+ * osContGetReadData() does
+ *
+ *     memset(pad, 0, sizeof(OSContPad) * __osMaxControllers);
+ *
+ * before the ControlDeck fills it, so if the port count exceeds the length of
+ * gControllerPads that memset alone writes past the end -- before a single
+ * button is read. Widen these first, raise the port count second. */
+OSContStatus gControllerStatuses[NUM_PLAYERS];
+OSContPad gControllerPads[NUM_PLAYERS];
+
+/* @port libultraship's ControlDeck still has four ports, so only the first four
+ * entries are filled; ports five to eight are for later (eight-players plan,
+ * Phase D), and must not exceed NUM_PLAYERS when they come. */
 u8 gControllerBits;
 NOT_SIM_STATE_END
 // Contains a 32x32 grid of indices into gCollisionIndices containing indices into gCollisionMesh
@@ -438,13 +450,13 @@ void update_controller(s32 index) {
  */
 void combine_controllers(void) {
     gControllerAny->button = (s16) (((gControllerOne->button | gControllerTwo->button) | gControllerThree->button) |
-                                     gControllerFour->button);
+                                    gControllerFour->button);
     gControllerAny->buttonPressed =
         (s16) (((gControllerOne->buttonPressed | gControllerTwo->buttonPressed) | gControllerThree->buttonPressed) |
                gControllerFour->buttonPressed);
     gControllerAny->buttonDepressed = (s16) (((gControllerOne->buttonDepressed | gControllerTwo->buttonDepressed) |
-                                               gControllerThree->buttonDepressed) |
-                                              gControllerFour->buttonDepressed);
+                                              gControllerThree->buttonDepressed) |
+                                             gControllerFour->buttonDepressed);
     gControllerAny->stickDirection =
         (s16) (((gControllerOne->stickDirection | gControllerTwo->stickDirection) | gControllerThree->stickDirection) |
                gControllerFour->stickDirection);
@@ -471,10 +483,9 @@ void read_controllers(void) {
             apply_pad_to_controller(&gControllers[i], &gControllerPads[i]);
         }
     } else {
-        update_controller(0);
-        update_controller(1);
-        update_controller(2);
-        update_controller(3);
+        for (s32 port = 0; port < NUM_PLAYERS; port++) {
+            update_controller(port);
+        }
     }
     combine_controllers();
 }
