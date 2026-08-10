@@ -108,6 +108,16 @@ const s8 sScreenModePlayerTable[] = { SCREEN_MODE_1P, SCREEN_MODE_2P_SPLITSCREEN
 // Sets how many players can load on each screen mode set in sScreenModePlayerTable
 const s8 sScreenModePlayerCount[] = { 1, 2, 2, 3, 4, 5, 6, 7, 8 };
 
+/* These three are indexed by the same variable, so a length mismatch is an
+   out-of-bounds read or a silently truncated picker rather than anything that
+   announces itself. Checked at compile time so the next person to add a screen
+   mode cannot get it wrong quietly. gDebugScreenModeNames lives in menu_items.c
+   and is checked there against the same count. */
+_Static_assert(ARRAY_COUNT(sScreenModePlayerTable) == ARRAY_COUNT(sScreenModePlayerCount),
+               "screen mode table and player count table must have one row each");
+_Static_assert(ARRAY_COUNT(sScreenModePlayerTable) == NUM_SCREEN_MODE_ROWS,
+               "NUM_SCREEN_MODE_ROWS must match the screen mode tables");
+
 // Set indexed slots numbers for one-two-three-four mode selection
 const s8 gPlayerModeSelection[] = { 1, 2, 2, 2 }; // @port 3p and 4p add Grand Prix
 

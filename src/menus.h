@@ -272,8 +272,15 @@ extern s8 gControllerPakScrollDirection;
 extern s8 unref_D_800E86D4[];
 extern u32 sVIGammaOffDitherOn;
 
-extern const s8 sScreenModePlayerTable[5];
-extern const s8 sScreenModePlayerCount[5];
+/* Left unsized deliberately. These carried an explicit [5] while their
+ * definitions in menus.c grew to nine entries, and a sized declaration wins
+ * for sizeof at every use site that includes this header -- so ARRAY_COUNT
+ * returned 5 and the screen-mode picker's bound computed to 4, silently
+ * capping it at four players no matter what the definition said. */
+/* One row per selectable screen-mode entry; the picker walks 0..this-1. */
+#define NUM_SCREEN_MODE_ROWS 9
+extern const s8 sScreenModePlayerTable[];
+extern const s8 sScreenModePlayerCount[];
 extern const s8 gPlayerModeSelection[];
 extern const s8 sGameModePlayerColumnDefault[][3];
 extern const s8 sGameModePlayerColumnExtra[][3];
