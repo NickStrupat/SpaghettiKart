@@ -67,7 +67,11 @@ s8 unref_D_8018EE0C; // Set to 0 but never referenced
 /** Data **/
 s32 gMenuSelection = HARBOUR_MASTERS_MENU;
 s32 gFadeModeSelection = FADE_MODE_NONE;
-s8 gCharacterSelections[NUM_PLAYERS] = { MARIO, LUIGI, YOSHI, TOAD };
+/* Eight slots, eight distinct defaults. Only the first four were initialised,
+   which left slots 4-7 zero-filled -- every player past the fourth would have
+   defaulted to Mario. The roster has exactly eight characters, so at eight
+   players every one is claimed and there is no spare to leave a slot on. */
+s8 gCharacterSelections[NUM_PLAYERS] = { MARIO, LUIGI, YOSHI, TOAD, DK, WARIO, PEACH, BOWSER };
 
 // The current row selected in the mode column for each player indexed
 // 0-1 1p / 0-2 2p´/ 0-1 3p / 0-1 4p
@@ -1130,7 +1134,13 @@ void splash_menu_act(struct Controller* controller, u16 controllerIdx) {
                 break;
             }
             case DEBUG_MENU_SCREEN_MODE: {
-                if ((btnAndStick & R_JPAD) && (gScreenModeListIndex < 4)) {
+                /* Bound taken from the table rather than written as a literal:
+                   sScreenModePlayerTable gained four rows for the eighth-screen
+                   mode, and a hardcoded 4 would have left them unreachable while
+                   looking deliberate. This is the debug menu, so the new rows are
+                   opt-in behind gEnableDebugMode and the ordinary player-select
+                   flow is untouched. */
+                if ((btnAndStick & R_JPAD) && (gScreenModeListIndex < (ARRAY_COUNT(sScreenModePlayerTable) - 1))) {
                     gScreenModeListIndex += 1;
                     play_sound2(SOUND_MENU_CURSOR_MOVE);
                     gScreenModeSelection = sScreenModePlayerTable[gScreenModeListIndex];
