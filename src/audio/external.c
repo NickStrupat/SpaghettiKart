@@ -501,7 +501,17 @@ void func_800C1F8C(void) {
     Camera** camera;
 
     var_a1 = D_800EA1C0 + 1;
+    if (var_a1 > NUM_PLAYERS) {
+        var_a1 = NUM_PLAYERS;
+    }
     for (var_s1 = 0; var_s1 < var_a1; var_s1++) {
+        /* The bound comes from audio state rather than the roster, so it can name
+           a listener that has no camera. Skipping is correct -- a listener with no
+           camera has no velocity to compute -- and far better than dereferencing
+           whatever the slot holds. */
+        if (gCopyCamera[var_s1] == NULL) {
+            continue;
+        }
         gVelocityCamera[var_s1][0] = gCopyCamera[var_s1]->pos[0] - gCameraLastPos[var_s1][0];
         gVelocityCamera[var_s1][2] = gCopyCamera[var_s1]->pos[2] - gCameraLastPos[var_s1][2];
         gCameraLastPos[var_s1][0] = gCopyCamera[var_s1]->pos[0];
@@ -638,10 +648,20 @@ void func_800C2474(void) {
     u8 var_v0;
 
     D_8018EF10 = 0;
+    /* All eight, not four. Widening this array without extending the code that
+       fills it left entries 4-7 null while the loop in func_800C1F8C happily
+       walked into them and dereferenced ->pos, which crashed the main thread in
+       the audio update and corrupted enough shared state to take the audio
+       thread down with it. Growing an array is only half the change; whatever
+       populates it has to cover the new range in the same breath. */
     gCopyCamera[0] = camera1;
     gCopyCamera[1] = camera2;
     gCopyCamera[2] = camera3;
     gCopyCamera[3] = camera4;
+    gCopyCamera[4] = camera5;
+    gCopyCamera[5] = camera6;
+    gCopyCamera[6] = camera7;
+    gCopyCamera[7] = camera8;
     D_8018FB91 = 0;
     D_8018FB90 = 1;
     D_800EA0F4 = 0;
