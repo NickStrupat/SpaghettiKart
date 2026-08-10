@@ -48,7 +48,12 @@ static inline ScreenClass screen_mode_class(s32 screenMode) {
             return SCREEN_CLASS_HALF;
         case SCREEN_MODE_3P_4P_SPLITSCREEN:
             return SCREEN_CLASS_QUARTER;
+        case SCREEN_MODE_8P:
+            return SCREEN_CLASS_EIGHTH;
         default:
+            /* Unrecognised. Kept distinct from the SCREEN_MODE_8P arm above so
+               this stays a genuine unknown-mode catch rather than doing double
+               duty as the eighth-screen answer. */
             return SCREEN_CLASS_EIGHTH;
     }
 }

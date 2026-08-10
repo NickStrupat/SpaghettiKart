@@ -248,7 +248,13 @@ enum { TRACK_ONE, TRACK_TWO, TRACK_THREE, TRACK_FOUR };
 #define SCREEN_MODE_2P_SPLITSCREEN_HORIZONTAL 1
 #define SCREEN_MODE_2P_SPLITSCREEN_VERTICAL 2
 #define SCREEN_MODE_3P_4P_SPLITSCREEN 3
-#define NUM_SCREEN_MODES 4
+/* Five to eight players, 4x2 grid. Defined but not yet reachable: nothing
+   assigns it to gActiveScreenMode or gScreenModeSelection, and the menu tables
+   in menus.c do not offer it. Until something selects it, the forty switch
+   ladders that lack a default arm cannot observe it and behaviour is unchanged.
+   Making it selectable is the step that ends that guarantee. */
+#define SCREEN_MODE_8P 4
+#define NUM_SCREEN_MODES 5
 
 /**
  * @brief Indexes for accessing Time Trial records
