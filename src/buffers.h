@@ -27,9 +27,16 @@ typedef struct {
  * But in menu_items its the arraySize4 entry
  * The only way to unify those 2 things is to use a union
  */
+/* Middle dimension is the screen. It was 2, which is why
+   load_kart_texture_and_render_kart_particles() carried a remapping that folded
+   screens 2-3 onto buffer slots 0-1 using the upper player slots -- and why the
+   comment there noted that quarter-screen modes could therefore only support
+   four racers. With a slot per viewport the remapping is unnecessary, and with
+   eight screens it was actively harmful: it computed playerId + 4, which runs
+   past the player dimension for the upper half of the roster. */
 typedef union {
-    struct_D_802BFB80_4 arraySize4[2][2][4];
-    struct_D_802BFB80_8 arraySize8[2][4][8]; // @port Four screens, as gEncodedKartTexture
+    struct_D_802BFB80_4 arraySize4[2][NUM_PLAYERS][4];
+    struct_D_802BFB80_8 arraySize8[2][NUM_PLAYERS][8];
 } union_D_802BFB80;
 
 /*

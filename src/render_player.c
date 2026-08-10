@@ -276,7 +276,7 @@ void init_render_player(Player* player, Camera* camera, s8 playerId, s8 screenId
  * This function used to be split for each player screen.
  * It is combined now.
  *
- * @port gEncodedKartTexture (buffers.c) has slots for four screens of eight karts. The N64 had room for two
+ * @port gEncodedKartTexture (buffers.c) has a slot for every screen and kart. The N64 had room for two
  * screens, so screens 3 and 4 used the slots of karts 5-8 on screens 1 and 2, and 3P/4P modes drew only four karts.
  */
 void load_kart_texture_and_render_kart_particles(s32 screenIdx) {
