@@ -523,6 +523,7 @@ void func_800463B0(s32 arg0, s32 arg1, u16 arg2, f32 arg3, u8* texture, Vtx* arg
             func_80042330(arg0, arg1, arg2, arg3);
             break;
         case SCREEN_MODE_3P_4P_SPLITSCREEN:
+        case SCREEN_MODE_8P:
             func_80042330_unchanged(arg0, arg1, arg2, arg3);
             break;
     }
@@ -540,6 +541,7 @@ void func_80046424(s32 arg0, s32 arg1, u16 arg2, f32 arg3, u8* texture, Vtx* arg
             func_80042330(arg0, arg1, arg2, arg3);
             break;
         case SCREEN_MODE_3P_4P_SPLITSCREEN:
+        case SCREEN_MODE_8P:
             func_80042330_unchanged(arg0, arg1, arg2, arg3);
             break;
     }
@@ -1621,6 +1623,11 @@ void render_texture_rectangle_wide(s32 x, s32 y, s32 width, s32 height, s32 arg4
             case SCREEN_MODE_1P:
             case SCREEN_MODE_3P_4P_SPLITSCREEN:
             case SCREEN_MODE_2P_SPLITSCREEN_HORIZONTAL:
+            case SCREEN_MODE_8P:
+                // Anchors to whichever screen edge the rectangle sits nearer,
+                // which stays meaningful with four columns: cells 1-2 anchor
+                // left, 3-4 right. The vertical-split arm below skips the edge
+                // adjustment entirely, which would misplace these.
                 if ((xl - (width / 2)) < (SCREEN_WIDTH / 2)) {
                     coordX = (s32) OTRGetDimensionFromLeftEdge(xl) << 2;
                     coordX2 = (s32) (xh) << 2;
@@ -1641,6 +1648,12 @@ void render_texture_rectangle_wide(s32 x, s32 y, s32 width, s32 height, s32 arg4
         // gSPTextureRectangle(gDisplayListHead++, xl, yl, xh, yh, G_TX_RENDERTILE, arg4 << 5, (arg5 << 5), 4 << 10,
         //                     1 << 10);
     } else { // minimap
+        // DEFERRED for eight players: these centres are hardcoded for a 2x2
+        // grid -- three players centre the item in the unused fourth quadrant,
+        // four centre it on the screen midline. A 4x2 grid has four column
+        // centres at 40/120/200/280 and no spare cell, so this needs the
+        // drawing player's column, which is not in scope here. Falls to the
+        // default arm meanwhile, which anchors right.
         switch (gScreenModeSelection) {
             case SCREEN_MODE_3P_4P_SPLITSCREEN:
                 if (gPlayerCount == 3) {
@@ -1687,6 +1700,12 @@ void render_texture_rectangle_wide_left(s32 x, s32 y, s32 width, s32 height, s32
     s32 coordX = 0;
     s32 coordX2 = 0;
 
+    // DEFERRED for eight players: these centres are hardcoded for a 2x2
+    // grid -- three players centre the item in the unused fourth quadrant,
+    // four centre it on the screen midline. A 4x2 grid has four column
+    // centres at 40/120/200/280 and no spare cell, so this needs the
+    // drawing player's column, which is not in scope here. Falls to the
+    // default arm meanwhile, which anchors right.
     switch (gScreenModeSelection) {
         case SCREEN_MODE_3P_4P_SPLITSCREEN:
             if (gPlayerCount == 3) {
@@ -2128,6 +2147,9 @@ void draw_hud_2d_texture_8x8(s32 x, s32 y, u8* texture) {
             draw_hud_2d_texture_wide(x, y, 8, 8, texture);
             break;
         case SCREEN_MODE_3P_4P_SPLITSCREEN:
+        case SCREEN_MODE_8P:
+            // No default arm here: without this case an eighth-screen mode
+            // would draw nothing at all rather than draw it wrongly.
             draw_hud_2d_texture(x, y, 8, 8, texture);
             break;
     }
