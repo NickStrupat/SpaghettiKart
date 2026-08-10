@@ -2550,19 +2550,13 @@ void func_8005CB60(s32 playerId, s32 lapCount) {
 
 void func_8005D0FC(s32 playerId) {
     if (gModeSelection != BATTLE) {
-        switch (playerId) { /* irregular */
-            case PLAYER_ONE:
-                func_8005CB60(playerId, gLapCountByPlayerId[PLAYER_ONE]);
-                break;
-            case PLAYER_TWO:
-                func_8005CB60(playerId, gLapCountByPlayerId[PLAYER_TWO]);
-                break;
-            case PLAYER_THREE:
-                func_8005CB60(playerId, gLapCountByPlayerId[PLAYER_THREE]);
-                break;
-            case PLAYER_FOUR:
-                func_8005CB60(playerId, gLapCountByPlayerId[PLAYER_FOUR]);
-                break;
+        /* Was a switch with one arm per player up to the fourth, each passing
+           that player's own lap count -- so it is a table lookup written as a
+           branch, and players beyond the fourth fell through it silently. Their
+           laps would never have been counted, which shows up as a racer who
+           never finishes rather than as an error. */
+        if ((playerId >= PLAYER_ONE) && (playerId < NUM_PLAYERS)) {
+            func_8005CB60(playerId, gLapCountByPlayerId[playerId]);
         }
     }
 }

@@ -679,7 +679,15 @@ void CM_SpawnStarterLakitu() {
         return;
     }
 
-    for (size_t i = 0; i < gPlayerCountSelection1; i++) {
+    /* One per occupied racer slot rather than per selected player count. Any
+       racer can trigger a lap event, and the activate helpers below index this
+       map by player id -- so a slot that exists without a Lakitu is a null
+       dereference waiting on that racer crossing a line. Reading the roster
+       directly removes the chance of the two disagreeing. */
+    for (size_t i = 0; i < NUM_PLAYERS; i++) {
+        if ((gPlayers[i].type & PLAYER_EXISTS) == 0) {
+            continue;
+        }
         // Retry does not respawn actors, therefore, re-use lakitu.
         if (auto it = GetWorld()->Lakitus.find(i); it != GetWorld()->Lakitus.end()) {
             if (it->second) {
@@ -694,33 +702,64 @@ void CM_SpawnStarterLakitu() {
     }
 }
 
+/**
+ * Look up a player's Lakitu without creating one.
+ *
+ * Lakitus is an unordered_map, so operator[] default-inserts a null pointer for
+ * a missing key and the caller then dereferences it. That never happened in
+ * vanilla because four Lakitus always existed and no player id could miss, which
+ * is exactly the kind of guarantee eight players removes. Returns null instead,
+ * and says so once rather than every frame the racer holds that lap.
+ */
+static OLakitu* FindLakitu(s32 playerId, const char* what) {
+    auto it = GetWorld()->Lakitus.find(playerId);
+
+    if ((it == GetWorld()->Lakitus.end()) || (it->second == nullptr)) {
+        static bool reported = false;
+        if (!reported) {
+            reported = true;
+            SPDLOG_ERROR("No Lakitu for player {} ({}); skipping. Racer exists without one.", playerId, what);
+        }
+        return nullptr;
+    }
+    return it->second;
+}
+
 // Checkered flag lakitu
 void CM_ActivateFinishLakitu(s32 playerId) {
     if ((gDemoMode) || (gGamestate == CREDITS_SEQUENCE)) {
         return;
     }
-    GetWorld()->Lakitus[playerId]->Activate(OLakitu::LakituType::FINISH);
+    if (OLakitu* lakitu = FindLakitu(playerId, "finish")) {
+        lakitu->Activate(OLakitu::LakituType::FINISH);
+    }
 }
 
 void CM_ActivateSecondLapLakitu(s32 playerId) {
     if ((gDemoMode) || (gGamestate == CREDITS_SEQUENCE)) {
         return;
     }
-    GetWorld()->Lakitus[playerId]->Activate(OLakitu::LakituType::SECOND_LAP);
+    if (OLakitu* lakitu = FindLakitu(playerId, "second lap")) {
+        lakitu->Activate(OLakitu::LakituType::SECOND_LAP);
+    }
 }
 
 void CM_ActivateFinalLapLakitu(s32 playerId) {
     if ((gDemoMode) || (gGamestate == CREDITS_SEQUENCE)) {
         return;
     }
-    GetWorld()->Lakitus[playerId]->Activate(OLakitu::LakituType::FINAL_LAP);
+    if (OLakitu* lakitu = FindLakitu(playerId, "final lap")) {
+        lakitu->Activate(OLakitu::LakituType::FINAL_LAP);
+    }
 }
 
 void CM_ActivateReverseLakitu(s32 playerId) {
     if ((gDemoMode) || (gGamestate == CREDITS_SEQUENCE)) {
         return;
     }
-    GetWorld()->Lakitus[playerId]->Activate(OLakitu::LakituType::REVERSE);
+    if (OLakitu* lakitu = FindLakitu(playerId, "reverse")) {
+        lakitu->Activate(OLakitu::LakituType::REVERSE);
+    }
 }
 
 size_t GetCupCursorPosition() {
