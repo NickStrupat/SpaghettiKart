@@ -112,8 +112,55 @@ f32 D_800EA178 = 1.0f;
 f32 D_800EA17C = 0.85f;
 u16 D_800EA180 = 0;
 u16 D_800EA184 = 0;
-u8 D_800EA188[][6] = { { 4, 2, 2, 2, 2, 1 }, { 6, 2, 2, 2, 2, 1 }, { 8, 2, 2, 0, 1, 1 }, { 8, 2, 2, 0, 1, 1 } };
-u8 D_800EA1A0[][6] = { { 4, 1, 1, 2, 2, 1 }, { 3, 1, 1, 2, 2, 1 }, { 3, 1, 1, 0, 1, 1 }, { 3, 1, 1, 0, 1, 1 } };
+/* Per-bank voice limits, indexed by D_800EA1C0, which is the player count
+ * MINUS ONE -- see func_800C8AE4, whose ladder tests players 0..D_800EA1C0.
+ * So row N is the configuration for N+1 players, and eight players read row 7.
+ *
+ * These rows must exist for every supported player count. The declarations in
+ * external.h are u8 D_800EA188[][6], deliberately unsized: an unsized extern
+ * leaves the type incomplete, so the definition below is what sets the row
+ * count, and nothing at a use site can disagree about it. (The opposite
+ * mistake -- a sized extern that disagrees with its definition -- is what
+ * capped the player picker at four; see sScreenModePlayerTable in menus.h.)
+ *
+ * Rows 2 and 3 are identical in the original data: the allocation had already
+ * plateaued at its most constrained setting by three players, because more
+ * karts means more simultaneous sounds competing for the same voices. Rows 4
+ * through 7 therefore repeat row 3 rather than inventing new limits -- the
+ * three-player row was already the floor the game had chosen. Tune later if
+ * eight karts prove to need something tighter.
+ *
+ * Before this was widened, eight players indexed row 7 of a four-row table and
+ * read 18 bytes past the end. AddressSanitizer caught it as a
+ * global-buffer-overflow in func_800C4888. */
+u8 D_800EA188[][6] = {
+    { 4, 2, 2, 2, 2, 1 }, /* 1 player  */
+    { 6, 2, 2, 2, 2, 1 }, /* 2 players */
+    { 8, 2, 2, 0, 1, 1 }, /* 3 players */
+    { 8, 2, 2, 0, 1, 1 }, /* 4 players */
+    { 8, 2, 2, 0, 1, 1 }, /* 5 players */
+    { 8, 2, 2, 0, 1, 1 }, /* 6 players */
+    { 8, 2, 2, 0, 1, 1 }, /* 7 players */
+    { 8, 2, 2, 0, 1, 1 }, /* 8 players */
+};
+u8 D_800EA1A0[][6] = {
+    { 4, 1, 1, 2, 2, 1 }, /* 1 player  */
+    { 3, 1, 1, 2, 2, 1 }, /* 2 players */
+    { 3, 1, 1, 0, 1, 1 }, /* 3 players */
+    { 3, 1, 1, 0, 1, 1 }, /* 4 players */
+    { 3, 1, 1, 0, 1, 1 }, /* 5 players */
+    { 3, 1, 1, 0, 1, 1 }, /* 6 players */
+    { 3, 1, 1, 0, 1, 1 }, /* 7 players */
+    { 3, 1, 1, 0, 1, 1 }, /* 8 players */
+};
+
+/* D_800EA1C0 is a player count minus one, so it reaches NUM_PLAYERS - 1.
+ * These fire at compile time if the roster grows again and these tables do
+ * not, which is the failure that got here in the first place. */
+_Static_assert(ARRAY_COUNT(D_800EA188) == NUM_PLAYERS,
+               "D_800EA188 needs one row per player count; it is indexed by D_800EA1C0 = players - 1");
+_Static_assert(ARRAY_COUNT(D_800EA1A0) == NUM_PLAYERS,
+               "D_800EA1A0 needs one row per player count; it is indexed by D_800EA1C0 = players - 1");
 u8 sSoundRequestCount = 0;
 u8 sNumProcessedSoundRequests = 0;
 u8 D_800EA1C0 = 0;
@@ -2978,32 +3025,22 @@ void func_800C8AE4(void) {
                 D_800EA184 = 0;
             }
         } else {
-            switch (D_800EA1C0) { /* irregular */
-                case 0:
-                    if (D_800E9F7C[0].unk_14 != 0) {
-                        D_800EA17C = 0.0f;
-                        D_800EA184 = 1;
-                    }
+            /* The original is a four-arm ladder where arm N tests players 0
+             * through N -- the same loop unrolled once per player count, which
+             * is also the clearest evidence that D_800EA1C0 is the player count
+             * minus one. Rolled back up so it covers five through eight players
+             * instead of falling off the end of the ladder and doing nothing.
+             *
+             * The bound is inclusive because D_800EA1C0 is a maximum index, not
+             * a count. */
+            u8 player;
+
+            for (player = 0; player <= D_800EA1C0 && player < NUM_PLAYERS; player++) {
+                if (D_800E9F7C[player].unk_14 != 0) {
+                    D_800EA17C = 0.0f;
+                    D_800EA184 = 1;
                     break;
-                case 1:
-                    if ((D_800E9F7C[0].unk_14 != 0) || (D_800E9F7C[1].unk_14 != 0)) {
-                        D_800EA17C = 0.0f;
-                        D_800EA184 = 1;
-                    }
-                    break;
-                case 2:
-                    if ((D_800E9F7C[0].unk_14 != 0) || (D_800E9F7C[1].unk_14 != 0) || (D_800E9F7C[2].unk_14 != 0)) {
-                        D_800EA17C = 0.0f;
-                        D_800EA184 = 1;
-                    }
-                    break;
-                case 3:
-                    if ((D_800E9F7C[0].unk_14 != 0) || (D_800E9F7C[1].unk_14 != 0) || (D_800E9F7C[2].unk_14 != 0) ||
-                        (D_800E9F7C[3].unk_14 != 0)) {
-                        D_800EA17C = 0.0f;
-                        D_800EA184 = 1;
-                    }
-                    break;
+                }
             }
         }
     }
