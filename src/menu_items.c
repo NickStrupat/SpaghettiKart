@@ -5438,7 +5438,7 @@ void func_8009CE64(s32 arg0) {
                     break;
             }
             func_8000F124();
-            if (gScreenModeSelection == 3) {
+            if (gScreenModeSelection == SCREEN_MODE_3P_4P_SPLITSCREEN) {
                 // @port Grand Prix stays: 3 and 4 players can race it.
                 switch (gModeSelection) {
                     case 1:

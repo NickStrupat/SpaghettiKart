@@ -2523,12 +2523,17 @@ void func_8007B34C(s32 playerId) {
             func_8007B254(temp_s0, playerId);
             break;
         case 2:
-            if (gActiveScreenMode == 0) {
+            // HUD layout, not level of detail: this picks which edge the item box
+            // slides in from. The quarter-screen arm treats players 0 and 2 as the
+            // left column, which is only true of a 2x2 grid. A 4x2 eighth-screen
+            // grid puts 0 and 4 on the left, so this needs a real column lookup
+            // rather than a reclassified mode test. Deferred to the HUD pass.
+            if (gActiveScreenMode == SCREEN_MODE_1P) {
                 s16_step_up_towards(&playerHUD[playerId].slideItemBoxY, 0x0040, 4);
                 if (playerHUD[playerId].slideItemBoxY == 0x0040) {
                     object_next_state(temp_s0);
                 }
-            } else if (gActiveScreenMode == 3) {
+            } else if (gActiveScreenMode == SCREEN_MODE_3P_4P_SPLITSCREEN) {
                 if ((playerId == 0) || (playerId == 2)) {
                     s16_step_up_towards(&playerHUD[playerId].slideItemBoxX, 0x0080, 8);
                     if (playerHUD[playerId].slideItemBoxX == 0x0080) {
@@ -2577,11 +2582,13 @@ void func_8007B34C(s32 playerId) {
             set_and_run_timer_object(temp_s0, 0x00000014);
             break;
         case 11:
-            if (gActiveScreenMode == 0) {
+            // Retract half of the slide handled in case 2 above, and carrying the
+            // same 2x2 column assumption. Deferred for the same reason.
+            if (gActiveScreenMode == SCREEN_MODE_1P) {
                 if (s16_step_down_towards(&playerHUD[playerId].slideItemBoxY, 0, 4) != 0) {
                     object_next_state(temp_s0);
                 }
-            } else if (gActiveScreenMode == 3) {
+            } else if (gActiveScreenMode == SCREEN_MODE_3P_4P_SPLITSCREEN) {
                 if ((playerId == 0) || (playerId == 2)) {
                     s16_step_down_towards(&playerHUD[playerId].slideItemBoxX, 0, 8);
                     if (playerHUD[playerId].slideItemBoxX == 0) {

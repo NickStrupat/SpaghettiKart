@@ -3239,11 +3239,11 @@ void func_800514BC(void) {
     s32 var_s3;
     Player* player;
 
-    if (gScreenModeSelection == 0) {
+    if (gScreenModeSelection == SCREEN_MODE_1P) {
         func_800508C0();
     }
     var_s3 = 8;
-    if ((gPlayerCountSelection1 == 2) && (gActiveScreenMode == 2)) {
+    if ((gPlayerCountSelection1 == 2) && (gActiveScreenMode == SCREEN_MODE_2P_SPLITSCREEN_VERTICAL)) {
         var_s3 = 0;
     }
     for (var_s0 = var_s3 - 1, var_s1 = 0; var_s1 < var_s3; var_s1++, var_s0--) {

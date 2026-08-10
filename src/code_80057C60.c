@@ -5886,7 +5886,7 @@ void render_battle_balloon(Player* player, s8 arg1, s16 arg2, s8 arg3) {
         // wut?
         xdiff = (var_f20 = player->pos[0] - cameras[arg3].pos[0]);
         zdiff = player->pos[2] - cameras[arg3].pos[2];
-        if (gActiveScreenMode != 3) {
+        if (screen_mode_class(gActiveScreenMode) < SCREEN_CLASS_QUARTER) {
             var_f20 = sqrtf((xdiff * xdiff) + (zdiff * zdiff)) / 300.0f;
         } else {
             var_f20 = sqrtf((xdiff * xdiff) + (zdiff * zdiff)) / 200.0f;
