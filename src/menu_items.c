@@ -390,8 +390,13 @@ char* gDebugCCModeNames[] = {
     "EXTRA",
 };
 
+/* Indexed by gScreenModeListIndex and handed straight to a string printer, so
+   it must have a row for every index the picker can reach. It ends up one entry
+   per row of sScreenModePlayerTable in menus.c -- keep the two the same length,
+   because a short row here is an out-of-bounds char* read, not a missing label. */
 char* gDebugScreenModeNames[] = {
-    "1p", "2players UD", "2players LR", "3players", "4players",
+    "1p",       "2players UD", "2players LR", "3players", "4players",
+    "5players", "6players",    "7players",    "8players",
 };
 
 char* gDebugSoundModeNames[] = {
