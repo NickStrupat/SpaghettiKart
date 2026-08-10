@@ -156,17 +156,47 @@ static void check_rank_bijection(void) {
 }
 
 /**
- * gScreenContexts is a fixed array. Wanting more viewports than it holds is an
- * out-of-bounds write waiting to happen, and it will not announce itself at the
- * point of overflow -- it will corrupt whatever the linker placed next.
+ * Every human must have a screen context that is both allocated and actually
+ * dimensioned.
+ *
+ * Allocation alone is not the interesting property. Widening gScreenContexts is
+ * a one-character change, and once it is wide enough a pure capacity test passes
+ * for eight humans while contexts 4-7 still hold the zeros they were defined
+ * with -- an array big enough to be indexed safely and a viewport with no size.
+ * That renders as a player whose view never appears, which is precisely the kind
+ * of quiet wrongness this file exists to catch. So check the geometry, not the
+ * bound: a zero-area viewport means the per-mode layout switch has no arm for
+ * the current mode.
  */
-static void check_screen_capacity(void) {
-    s32 wanted = human_slot_count();
+static void check_screen_contexts(void) {
+    s32 i;
 
-    if (wanted > ARRAY_COUNT(gScreenContexts)) {
-        if (!already_reported(ASSERT_8P_SCREEN_CAPACITY)) {
-            printf("[8P-ASSERT] screen capacity: %d humans want viewports but gScreenContexts holds %d.\n", wanted,
-                   ARRAY_COUNT(gScreenContexts));
+    /* Layout is assigned during render setup, so only meaningful once racing. */
+    if (gRaceState != RACE_IN_PROGRESS) {
+        return;
+    }
+
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        if (((gPlayers[i].type & PLAYER_EXISTS) == 0) || ((gPlayers[i].type & PLAYER_HUMAN) == 0)) {
+            continue;
+        }
+
+        if (i >= ARRAY_COUNT(gScreenContexts)) {
+            if (!already_reported(ASSERT_8P_SCREEN_CAPACITY)) {
+                printf("[8P-ASSERT] screen contexts: human in slot %d but gScreenContexts holds only %d.\n", i,
+                       ARRAY_COUNT(gScreenContexts));
+            }
+            return;
+        }
+
+        if ((gScreenContexts[i].screenWidth <= 0) || (gScreenContexts[i].screenHeight <= 0)) {
+            if (!already_reported(ASSERT_8P_SCREEN_CAPACITY)) {
+                printf("[8P-ASSERT] screen contexts: human in slot %d has a %dx%d viewport -- the layout switch has "
+                       "no arm for screen mode %d.\n",
+                       i, (s32) gScreenContexts[i].screenWidth, (s32) gScreenContexts[i].screenHeight,
+                       gActiveScreenMode);
+            }
+            return;
         }
     }
 }
@@ -203,6 +233,6 @@ void assert_8p_race_start(void) {
 void assert_8p_frame(void) {
     check_roster_coverage();
     check_rank_bijection();
-    check_screen_capacity();
+    check_screen_contexts();
     check_controller_limit();
 }

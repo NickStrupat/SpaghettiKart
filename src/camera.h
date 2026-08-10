@@ -96,6 +96,10 @@ extern Camera* camera1;
 extern Camera* camera2;
 extern Camera* camera3;
 extern Camera* camera4;
+extern Camera* camera5;
+extern Camera* camera6;
+extern Camera* camera7;
+extern Camera* camera8;
 extern Camera* gFreecamCamera;
 
 // end of camera.c variables

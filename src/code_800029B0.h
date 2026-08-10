@@ -4,6 +4,7 @@
 #include <macros.h>
 #include <libultraship.h>
 #include <actor_types.h>
+#include <defines.h> /* NUM_PLAYERS, which sizes gScreenContexts below */
 #include "camera.h"
 
 /**
@@ -65,11 +66,15 @@ extern s32 D_800DC5E0;
 extern u16 D_800DC5E4;
 extern s32 gPlayerWinningIndex;
 
-extern ScreenContext gScreenContexts[4];
+extern ScreenContext gScreenContexts[NUM_PLAYERS];
 extern ScreenContext* gScreenOneCtx;
 extern ScreenContext* gScreenTwoCtx;
 extern ScreenContext* gScreenThreeCtx;
 extern ScreenContext* gScreenFourCtx;
+extern ScreenContext* gScreenFiveCtx;
+extern ScreenContext* gScreenSixCtx;
+extern ScreenContext* gScreenSevenCtx;
+extern ScreenContext* gScreenEightCtx;
 extern u16 gIsGamePaused;
 extern u8* pAppNmiBuffer;
 extern s32 gIsMirrorMode; // D_800DC604

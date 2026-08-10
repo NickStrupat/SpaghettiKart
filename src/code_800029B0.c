@@ -60,11 +60,20 @@ u16 D_800DC5E4 = 0;
 //! @todo gPlayerWinningIndex (D_800DC5E8) accessed as word, D_800DC5EB as u8
 s32 gPlayerWinningIndex = 0;
 
-ALIGNED16 ScreenContext gScreenContexts[4] = { 0 };
+ALIGNED16 ScreenContext gScreenContexts[NUM_PLAYERS] = { 0 };
 ScreenContext* gScreenOneCtx = &gScreenContexts[0];
 ScreenContext* gScreenTwoCtx = &gScreenContexts[1];
 ScreenContext* gScreenThreeCtx = &gScreenContexts[2];
 ScreenContext* gScreenFourCtx = &gScreenContexts[3];
+/* Slots 5-8 are allocated and zeroed but carry no geometry yet: the per-mode
+   layout switch in skybox_and_splitscreen.c has no eighth-screen arm. Nothing
+   reaches them while SCREEN_MODE_8P is unselectable, and assert_8p checks that
+   every human's context is actually dimensioned rather than merely allocated,
+   so widening this array cannot quietly pass for having set it up. */
+ScreenContext* gScreenFiveCtx = &gScreenContexts[4];
+ScreenContext* gScreenSixCtx = &gScreenContexts[5];
+ScreenContext* gScreenSevenCtx = &gScreenContexts[6];
+ScreenContext* gScreenEightCtx = &gScreenContexts[7];
 u16 gIsGamePaused = false; // true if the game is paused and false if the game is not paused
 u8* pAppNmiBuffer = (u8*) &osAppNmiBuffer;
 

@@ -31,7 +31,18 @@ Camera* camera1 = &cameras[0];
 Camera* camera2 = &cameras[1];
 Camera* camera3 = &cameras[2];
 Camera* camera4 = &cameras[3];
-Camera* gFreecamCamera = &cameras[4];
+/* Player cameras are indexed by player id, so slots 4-7 belong to players five
+   through eight. Freecam previously sat at index 4 and would have been aliased
+   onto player five's camera the moment an eighth-screen mode spawned one --
+   two systems writing one camera, which reads as freecam drifting or a player
+   view snapping rather than as an obvious fault. Moved clear of the player
+   range; NUM_CAMERAS is 16, so index 8 is well inside the allocation. Nothing
+   refers to freecam by index, only through this pointer. */
+Camera* camera5 = &cameras[4];
+Camera* camera6 = &cameras[5];
+Camera* camera7 = &cameras[6];
+Camera* camera8 = &cameras[7];
+Camera* gFreecamCamera = &cameras[8];
 
 UNUSED s32 D_801649D0[2];
 
