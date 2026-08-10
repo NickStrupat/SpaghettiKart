@@ -1,5 +1,6 @@
 #pragma once
 
+#include <defines.h> /* NUM_PLAYERS, which sizes the per-screen matrix arrays */
 #include <libultraship.h>
 
 #include "CoreMath.h"
@@ -43,8 +44,15 @@ typedef struct Matrix {
     Mtx Ortho;
     std::array<Mtx,5> Persp;
     std::array<Mtx,5> LookAt;
-    std::array<Mtx, 8 * 4> Karts; // Eight players * four screens
-    std::array<Mtx, 8 * 4> Shadows; // Eight players * four screens
+    /* Indexed as playerId + (screenId * NUM_PLAYERS) by render_player.c, so the
+       extent is players times screens. The player term was already eight; the
+       screen term was four and now follows the roster. With eight viewports the
+       old size was overrun two-to-one, writing Mtx structures past the end of a
+       std::array -- which lands in the allocator's bookkeeping rather than in
+       game data, and shows up as a crash inside malloc with no game code on the
+       stack. */
+    std::array<Mtx, NUM_PLAYERS * NUM_PLAYERS> Karts;   // players * screens
+    std::array<Mtx, NUM_PLAYERS * NUM_PLAYERS> Shadows; // players * screens
     std::deque<Mtx> Hud;
     std::deque<Mtx> Objects;
 

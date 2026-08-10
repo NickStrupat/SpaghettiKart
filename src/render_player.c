@@ -1409,7 +1409,7 @@ void render_kart(Player* player, s8 playerId, s8 screenId, s8 flipOffset) {
     }
     load_kart_palette(player, playerId, screenId, D_801651D0[screenId][playerId]);
     gPlayerPalette = &gPlayerPalettesList[D_801651D0[screenId][playerId]][screenId][playerId];
-    // @port gEncodedKartTexture has slots for four screens; screens 3 and 4 no longer borrow other slots
+    // @port gEncodedKartTexture has a slot for every screen; screens 3 and up no longer borrow other slots
     load_kart_texture(player, playerId, screenId, screenId, D_801651D0[screenId][playerId]);
     sKartTexture = gEncodedKartTexture[D_801651D0[screenId][playerId]][screenId][playerId].unk_00;
     mtxf_translate_rotate(mtx, sp154, sp14C);
