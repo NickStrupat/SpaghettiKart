@@ -900,12 +900,28 @@ void init_hud_two_player_horizontal() {
  * 120 tall and the vertical offsets carry over untouched. Only the width halves,
  * from 160 to 80, so the horizontal offsets are halved with them.
  *
- * The item box starts off whichever screen edge its cell is nearer and slides
- * in. That slide distance is set in update_objects.c and is still sized for a
- * 160-wide cell, so it will overshoot an 80-wide one -- the box will settle too
- * far in until that distance is derived from cell width too. Noted rather than
- * fixed here because it belongs with the slide, not the layout.
+ * The item box starts off-screen and slides in by a fixed 128 units, set in
+ * update_objects.c. The quadrant's start values are picked so that slide lands
+ * the box on its cell: -0x36 + 128 = 74 against a centre of 80, six short to
+ * allow for the box's own width. Two columns need only two start values, which
+ * is why they are constants there.
+ *
+ * Four columns need four, so these are derived the same way instead -- centre
+ * minus the slide distance and the same six-unit allowance, mirrored for cells
+ * in the right half. The slide itself stays 128 and needs no change; what has
+ * to vary per column is where the box starts, not how far it travels.
  */
+/* Distance the item box travels from off-screen, set in update_objects.c, and
+   the allowance for the box's own width implied by the quadrant's start values.
+
+   Reproducing the quadrant from these gives -54 on the left, matching its -0x36
+   exactly, and 374 on the right against its 0x175 of 373. The original is a unit
+   asymmetric rather than the model being wrong; a single inset is used here
+   because a one-unit lean is not worth encoding, and these cells are new
+   anyway. */
+#define ITEM_BOX_SLIDE 128
+#define ITEM_BOX_INSET 6
+
 void init_hud_eight_player(void) {
     s32 i;
 
@@ -930,7 +946,10 @@ void init_hud_eight_player(void) {
         s32 rightHalf = screen_cell_is_right_half(SCREEN_MODE_8P, i);
         s32 topRow = (screen_player_row(SCREEN_MODE_8P, i) == 0);
 
-        playerHUD[i].itemBoxX = rightHalf ? 0x175 : -0x36;
+        /* Land the box on its cell after the fixed 128-unit slide, matching
+           how the quadrant's -0x36 and 0x175 were chosen. */
+        playerHUD[i].itemBoxX = rightHalf ? (centerX + ITEM_BOX_SLIDE + ITEM_BOX_INSET)
+                                          : (centerX - ITEM_BOX_SLIDE - ITEM_BOX_INSET);
         playerHUD[i].itemBoxY = topRow ? 0x36 : 0x2D;
         playerHUD[i].slideItemBoxX = 0;
         playerHUD[i].slideItemBoxY = 0;
