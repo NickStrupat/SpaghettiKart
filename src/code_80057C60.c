@@ -16,6 +16,7 @@
 #include "code_800029B0.h"
 #include "racing/memory.h"
 #include <defines.h>
+#include <screen_grid.h>
 #include <screen_class.h>
 #include "racing/math_util.h"
 #include "math_util_2.h"
@@ -2492,12 +2493,11 @@ void func_8005CB60(s32 playerId, s32 lapCount) {
         }
     } else {
         f32_step_towards(&playerHUD[playerId].rankScaling, 1.0f, 0.125f);
-        /* DEFERRED for eight players: the quadrant arm below slides the rank
-           marker left or right from (playerId & 1), which reads a 2x2 grid's
-           column off the low bit of the player id. A 4x2 grid has four columns,
-           so the column is (playerId & 3) and the marker needs four offsets
-           rather than two. Falls through to no arm meanwhile, leaving the rank
-           marker at its initial position.
+        /* The quadrant and eighth-screen arms share a body: the marker slides
+           toward the centre of the screen, so its direction depends only on
+           which half the player's cell sits in. That was (playerId & 1), which
+           happens to name the right-hand column of a 2x2 grid and means nothing
+           with four columns.
 
            Case labels named while here: this switch used bare integers, so no
            search for SCREEN_MODE_ would ever have found it. */
@@ -2523,7 +2523,8 @@ void func_8005CB60(s32 playerId, s32 lapCount) {
                 s16_step_towards(&playerHUD[playerId].totalTimeX, 0x00E4, 0x0010);
                 break;
             case SCREEN_MODE_3P_4P_SPLITSCREEN:
-                if ((playerId & 1) == 1) {
+            case SCREEN_MODE_8P:
+                if (screen_cell_is_right_half(gScreenModeSelection, playerId)) {
                     s16_step_towards(&playerHUD[playerId].slideRankX, -8, 2);
                 } else {
                     s16_step_towards(&playerHUD[playerId].slideRankX, 8, 2);
