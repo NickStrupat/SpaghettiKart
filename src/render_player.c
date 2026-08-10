@@ -64,11 +64,16 @@ UNUSED u16 gPlayerWhiteEffect[8];
 s32 D_80164B80[296];
 s16 D_80165020[40];
 Vec3f gPlayerLastVelocity[8];
-s16 gLastAnimFrameSelector[4][8];
-s16 gLastAnimGroupSelector[4][8];
-s16 D_80165150[4][8];
-s16 D_80165190[4][8];
-s16 D_801651D0[4][8];
+/* [screen][player]. The player dimension was always eight -- vanilla knew a
+ * race holds eight karts -- but the screen dimension was four, because it
+ * capped at four viewports. Eight screens read past the first dimension and
+ * yield whatever follows, which is then used as a palette index: a wild
+ * pointer rather than a wrong value. Both now follow the roster. */
+s16 gLastAnimFrameSelector[NUM_PLAYERS][NUM_PLAYERS];
+s16 gLastAnimGroupSelector[NUM_PLAYERS][NUM_PLAYERS];
+s16 D_80165150[NUM_PLAYERS][NUM_PLAYERS];
+s16 D_80165190[NUM_PLAYERS][NUM_PLAYERS];
+s16 D_801651D0[NUM_PLAYERS][NUM_PLAYERS];
 
 void func_8001F980(s32* arg0, s32* arg1) {
     if ((gDemoMode == 1) || (D_80164A28 != 0) || (D_8015F894 != 0)) {
