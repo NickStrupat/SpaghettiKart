@@ -875,6 +875,53 @@ void func_8003B870(f32* arg0, f32* arg1, f32 arg2) {
     func_80039AE4();
 }
 
+/**
+ * Eight evenly spaced spawn points on the arena's ring.
+ *
+ * Every Battle arena places its four spawns on a circle at the axis points, at a
+ * radius the arena chooses: Block Fort 200, Skyscraper 400, Double Deck 160, Big
+ * Donut 575. Eight players want the same circle with the diagonals filled in, so
+ * these are derived from the radius rather than tabulated per arena.
+ *
+ * The yaw convention is taken from the existing arms rather than guessed. There,
+ * position (r*sin y, -r*cos y) with rotation y reproduces all four spawns
+ * exactly -- (0,-r) at 0x0000, (r,0) at 0x4000, (0,r) at 0x8000, (-r,0) at
+ * 0xC000 -- which is a kart standing on the ring and facing the middle. Index i
+ * of eight therefore sits at i/8 of a turn with that same angle as its yaw.
+ */
+static void fill_battle_ring(f32* x, f32* z, f32 radius) {
+    s32 i;
+
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        u16 yaw = (u16) (i * (0x10000 / NUM_PLAYERS));
+
+        x[i] = radius * sins(yaw);
+        z[i] = -radius * coss(yaw);
+    }
+}
+
+/**
+ * Battle spawn for the eighth-screen mode: every slot human.
+ *
+ * spawn_players_4p_battle below already fills all eight slots -- four humans and
+ * four CPUs -- so this is the same conversion the Grand Prix path needs, not a
+ * new arrangement. It also spawns its eighth kart at arg0[0]/arg1[0] rather than
+ * index seven, reusing player one's position; that is left alone there and not
+ * copied here.
+ */
+void spawn_players_8p_battle(f32* arg0, f32* arg1, f32 arg2) {
+    s32 i;
+
+    for (i = PLAYER_ONE; i < NUM_PLAYERS; i++) {
+        u16 yaw = (u16) (i * (0x10000 / NUM_PLAYERS));
+
+        spawn_player(&gPlayers[i], i, arg0[i], arg1[i], arg2, (f32) yaw, gCharacterSelections[i],
+                     PLAYER_EXISTS | PLAYER_START_SEQUENCE | PLAYER_HUMAN);
+    }
+    D_80164A28 = 0;
+    func_80039AE4();
+}
+
 void spawn_players_4p_battle(f32* arg0, f32* arg1, f32 arg2) {
     if (IsBigDonut()) {
         spawn_player(gPlayerOne, 0, arg0[0], arg1[0], arg2, -16384.0f, gCharacterSelections[0],
@@ -1091,6 +1138,11 @@ void spawn_and_set_player_spawns(void) {
                     spawn_players_3p_battle(D_80165210, D_80165230, temp);
                 }
                 break;
+            case SCREEN_MODE_8P:
+                temp = 5;
+                fill_battle_ring(D_80165210, D_80165230, 200.0f);
+                spawn_players_8p_battle(D_80165210, D_80165230, temp);
+                break;
         }
     } else if (IsSkyscraper()) {
         switch (gActiveScreenMode) {
@@ -1120,6 +1172,11 @@ void spawn_and_set_player_spawns(void) {
                 } else {
                     spawn_players_3p_battle(D_80165210, D_80165230, temp);
                 }
+                break;
+            case SCREEN_MODE_8P:
+                temp = 0x1E0;
+                fill_battle_ring(D_80165210, D_80165230, 400.0f);
+                spawn_players_8p_battle(D_80165210, D_80165230, temp);
                 break;
         }
     } else if (IsDoubleDeck()) {
@@ -1151,6 +1208,11 @@ void spawn_and_set_player_spawns(void) {
                     spawn_players_3p_battle(D_80165210, D_80165230, temp);
                 }
                 break;
+            case SCREEN_MODE_8P:
+                temp = 0x37;
+                fill_battle_ring(D_80165210, D_80165230, 160.0f);
+                spawn_players_8p_battle(D_80165210, D_80165230, temp);
+                break;
         }
     } else if (IsBigDonut()) {
         switch (gActiveScreenMode) {
@@ -1180,6 +1242,11 @@ void spawn_and_set_player_spawns(void) {
                 } else {
                     spawn_players_3p_battle(D_80165210, D_80165230, temp);
                 }
+                break;
+            case SCREEN_MODE_8P:
+                temp = 0xC8;
+                fill_battle_ring(D_80165210, D_80165230, 575.0f);
+                spawn_players_8p_battle(D_80165210, D_80165230, temp);
                 break;
         }
     } else {

@@ -20,6 +20,7 @@ void func_8003B318(f32*, f32*, f32);
 void spawn_players_3p_battle(f32*, f32*, f32);
 void func_8003B870(f32*, f32*, f32);
 void spawn_players_4p_battle(f32*, f32*, f32);
+void spawn_players_8p_battle(f32*, f32*, f32);
 void func_8003BE30(void);
 void func_8003C0F0(void);
 void func_8003CD78(void);
