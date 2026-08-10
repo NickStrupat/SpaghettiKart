@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <libultraship.h>
 #include <macros.h>
 #include <mk64.h>
@@ -279,8 +280,47 @@ void init_render_player(Player* player, Camera* camera, s8 playerId, s8 screenId
  * @port gEncodedKartTexture (buffers.c) has a slot for every screen and kart. The N64 had room for two
  * screens, so screens 3 and 4 used the slots of karts 5-8 on screens 1 and 2, and 3P/4P modes drew only four karts.
  */
+/**
+ * Validate the indices before they reach the kart texture buffers.
+ *
+ * D_802BFB80.arraySize8 and gEncodedKartTexture are indexed
+ * [D_801651D0[screen][player]][screen][player], and that leading value is a
+ * counter the drawing code advances and resets on reaching 2 -- so it can be 2
+ * at the moment it is used, while the dimension it indexes holds two entries.
+ * The write that follows is an 8KB strcpy, so an out-of-range index does not
+ * read a wrong texture, it destroys whatever lies beyond: the audio heap and
+ * the CVar table have both been casualties.
+ *
+ * Returning false and reporting once is strictly better than writing. A kart
+ * that misses a palette update for a frame is invisible; memory corruption
+ * surfaces in whatever subsystem happens to own the bytes.
+ */
+static s32 kart_texture_indices_valid(s32 buffer, s32 screenId, s32 playerId) {
+    if ((buffer >= 0) && (buffer < 2) && (screenId >= 0) && (screenId < NUM_PLAYERS) && (playerId >= 0) &&
+        (playerId < NUM_PLAYERS)) {
+        return 1;
+    }
+
+    {
+        static s32 reported = 0;
+
+        if (!reported) {
+            reported = 1;
+            printf("[8P-ASSERT] kart texture index out of range: buffer %d (max 1), screen %d, player %d (max %d). "
+                   "Skipping rather than writing past the buffer.\n",
+                   buffer, screenId, playerId, NUM_PLAYERS - 1);
+        }
+    }
+    return 0;
+}
+
 void load_kart_texture_and_render_kart_particles(s32 screenIdx) {
     s16 i;
+
+    if (!kart_texture_indices_valid(D_801651D0[gPlayersToRenderScreenId[0]][gPlayersToRenderPlayerId[0]],
+                                    gPlayersToRenderScreenId[0], gPlayersToRenderPlayerId[0])) {
+        return;
+    }
 
     load_kart_texture_non_blocking(
         gPlayersToRenderPlayer[0],
@@ -293,6 +333,10 @@ void load_kart_texture_and_render_kart_particles(s32 screenIdx) {
     osRecvMesg(&gDmaMesgQueue, &gMainReceivedMesg, OS_MESG_BLOCK);
 
     for (i = 1; i < gPlayersToRenderCount; i++) {
+        if (!kart_texture_indices_valid(D_801651D0[gPlayersToRenderScreenId[i]][gPlayersToRenderPlayerId[i]],
+                                        gPlayersToRenderScreenId[i], gPlayersToRenderPlayerId[i])) {
+            break;
+        }
         load_kart_texture_non_blocking(
             gPlayersToRenderPlayer[i],
             gPlayersToRenderPlayerId[i],
