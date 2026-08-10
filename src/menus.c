@@ -36,7 +36,7 @@ f32 gIntroModelPosX;
 f32 gIntroModelPosY;
 f32 gIntroModelPosZ;
 s32 gMenuFadeType;
-s8 gCharacterGridSelections[4];   // Map from each player to current grid position (1-4 top, 5-8 bottom)
+s8 gCharacterGridSelections[NUM_PLAYERS];   // Map from each player to current grid position (1-4 top, 5-8 bottom)
 bool gCharacterGridIsSelected[4]; // Sets true if a character is selected for each player
 s8 gSubMenuSelection;             // Map Select states, Options and Ghost Data text selection
 s8 gMainMenuSelection;
@@ -67,7 +67,7 @@ s8 unref_D_8018EE0C; // Set to 0 but never referenced
 /** Data **/
 s32 gMenuSelection = HARBOUR_MASTERS_MENU;
 s32 gFadeModeSelection = FADE_MODE_NONE;
-s8 gCharacterSelections[4] = { MARIO, LUIGI, YOSHI, TOAD };
+s8 gCharacterSelections[NUM_PLAYERS] = { MARIO, LUIGI, YOSHI, TOAD };
 
 // The current row selected in the mode column for each player indexed
 // 0-1 1p / 0-2 2p´/ 0-1 3p / 0-1 4p
