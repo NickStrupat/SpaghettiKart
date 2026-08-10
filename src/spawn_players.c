@@ -1371,6 +1371,9 @@ void spawn_multiplayer_cameras(u32 mode) {
         case SCREEN_MODE_3P_4P_SPLITSCREEN:
             screens = 4;
             break;
+        case SCREEN_MODE_8P:
+            screens = NUM_PLAYERS;
+            break;
     }
     for (size_t i = 0; i < screens; i++) {
         Vec3f spawn = {gPlayers[i].pos[0], gPlayers[i].pos[1], gPlayers[i].pos[2]};
@@ -1414,6 +1417,9 @@ void load_kart_textures(void) {
             break;
         case SCREEN_MODE_3P_4P_SPLITSCREEN:
             screens = 4;
+            break;
+        case SCREEN_MODE_8P:
+            screens = NUM_PLAYERS;
             break;
     }
 
