@@ -664,6 +664,137 @@ void load_kart_texture_non_blocking(Player* player, s8 arg1, s8 arg2, s8 arg3, s
     }
 }
 
+/**
+ * Telling two players apart when they picked the same character.
+ *
+ * Karts are CI8 sprites, so their colours live entirely in the 192-entry palette
+ * copied below -- and that copy is already per player. Recolouring one player is
+ * therefore a palette edit and needs no new art and no change to the sprites.
+ *
+ * The palette carries no marking for which entries are clothing and which are
+ * skin, so saturation stands in for it. Clothing in these sprites is strongly
+ * coloured (Mario's red shirt and blue overalls sit above 80% saturation) while
+ * faces, gloves, whites and greys sit well below; a threshold between the two
+ * shifts the outfit and mostly leaves the character's face alone. It is a
+ * heuristic rather than a rule, so a character with a vivid face will shift more
+ * than one without.
+ *
+ * Hue is rotated and value left alone, so a recoloured kart keeps its shading
+ * and reads as the same character in different clothes rather than as a flat
+ * silhouette.
+ */
+#define PALETTE_SATURATION_FLOOR 140 /* out of 255; above this an entry counts as clothing rather than skin */
+
+static RGBA5551 hue_rotate_rgba5551(RGBA5551 colour, s32 degrees) {
+    s32 r = (colour.red * 255) / 31;
+    s32 g = (colour.green * 255) / 31;
+    s32 b = (colour.blue * 255) / 31;
+    s32 max = (r > g) ? ((r > b) ? r : b) : ((g > b) ? g : b);
+    s32 min = (r < g) ? ((r < b) ? r : b) : ((g < b) ? g : b);
+    s32 chroma = max - min;
+    s32 hue;
+    s32 region;
+    s32 remainder;
+    s32 p;
+    s32 q;
+    s32 t;
+
+    /* Black, white and anything close to grey has no hue worth rotating, and is
+       also where skin, eyes and outlines live. */
+    if ((max == 0) || ((chroma * 255 / max) < PALETTE_SATURATION_FLOOR)) {
+        return colour;
+    }
+
+    /* Hue in sixths of a turn, scaled by 60 to keep it in degrees. */
+    if (max == r) {
+        hue = (60 * (g - b)) / chroma;
+    } else if (max == g) {
+        hue = 120 + ((60 * (b - r)) / chroma);
+    } else {
+        hue = 240 + ((60 * (r - g)) / chroma);
+    }
+    hue = ((hue + degrees) % 360 + 360) % 360;
+
+    /* Back to RGB at the original value and saturation. */
+    region = hue / 60;
+    remainder = ((hue - (region * 60)) * 255) / 60;
+    p = min;
+    q = max - ((chroma * remainder) / 255);
+    t = min + ((chroma * remainder) / 255);
+
+    switch (region) {
+        case 0:
+            r = max, g = t, b = p;
+            break;
+        case 1:
+            r = q, g = max, b = p;
+            break;
+        case 2:
+            r = p, g = max, b = t;
+            break;
+        case 3:
+            r = p, g = q, b = max;
+            break;
+        case 4:
+            r = t, g = p, b = max;
+            break;
+        default:
+            r = max, g = p, b = q;
+            break;
+    }
+
+    colour.red = (r * 31) / 255;
+    colour.green = (g * 31) / 255;
+    colour.blue = (b * 31) / 255;
+    return colour;
+}
+
+/** How many earlier players already picked this player's character. */
+static s32 character_duplicate_index(s32 playerId) {
+    s32 duplicates = 0;
+    s32 i;
+
+    for (i = 0; (i < playerId) && (i < NUM_PLAYERS); i++) {
+        if (gPlayers[i].characterId == gPlayers[playerId].characterId) {
+            duplicates++;
+        }
+    }
+    return duplicates;
+}
+
+/**
+ * Shift a duplicate's palette so the two are told apart.
+ *
+ * The first player to pick a character keeps the original colours; each later
+ * one is rotated a further step around the hue circle. A whole turn is divided
+ * by the roster, so even eight players on the same character land on eight
+ * distinct hues.
+ *
+ * Only the entries the asset actually filled are touched, and only the kart
+ * palette -- the wheel palette is animated as the kart drives and is the same
+ * dark rubber for everyone.
+ */
+static void tint_duplicate_kart_palette(struct_D_802F1F80* palette, s32 playerId, size_t bytesCopied) {
+    s32 duplicates = character_duplicate_index(playerId);
+    size_t entries = bytesCopied / sizeof(RGBA5551);
+    size_t i;
+    s32 degrees;
+
+    if (duplicates == 0) {
+        return;
+    }
+
+    degrees = (duplicates * 360) / NUM_PLAYERS;
+
+    if (entries > ARRAY_COUNT(palette->kart_palette)) {
+        entries = ARRAY_COUNT(palette->kart_palette);
+    }
+
+    for (i = 0; i < entries; i++) {
+        palette->kart_palette[i] = hue_rotate_rgba5551(palette->kart_palette[i], degrees);
+    }
+}
+
 void load_kart_palette(Player* player, s8 playerId, s8 screenId, s8 buffer) {
     u8* asset;
     size_t size;
@@ -677,6 +808,7 @@ void load_kart_palette(Player* player, s8 playerId, s8 screenId, s8 buffer) {
             size = GameEngine_GetTexSizeByName((const char*) gKartPalettes[player->characterId]);
             asset = (u8*) LOAD_ASSET(gKartPalettes[player->characterId]);
             memcpy(&temp_s0->kart_palette[0], asset, size);
+            tint_duplicate_kart_palette(temp_s0, playerId, size);
             break;
         case SCREEN_MODE_8P:
         case SCREEN_MODE_3P_4P_SPLITSCREEN: // Code identical to above
@@ -685,6 +817,7 @@ void load_kart_palette(Player* player, s8 playerId, s8 screenId, s8 buffer) {
             size = GameEngine_GetTexSizeByName((const char*) gKartPalettes[player->characterId]);
             asset = (u8*) LOAD_ASSET(gKartPalettes[player->characterId]);
             memcpy(&temp_s0->kart_palette[0], asset, size);
+            tint_duplicate_kart_palette(temp_s0, playerId, size);
             break;
     }
 }
