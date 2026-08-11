@@ -1359,7 +1359,7 @@ void main_menu_act(struct Controller* controller, u16 controllerIdx) {
                 break;
             }
             case MAIN_MENU_PLAYER_SELECT: {
-                if ((btnAndStick & R_JPAD) && gPlayerCount < 4) {
+                if ((btnAndStick & R_JPAD) && gPlayerCount < NUM_PLAYERS) {
                     gPlayerCount += 1;
                     reset_cycle_flash_menu();
                     play_sound2(SOUND_MENU_CURSOR_MOVE);
@@ -1371,18 +1371,13 @@ void main_menu_act(struct Controller* controller, u16 controllerIdx) {
                 }
                 // L800B2B38
                 gPlayerCountSelection1 = gPlayerCount;
-                switch (gPlayerCountSelection1) {
-                    case 1:
-                        gScreenModeSelection = SCREEN_MODE_1P;
-                        break;
-                    case 2:
-                        gScreenModeSelection = SCREEN_MODE_2P_SPLITSCREEN_HORIZONTAL;
-                        break;
-                    case 3:
-                    case 4:
-                        gScreenModeSelection = SCREEN_MODE_3P_4P_SPLITSCREEN;
-                        break;
-                }
+                /* Taken from the same two tables the title screen and the debug
+                   picker use, rather than a second switch that would have to be
+                   extended in step with them. The switch this replaces named
+                   counts one to four and so left five and up on whatever mode
+                   was last set. */
+                gScreenModeListIndex = sScreenModeIdxFromPlayerMode[gPlayerCountSelection1 - 1];
+                gScreenModeSelection = sScreenModePlayerTable[gScreenModeListIndex];
                 // L800B2B94
                 if (btnAndStick & B_BUTTON) {
                     func_8009E0F0(0x14);
@@ -1611,7 +1606,12 @@ GLOBAL_ASM("asm/non_matchings/menus/main_menu_act.s")
  * hovered character at grid position `gridId`
  */
 bool is_character_spot_free(s32 gridId) {
-    if (CVarGetInteger("gUniqueCharacterSelections", true) == false) {
+    /* Defaults to allowing duplicates. Eight players and eight characters means
+       unique selections leave the last player no choice at all, and two of the
+       same character are told apart by the palette shift applied in
+       load_kart_palette(). Set gUniqueCharacterSelections to restore the
+       one-each rule. */
+    if (CVarGetInteger("gUniqueCharacterSelections", false) == false) {
         return true;
     }
   

@@ -2402,6 +2402,24 @@ void func_80093A5C(u32 arg0) {
                 func_80093C1C((s32) D_800F0B1C[arg0]);
             }
             break;
+        default:
+            /* The eight-screen ids are a contiguous run rather than named
+               constants, so they arrive here rather than as case labels. With no
+               arm at all neither branch ran and the menu overlay never drew on
+               any of the eight screens.
+
+               The quadrant keys the full pass off the *last* screen -- its
+               gNumScreens == 3 is "screen four of four", since render_screens()
+               increments the counter after each one. The eight-screen equivalent
+               is the same test against the last of eight. */
+            if (render_screen_mode_8p_index(arg0) >= 0) {
+                if (gNumScreens == (NUM_PLAYERS - 1)) {
+                    func_800940EC((s32) D_800F0B1C[arg0]);
+                } else {
+                    func_80093C1C((s32) D_800F0B1C[arg0]);
+                }
+            }
+            break;
     }
     gDPSetRenderMode(gDisplayListHead++, G_RM_OPA_SURF, G_RM_OPA_SURF2);
 }
@@ -6619,6 +6637,13 @@ void render_menus(MenuItem* arg0) {
                 var_a1 = arg0->type - MENU_ITEM_UI_1P_GAME;
                 func_800A8270(var_a1, arg0);
                 func_800A0FA4(arg0, var_a1);
+                /* Counts past four borrow the four-player icon, so the number
+                   itself has to be drawn or the picker looks stuck on 4P. Drawn
+                   from the icon's own position so it follows the item as the
+                   menu slides it around. */
+                if ((arg0->type == MENU_ITEM_UI_4P_GAME) && (gPlayerCount > 4)) {
+                    print_str_num(arg0->column + 4, arg0->row + 34, "players ", gPlayerCount);
+                }
                 break;
             case MENU_ITEM_UI_OK:
                 func_800A8564(arg0);
@@ -10306,8 +10331,14 @@ void func_800A9C40(MenuItem* arg0) {
 
 void func_800A9D5C(MenuItem* arg0) {
     Unk_D_800E70A0* temp_v0;
+    /* The four icons are types 0xB through 0xE, so the selected one is the type
+       matching the count. There is no art past four players, so counts above it
+       keep the four-player icon lit and the real number is drawn beside it in
+       render_player_count_overlay(). Without this nothing at all is highlighted
+       once the picker passes four. */
+    s32 selectedType = (gPlayerCount > 4) ? MENU_ITEM_UI_4P_GAME : (gPlayerCount + 0xA);
 
-    if ((gPlayerCount + 0xA) == arg0->type) {
+    if (selectedType == arg0->type) {
         arg0->priority = 0x0A;
     } else {
         arg0->priority = 6;
