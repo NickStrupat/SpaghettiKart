@@ -754,12 +754,20 @@ void spawn_players_gp_many(f32* arg0, f32* arg1, f32 arg2) {
 }
 
 /**
- * Grand Prix / Versus spawn for the eighth-screen mode: every slot human.
+ * Grand Prix / Versus spawn for the eighth-screen mode.
  *
- * Modelled on spawn_players_gp_two_player() above, which puts two humans in
- * slots zero and one and fills the remaining six with CPUs. Eight players claim
- * all eight, so there are no CPU slots left to choose characters for and the
- * whole cpu_forTwoPlayer selection step falls away.
+ * The eight karts always exist -- the grid is always full -- but only the first
+ * gPlayerCountSelection1 of them are human. The rest are CPUs, exactly as the
+ * two-player arm above fills slots two through seven, so a five-player Grand Prix
+ * races five humans against three computer opponents instead of leaving three
+ * karts sitting on the line.
+ *
+ * CPU characters are the roster minus the ones the humans chose, taken in order.
+ * That keeps each CPU on its own character; and now that the picker allows two
+ * humans to share a character, a doubled human still leaves the CPUs distinct
+ * because only distinct human characters are struck from the pool. There are
+ * always enough left: eight characters, and at most gPlayerCountSelection1
+ * distinct ones removed.
  *
  * The grid itself is unchanged: the caller lays out the same eight staggered
  * positions every other Grand Prix arm uses, and D_80165270 permutes slot order
@@ -767,12 +775,45 @@ void spawn_players_gp_many(f32* arg0, f32* arg1, f32 arg2) {
  */
 void spawn_players_gp_eight_player(f32* arg0, f32* arg1, f32 arg2) {
     s32 i;
+    s32 humans = gPlayerCountSelection1;
+    u8 characterTaken[BOWSER + 1] = { 0 };
+    s8 cpuChars[NUM_PLAYERS] = { 0 };
+    s32 cpuFilled = 0;
+    s32 c;
 
     func_80039DA4();
 
+    if (humans < 1) {
+        humans = 1;
+    }
+    if (humans > NUM_PLAYERS) {
+        humans = NUM_PLAYERS;
+    }
+
+    for (i = PLAYER_ONE; i < humans; i++) {
+        if ((gCharacterSelections[i] >= MARIO) && (gCharacterSelections[i] <= BOWSER)) {
+            characterTaken[gCharacterSelections[i]] = 1;
+        }
+    }
+    for (c = MARIO; (c <= BOWSER) && (cpuFilled < (NUM_PLAYERS - humans)); c++) {
+        if (!characterTaken[c]) {
+            cpuChars[cpuFilled++] = c;
+        }
+    }
+
     for (i = PLAYER_ONE; i < NUM_PLAYERS; i++) {
-        spawn_player(&gPlayers[i], i, arg0[D_80165270[i]], arg1[D_80165270[i]], arg2, 32768.0f,
-                     gCharacterSelections[i], PLAYER_EXISTS | PLAYER_START_SEQUENCE | PLAYER_HUMAN);
+        s8 characterId;
+        u32 flags;
+
+        if (i < humans) {
+            characterId = gCharacterSelections[i];
+            flags = PLAYER_EXISTS | PLAYER_START_SEQUENCE | PLAYER_HUMAN;
+        } else {
+            characterId = cpuChars[i - humans];
+            flags = PLAYER_EXISTS | PLAYER_CPU | PLAYER_START_SEQUENCE;
+        }
+
+        spawn_player(&gPlayers[i], i, arg0[D_80165270[i]], arg1[D_80165270[i]], arg2, 32768.0f, characterId, flags);
     }
 
     D_80164A28 = 0;
