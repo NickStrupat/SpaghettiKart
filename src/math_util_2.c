@@ -12,6 +12,7 @@
 #include "code_80057C60.h"
 #include "defines.h"
 #include "camera.h"
+#include <screen_grid.h>
 
 #include "port/Engine.h"
 #include "engine/Matrix.h"
@@ -690,11 +691,92 @@ UNUSED void func_800421FC(s32 x, s32 y, f32 scale) {
               G_MTX_NOPUSH | G_MTX_MUL | G_MTX_MODELVIEW);
 }
 
+/**
+ * Live HUD layout for the eighth-screen grid.
+ *
+ * Everything below answers one question: where, in the window as it is right
+ * now, does this element belong for this player? Nothing is precomputed and
+ * nothing is stored, so the cell rectangle is derived from the current aspect
+ * ratio every time it is asked for and a window resized mid-race is picked up on
+ * the very next frame.
+ *
+ * Positions are fractions of the cell rather than offsets in the 320-wide layout
+ * space, and sizes are fractions of the cell's width rather than fixed scales. A
+ * fraction keeps its meaning at any window size; a fixed offset silently becomes
+ * a different share of the cell as the window widens, which is exactly why the
+ * earlier placement could look right at one size and wrong at another.
+ *
+ * Why not the two edge helpers above: they pull a coordinate toward whichever
+ * screen edge is nearer, which serves any grid whose cells all touch an edge. A
+ * 4x2 grid has two middle columns that touch neither, and the helpers cannot
+ * reach them at all -- with the window spanning 320-space [160-120a, 160+120a]
+ * they map their input onto [160-120a, 320-120a) and [120a, 160+120a], leaving
+ * the whole middle band unreachable whatever x you hand them.
+ *
+ * Placement is uniform across all eight cells rather than mirrored by half the
+ * way the quadrant's is. Mirroring would put the two middle columns' markers on
+ * their facing edges, sitting them side by side across a divider -- the bunching
+ * this grid is already prone to.
+ */
+
+/* The fractions themselves are in math_util_2.h, beside the declarations, so a
+   caller can see what it is asking for. They are the values to nudge if the
+   cells look crowded; nothing else needs to change with them. */
+
+static f32 hud_cell_width(void) {
+    f32 leftEdge = OTRGetDimensionFromLeftEdge(0.0f);
+    f32 span = OTRGetDimensionFromRightEdge((f32) SCREEN_WIDTH) - leftEdge;
+
+    return span / (f32) screen_grid_columns(SCREEN_MODE_8P);
+}
+
+static f32 hud_cell_left(s32 playerId) {
+    f32 leftEdge = OTRGetDimensionFromLeftEdge(0.0f);
+
+    return leftEdge + (hud_cell_width() * (f32) screen_player_column(SCREEN_MODE_8P, playerId));
+}
+
+/* The window widens horizontally only, so rows keep their 240-space height. */
+static f32 hud_cell_height(void) {
+    return (f32) SCREEN_HEIGHT / (f32) screen_grid_rows(SCREEN_MODE_8P);
+}
+
+static f32 hud_cell_top(s32 playerId) {
+    return hud_cell_height() * (f32) screen_player_row(SCREEN_MODE_8P, playerId);
+}
+
+/** Fraction across this player's cell, or the caller's own value in other modes. */
+s32 hud_place_x(s32 playerId, f32 fraction, s32 fallback) {
+    if (gScreenModeSelection != SCREEN_MODE_8P) {
+        return fallback;
+    }
+    return (s32) (hud_cell_left(playerId) + (hud_cell_width() * fraction));
+}
+
+/** Fraction down this player's cell, or the caller's own value in other modes. */
+s32 hud_place_y(s32 playerId, f32 fraction, s32 fallback) {
+    if (gScreenModeSelection != SCREEN_MODE_8P) {
+        return fallback;
+    }
+    return (s32) (hud_cell_top(playerId) + (hud_cell_height() * fraction));
+}
+
+/** Draw scale that keeps an element at a fixed share of the cell's width. */
+f32 hud_place_scale(f32 widthFraction, f32 sourceWidth, f32 fallback) {
+    if (gScreenModeSelection != SCREEN_MODE_8P) {
+        return fallback;
+    }
+    return (hud_cell_width() * widthFraction) / sourceWidth;
+}
+
 void func_80042330(s32 x, s32 y, u16 angle, f32 scale) {
     Mat4 matrix;
     // printf("panel %d %d %d\n", x, (s32)OTRGetDimensionFromLeftEdge(x), (s32)OTRGetDimensionFromLeftEdge(0));
 
-    if (gHUDModes != 2) {
+    /* The eighth-screen grid has already placed its HUD in window space via
+       hud_grid_x(), because two of its four columns cannot be reached by an edge
+       anchor at all. Anchoring here would drag them back out to the edges. */
+    if ((gHUDModes != 2) && (gScreenModeSelection != SCREEN_MODE_8P)) {
         if (x < (SCREEN_WIDTH / 2)) {
             x = (s32) OTRGetDimensionFromLeftEdge(x);
         } else {
@@ -746,10 +828,14 @@ void func_80042330_portrait(s32 x, s32 y, u16 angle, f32 scale, UNUSED s16 lapCo
 void func_80042330_wide(s32 x, s32 y, u16 angle, f32 scale) {
     Mat4 matrix;
 
-    if (x < (SCREEN_WIDTH / 2)) {
-        x = (s32) OTRGetDimensionFromLeftEdge(x);
-    } else {
-        x = (s32) OTRGetDimensionFromRightEdge(x);
+    /* Skipped for the eighth-screen grid for the reason given in
+       func_80042330 above: hud_grid_x() has already placed x in window space. */
+    if (gScreenModeSelection != SCREEN_MODE_8P) {
+        if (x < (SCREEN_WIDTH / 2)) {
+            x = (s32) OTRGetDimensionFromLeftEdge(x);
+        } else {
+            x = (s32) OTRGetDimensionFromRightEdge(x);
+        }
     }
 
     mtxf_translation_x_y_rotate_z_scale_x_y(matrix, x, y, angle, scale);

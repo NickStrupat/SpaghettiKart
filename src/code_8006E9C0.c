@@ -887,41 +887,22 @@ void init_hud_two_player_horizontal() {
 }
 
 /**
- * HUD layout for the 4x2 eighth-screen grid.
+ * Per-race HUD state for the 4x2 eighth-screen grid.
  *
- * Derived from init_hud_three_four_player() below rather than hand-placed. Its
- * four players sit at the cell centres this file's grid helper computes, and
- * every other field is a fixed offset from that centre:
+ * Deliberately sets no coordinates. Every other mode in this file stores a fixed
+ * position per element, computed once here in the 320-wide layout space; this
+ * grid cannot, because two of its four columns sit outside that space entirely
+ * once the window is wider than 4:3, and because a position fixed at race start
+ * cannot follow a window resized during the race.
  *
- *     rank   outward from centre   +-43 across,  +40 top row / +30 bottom
- *     lap    inward from centre    -+60 across,  +36 top row / +32 bottom
+ * So placement lives in hud_place_x/y/scale() in math_util_2.c, which derives it
+ * from the cell's real rectangle each time an element is drawn. Storing a second
+ * set of coordinates here would give the layout two sources that could disagree.
  *
- * The 4x2 grid keeps the same two rows as the 2x2 one, so its cells are still
- * 120 tall and the vertical offsets carry over untouched. Only the width halves,
- * from 160 to 80, so the horizontal offsets are halved with them.
- *
- * The item box starts off-screen and slides in by a fixed 128 units, set in
- * update_objects.c. The quadrant's start values are picked so that slide lands
- * the box on its cell: -0x36 + 128 = 74 against a centre of 80, six short to
- * allow for the box's own width. Two columns need only two start values, which
- * is why they are constants there.
- *
- * Four columns need four, so these are derived the same way instead -- centre
- * minus the slide distance and the same six-unit allowance, mirrored for cells
- * in the right half. The slide itself stays 128 and needs no change; what has
- * to vary per column is where the box starts, not how far it travels.
+ * What remains is the state a race needs regardless of where things are drawn:
+ * the item window objects, the slide animation's starting values, and the
+ * globals the quadrant's version sets at the same point.
  */
-/* Distance the item box travels from off-screen, set in update_objects.c, and
-   the allowance for the box's own width implied by the quadrant's start values.
-
-   Reproducing the quadrant from these gives -54 on the left, matching its -0x36
-   exactly, and 374 on the right against its 0x175 of 373. The original is a unit
-   asymmetric rather than the model being wrong; a single inset is used here
-   because a one-unit lean is not worth encoding, and these cells are new
-   anyway. */
-#define ITEM_BOX_SLIDE 128
-#define ITEM_BOX_INSET 6
-
 void init_hud_eight_player(void) {
     s32 i;
 
@@ -941,33 +922,41 @@ void init_hud_eight_player(void) {
     init_course_object();
 
     for (i = PLAYER_ONE; i < NUM_PLAYERS; i++) {
-        s32 centerX = screen_cell_center_x(SCREEN_MODE_8P, i);
-        s32 centerY = screen_cell_center_y(SCREEN_MODE_8P, i);
         s32 rightHalf = screen_cell_is_right_half(SCREEN_MODE_8P, i);
         s32 topRow = (screen_player_row(SCREEN_MODE_8P, i) == 0);
 
-        /* Land the box on its cell after the fixed 128-unit slide, matching
-           how the quadrant's -0x36 and 0x175 were chosen. */
-        playerHUD[i].itemBoxX = rightHalf ? (centerX + ITEM_BOX_SLIDE + ITEM_BOX_INSET)
-                                          : (centerX - ITEM_BOX_SLIDE - ITEM_BOX_INSET);
-        playerHUD[i].itemBoxY = topRow ? 0x36 : 0x2D;
+        /* Both slides start at rest. The item box's is read as a fraction of its
+           journey by func_8004E6C4(), not added to a coordinate, so only its
+           extent matters here and that is set in update_objects.c. */
         playerHUD[i].slideItemBoxX = 0;
         playerHUD[i].slideItemBoxY = 0;
-
-        playerHUD[i].unk_4A = centerX;
-        playerHUD[i].unk_4C = centerY;
-
-        playerHUD[i].rankX = centerX + (rightHalf ? 21 : -21);
-        playerHUD[i].rankY = centerY + (topRow ? 40 : 30);
         playerHUD[i].slideRankX = 0;
         playerHUD[i].slideRankY = 0;
 
-        playerHUD[i].lapX = centerX + (rightHalf ? -30 : 30);
-        playerHUD[i].lapY = centerY + (topRow ? 36 : 32);
+        playerHUD[i].unk_4A = screen_cell_center_x(SCREEN_MODE_8P, i);
+        playerHUD[i].unk_4C = screen_cell_center_y(SCREEN_MODE_8P, i);
 
         playerHUD[i].unk_6C = rightHalf ? 0xC8 : 0xDE;
         playerHUD[i].unk_6E = topRow ? 0xC8 : 0xC0;
+
+        /* Kept because the post-race sequence animates rankScaling toward 1.0
+           from whatever it finds, so it needs a sane starting point even though
+           the racing HUD derives its own scale. */
+        playerHUD[i].rankScaling = 0.5f;
+        playerHUD[i].unknownScaling = 1.5f;
+        playerHUD[i].stagingPosition = (s16) gGPCurrentRaceRankByPlayerId[i];
+
+        /* Without this the item window object never leaves state 0, and
+           draw_item_window()/func_8004E6C4() both gate on state >= 2 -- so the
+           box is not merely misplaced, it never draws at all. */
+        init_item_window(gItemWindowObjectByPlayerId[i]);
     }
+
+    D_8018D158 = (s32) gPlayerCount;
+    D_8018D3C4 = 0x00000014;
+    D_8018D3BC = 0x00000010;
+    D_8018D3C0 = 0x0000001E;
+    D_801657A2 = 0x0888;
 }
 
 void init_hud_three_four_player(void) {

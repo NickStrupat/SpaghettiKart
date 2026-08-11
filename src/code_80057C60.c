@@ -600,6 +600,17 @@ void func_80058C20(u32 arg0) {
     gSPDisplayList(gDisplayListHead++, D_0D0076F8);
 
     if (D_8018D22C == 0) {
+        if (render_screen_mode_8p_index(arg0) >= 0) {
+            if (!gDemoMode) {
+                /* Every per-screen arm of this switch resolves to the same body:
+                   set_matrix_hud_screen() behind the gHUDDisable check. The
+                   quadrant's player-one variant is reused rather than adding a
+                   ninth identical stub. */
+                func_800596A8();
+            }
+            return;
+        }
+
         switch (arg0) {
             case RENDER_SCREEN_MODE_1P_PLAYER_ONE:
                 func_80058F48();
@@ -667,6 +678,15 @@ void render_hud(u32 arg0) {
     D_8018D21C = arg0;
     gSPDisplayList(gDisplayListHead++, D_0D0076F8);
     if (D_8018D22C == 0) {
+        s32 screen8p = render_screen_mode_8p_index(arg0);
+
+        if (screen8p >= 0) {
+            if (!gDemoMode) {
+                render_hud_8p_multi(screen8p);
+            }
+            return;
+        }
+
         switch (arg0) {
             case RENDER_SCREEN_MODE_1P_PLAYER_ONE:
                 func_80058F78();
@@ -856,50 +876,79 @@ void render_own_view_overlay(s32 playerId) {
 void func_8005902C(void) {
 
     if (D_8018D2AC != 0) {
-        switch (gPlayerCountSelection1) {
-            case 2:
-                func_8004EB30(PLAYER_ONE);
-                func_8004EB30(PLAYER_TWO);
-                break;
-            case 3:
-                func_8004EB30(PLAYER_ONE);
-                func_8004EB30(PLAYER_TWO);
-                func_8004EB30(PLAYER_THREE);
-                break;
-            case 4:
-                func_8004EB30(PLAYER_ONE);
-                func_8004EB30(PLAYER_TWO);
-                func_8004EB30(PLAYER_THREE);
-                func_8004EB30(PLAYER_FOUR);
-                break;
+        s32 i;
+
+        /* One call per player, which the ladder this replaces spelled out per
+           count and so stopped at four. The >= 2 guard keeps single-player
+           behaviour exactly as it was, where no case matched. */
+        if (gPlayerCountSelection1 >= 2) {
+            for (i = PLAYER_ONE; (i < gPlayerCountSelection1) && (i < NUM_PLAYERS); i++) {
+                func_8004EB30(i);
+            }
         }
     }
+}
+
+/**
+ * Whether the rank display has to cover more than four places.
+ *
+ * There are two rank elements and they are not interchangeable. func_8004E800
+ * draws the Grand Prix one, whose three tables -- common_texture_hud_place,
+ * D_800E55F8 and D_8018CF98 -- all hold eight entries, because Grand Prix has
+ * always run eight karts. func_8004E998 draws the VS one, whose D_0D015258 and
+ * D_800E5618 hold four, because vanilla VS never raced more than four and the
+ * ROM has no fifth- through eighth-place art for that icon family.
+ *
+ * So the choice is not cosmetic. Asking the VS element for fifth place reads off
+ * the end of both its tables, which is what crashed the eighth-screen mode: it
+ * is Grand Prix, its karts are ranked one to eight, and the four-place element
+ * cannot express that.
+ *
+ * Keyed off the size of the field rather than the number of humans, because the
+ * two differ -- Grand Prix runs eight karts whatever the player count, so this
+ * also covers four-player Grand Prix, which reads out of bounds for exactly the
+ * same reason and did so before the eighth screen existed.
+ */
+static s32 rank_display_needs_eight_places(void) {
+    return (gModeSelection == GRAND_PRIX) || (gPlayerCountSelection1 > 4);
 }
 
 void func_800590D4(void) {
     if (D_8018D2A4 != 0) {
         if (gModeSelection != BATTLE) {
+            s32 i;
+
             switch (gPlayerCountSelection1) {
                 case 1:
                     if (gModeSelection != TIME_TRIALS) {
                         func_8004E800(PLAYER_ONE);
-                        break;
                     }
                     break;
                 case 2:
                     func_8004E800(PLAYER_ONE);
                     func_8004E800(PLAYER_TWO);
                     break;
-                case 3:
-                    func_8004E998(PLAYER_ONE);
-                    func_8004E998(PLAYER_TWO);
-                    func_8004E998(PLAYER_THREE);
-                    break;
-                case 4:
-                    func_8004E998(PLAYER_ONE);
-                    func_8004E998(PLAYER_TWO);
-                    func_8004E998(PLAYER_THREE);
-                    func_8004E998(PLAYER_FOUR);
+                default:
+                    /* Three players and up draw one per-player rank element per
+                       screen, so this is a loop rather than a case per count.
+                       The ladder it replaces named three and four only, which
+                       left five through eight matching nothing and drawing no
+                       rank at all.
+
+                       Which of the two elements is drawn depends on how large
+                       the field is, not how many humans are in it -- see
+                       rank_display_needs_eight_places() above.
+
+                       A count of zero still draws nothing, as before. */
+                    if (rank_display_needs_eight_places()) {
+                        for (i = PLAYER_ONE; (i < gPlayerCountSelection1) && (i < NUM_PLAYERS); i++) {
+                            func_8004E800(i);
+                        }
+                    } else {
+                        for (i = PLAYER_ONE; (i < gPlayerCountSelection1) && (i < NUM_PLAYERS); i++) {
+                            func_8004E998(i);
+                        }
+                    }
                     break;
             }
         }
@@ -1007,12 +1056,22 @@ void render_hud_2p_vertical_player_two(void) {
 void render_hud_lap_3p_4p(s32 playerId) {
     if (gModeSelection != BATTLE) {
         if (D_801657F8 && gIsHUDVisible) {
+            /* Placed against the player's live cell. A plain 320-space
+               coordinate lands in the middle of a widescreen window whatever
+               column the player is in, because this element's draw path does no
+               widescreen mapping of its own. Falls back to the stored
+               coordinates in every other mode.
+
+               Only moved, not resized: draw_hud_2d_texture takes texture
+               dimensions rather than a scale, so the lap counter is a
+               fixed-size element. */
+            s32 lapX = hud_place_x(playerId, HUD_CELL_LAP_X, playerHUD[playerId].lapX);
+            s32 lapY = hud_place_y(playerId, HUD_CELL_LAP_Y, playerHUD[playerId].lapY);
+
             // draw_hud_2d_texture_32x8(playerHUD[playerId].lapX, playerHUD[playerId].lapY, (u8*)
             // common_texture_hud_lap);
-            draw_hud_2d_texture(playerHUD[playerId].lapX, playerHUD[playerId].lapY, 32, 8,
-                                (u8*) common_texture_hud_lap);
-            draw_lap_count(playerHUD[playerId].lapX - 12, playerHUD[playerId].lapY + 4,
-                           playerHUD[playerId].alsoLapCount);
+            draw_hud_2d_texture(lapX, lapY, 32, 8, (u8*) common_texture_hud_lap);
+            draw_lap_count(lapX - 12, lapY + 4, playerHUD[playerId].alsoLapCount);
         }
         if (gHUDModes == 2) {
             if (playerHUD[playerId].unk_74 && D_80165608) {
@@ -1085,6 +1144,26 @@ void render_hud_4p_multi(void) {
 
         set_matrix_hud_screen();
         render_hud_lap_3p_4p(PLAYER_FOUR);
+
+        FrameInterpolation_RecordCloseChild();
+    }
+}
+
+/**
+ * The eight-screen equivalent of the four functions above, which differ from one
+ * another only in the id they pass down. This takes that id rather than being
+ * written out eight times.
+ *
+ * The lap and item drawing itself is shared with the quadrant: both grids place
+ * these two elements per screen at coordinates held in playerHUD[], and only
+ * those coordinates differ between the two layouts.
+ */
+void render_hud_8p_multi(s32 playerId) {
+    if (gHUDDisable == 0) {
+        FrameInterpolation_RecordOpenChild("HudMatrix", playerId);
+
+        set_matrix_hud_screen();
+        render_hud_lap_3p_4p(playerId);
 
         FrameInterpolation_RecordCloseChild();
     }

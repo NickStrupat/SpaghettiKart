@@ -71,6 +71,23 @@ void func_80041D24(void);
 void func_80041D34(void);
 void set_matrix_hud_screen(void);
 void func_80042330(s32, s32, u16, f32);
+
+/* Live per-cell HUD placement for the eighth-screen grid; see math_util_2.c.
+   Each returns the caller's own value unchanged in every other screen mode. */
+s32 hud_place_x(s32 playerId, f32 fraction, s32 fallback);
+s32 hud_place_y(s32 playerId, f32 fraction, s32 fallback);
+f32 hud_place_scale(f32 widthFraction, f32 sourceWidth, f32 fallback);
+
+#define HUD_CELL_RANK_X 0.19f
+#define HUD_CELL_RANK_Y 0.84f
+#define HUD_CELL_LAP_X 0.76f
+#define HUD_CELL_LAP_Y 0.86f
+#define HUD_CELL_ITEM_X 0.50f
+#define HUD_CELL_ITEM_Y 0.16f
+#define HUD_CELL_RANK_WIDTH 0.24f
+#define HUD_CELL_ITEM_WIDTH 0.28f
+#define HUD_RANK_SOURCE_WIDTH 128.0f
+#define HUD_ITEM_SOURCE_WIDTH 40.0f
 void func_80042330_unchanged(s32 x, s32 y, u16 angle, f32 scale);
 void func_80042330_portrait(s32, s32, u16, f32, s16);
 void func_80042330_wide(s32, s32, u16, f32);

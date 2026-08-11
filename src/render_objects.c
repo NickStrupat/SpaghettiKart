@@ -16,6 +16,7 @@
 #include "memory.h"
 #include "racing/math_util.h"
 #include "math_util_2.h"
+#include <screen_grid.h>
 #include "objects.h"
 #include "waypoints.h"
 #include "bomb_kart.h"
@@ -2445,10 +2446,28 @@ void func_8004E6C4(s32 playerId) {
     objectIndex = gItemWindowObjectByPlayerId[playerId];
     object = &gObjectList[objectIndex];
     if (object->state >= 2) {
+        /* The box slides in from outside its own cell rather than from a fixed
+           128 units away, so the entrance covers the same ground whatever the
+           window size. slideItemBoxX runs 0 to +-128 as it arrives, which makes
+           the remaining share of the journey (128 - |slide|) / 128. */
+        s32 slid;
+        f32 remaining;
+        f32 itemFraction;
+
         temp_v0 = &playerHUD[playerId];
+        slid = temp_v0->slideItemBoxX;
+        if (slid < 0) {
+            slid = -slid;
+        }
+        remaining = (128.0f - (f32) slid) / 128.0f;
+        itemFraction = screen_cell_is_right_half(SCREEN_MODE_8P, playerId) ? (HUD_CELL_ITEM_X + remaining)
+                                                                          : (HUD_CELL_ITEM_X - remaining);
+
         FrameInterpolation_RecordOpenChild("item_window_splitscreen", playerId);
-        func_80047910(temp_v0->slideItemBoxX + temp_v0->itemBoxX, temp_v0->slideItemBoxY + temp_v0->itemBoxY, 0U,
-                      temp_v0->unknownScaling, (u8*) object->activeTLUT, (u8*) object->activeTexture, (Vtx*)LOAD_ASSET(D_0D005C30),
+        func_80047910(hud_place_x(playerId, itemFraction, temp_v0->slideItemBoxX + temp_v0->itemBoxX),
+                      hud_place_y(playerId, HUD_CELL_ITEM_Y, temp_v0->slideItemBoxY + temp_v0->itemBoxY), 0U,
+                      hud_place_scale(HUD_CELL_ITEM_WIDTH, HUD_ITEM_SOURCE_WIDTH, temp_v0->unknownScaling),
+                      (u8*) object->activeTLUT, (u8*) object->activeTexture, (Vtx*)LOAD_ASSET(D_0D005C30),
                       0x00000028, 0x00000020, 0x00000028, 0x00000020);
         FrameInterpolation_RecordCloseChild();
     }
@@ -2464,18 +2483,21 @@ void draw_simplified_lap_count(s32 playerId) {
 void func_8004E800(s32 playerId) {
     FrameInterpolation_RecordOpenChild("Player place HUD", playerId);
     if (playerHUD[playerId].unk_81 != 0) {
+        /* Placed against the player's live cell, so a window resized mid-race is
+           followed. Falls back to the stored coordinates in every other mode. */
+        s32 rankX = hud_place_x(playerId, HUD_CELL_RANK_X, playerHUD[playerId].rankX + playerHUD[playerId].slideRankX);
+        s32 rankY = hud_place_y(playerId, HUD_CELL_RANK_Y, playerHUD[playerId].rankY + playerHUD[playerId].slideRankY);
+        f32 rankScale =
+            hud_place_scale(HUD_CELL_RANK_WIDTH, HUD_RANK_SOURCE_WIDTH, playerHUD[playerId].rankScaling);
+
         if (playerHUD[playerId].lapCount != 3) {
-            func_8004A384(playerHUD[playerId].rankX + playerHUD[playerId].slideRankX,
-                          playerHUD[playerId].rankY + playerHUD[playerId].slideRankY, 0U,
-                          playerHUD[playerId].rankScaling, 0x000000FF, D_800E55F8[D_8018CF98[playerId]], 0, 0x000000FF,
+            func_8004A384(rankX, rankY, 0U, rankScale, 0x000000FF, D_800E55F8[D_8018CF98[playerId]], 0, 0x000000FF,
                           (u8*) common_texture_hud_place[D_8018CF98[playerId]], D_0D0068F0, 0x00000080, 0x00000040,
                           0x00000080, 0x00000040);
         } else {
-            func_8004A384(playerHUD[playerId].rankX + playerHUD[playerId].slideRankX,
-                          playerHUD[playerId].rankY + playerHUD[playerId].slideRankY, 0U,
-                          playerHUD[playerId].rankScaling, 0x000000FF, D_800E55F8[D_80165594], 0, 0x000000FF,
-                          (u8*) common_texture_hud_place[gGPCurrentRaceRankByPlayerId[playerId]], D_0D0068F0,
-                          0x00000080, 0x00000040, 0x00000080, 0x00000040);
+            func_8004A384(rankX, rankY, 0U, rankScale, 0x000000FF, D_800E55F8[D_80165594], 0, 0x000000FF,
+                          (u8*) common_texture_hud_place[gGPCurrentRaceRankByPlayerId[playerId]], D_0D0068F0, 0x00000080,
+                          0x00000040, 0x00000080, 0x00000040);
         }
     }
     FrameInterpolation_RecordCloseChild();

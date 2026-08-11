@@ -25,6 +25,27 @@ extern "C" {
    eight-screen ids run 12-19, one per player. */
 #define RENDER_SCREEN_MODE_8P_PLAYER_ONE (PLAYER_ONE + SCREEN_MODE_8P + 8)
 
+/**
+ * The screen index behind an eight-player render id, or -1 for any other mode.
+ *
+ * Every other mode has one named constant per screen, so the switches that
+ * dispatch on these ids match them as case labels. The eight-player ids are a
+ * contiguous run instead, and spelling them out would mean eight more arms
+ * differing only in the id they pass down -- which is precisely what
+ * render_hud_1p_multi through 4p_multi already are. Matching the range and
+ * recovering the index by subtraction keeps that to one arm.
+ *
+ * This lives in the header because more than one of those switches needs it, and
+ * two copies of the bound are two things to keep in step with NUM_PLAYERS.
+ */
+static inline s32 render_screen_mode_8p_index(u32 mode) {
+    if ((mode >= (u32) RENDER_SCREEN_MODE_8P_PLAYER_ONE) &&
+        (mode < (u32) (RENDER_SCREEN_MODE_8P_PLAYER_ONE + NUM_PLAYERS))) {
+        return (s32) (mode - (u32) RENDER_SCREEN_MODE_8P_PLAYER_ONE);
+    }
+    return -1;
+}
+
 typedef struct {
     char unk_00[0x4];
     Vec3f unk_04;
@@ -77,6 +98,7 @@ void func_80059750(void);
 void render_hud_3p_multi(void);
 void func_800597B8(void);
 void render_hud_4p_multi(void);
+void render_hud_8p_multi(s32);
 void func_80059820(s32);
 void randomize_seed_from_controller(s32);
 void func_8005994C(void);

@@ -2528,12 +2528,19 @@ void func_8007B34C(s32 playerId) {
             // column rather than their id: the old (playerId == 0 || playerId == 2)
             // test read a 2x2 grid's left column off the id directly, which stops
             // being true with four columns.
+            //
+            // The eight-screen mode belongs on this branch and not the fallback
+            // below, which slides every box the same way. Its right-half cells
+            // are placed by init_hud_eight_player() to arrive after a *negative*
+            // slide, exactly as the quadrant's are, so sliding them positive
+            // leaves them two slide-widths from their cell.
             if (gActiveScreenMode == SCREEN_MODE_1P) {
                 s16_step_up_towards(&playerHUD[playerId].slideItemBoxY, 0x0040, 4);
                 if (playerHUD[playerId].slideItemBoxY == 0x0040) {
                     object_next_state(temp_s0);
                 }
-            } else if (gActiveScreenMode == SCREEN_MODE_3P_4P_SPLITSCREEN) {
+            } else if ((gActiveScreenMode == SCREEN_MODE_3P_4P_SPLITSCREEN) ||
+                       (gActiveScreenMode == SCREEN_MODE_8P)) {
                 if (!screen_cell_is_right_half(gActiveScreenMode, playerId)) {
                     s16_step_up_towards(&playerHUD[playerId].slideItemBoxX, 0x0080, 8);
                     if (playerHUD[playerId].slideItemBoxX == 0x0080) {
@@ -2587,7 +2594,8 @@ void func_8007B34C(s32 playerId) {
                 if (s16_step_down_towards(&playerHUD[playerId].slideItemBoxY, 0, 4) != 0) {
                     object_next_state(temp_s0);
                 }
-            } else if (gActiveScreenMode == SCREEN_MODE_3P_4P_SPLITSCREEN) {
+            } else if ((gActiveScreenMode == SCREEN_MODE_3P_4P_SPLITSCREEN) ||
+                       (gActiveScreenMode == SCREEN_MODE_8P)) {
                 if (!screen_cell_is_right_half(gActiveScreenMode, playerId)) {
                     s16_step_down_towards(&playerHUD[playerId].slideItemBoxX, 0, 8);
                     if (playerHUD[playerId].slideItemBoxX == 0) {
