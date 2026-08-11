@@ -281,7 +281,7 @@ extern u32 sVIGammaOffDitherOn;
 #define NUM_SCREEN_MODE_ROWS 9
 extern const s8 sScreenModePlayerTable[];
 extern const s8 sScreenModePlayerCount[];
-extern const s8 gPlayerModeSelection[];
+extern const s8 gPlayerModeSelection[NUM_PLAYERS];
 extern const s8 sGameModePlayerColumnDefault[][3];
 extern const s8 sGameModePlayerColumnExtra[][3];
 extern const s32 gGameModePlayerSelection[][3];

@@ -154,6 +154,15 @@ enum MENU_ITEM_TYPE {
     CHARACTER_SELECT_MENU_2P_CURSOR,
     CHARACTER_SELECT_MENU_3P_CURSOR,
     CHARACTER_SELECT_MENU_4P_CURSOR,
+    /* Players five through eight. Placed in the unused 0x4A-0x4F run rather than
+       after 4P_CURSOR, because 0x43 onward is already taken -- so the eight
+       cursors are two contiguous blocks of four, not one of eight, and the
+       switches that handle them recover the player index from whichever block
+       the type falls in. */
+    CHARACTER_SELECT_MENU_5P_CURSOR = 0x4A,
+    CHARACTER_SELECT_MENU_6P_CURSOR,
+    CHARACTER_SELECT_MENU_7P_CURSOR,
+    CHARACTER_SELECT_MENU_8P_CURSOR,
     MENU_ITEM_TYPE_043 = 0x43,
     MENU_ITEM_TYPE_044,
     MENU_ITEM_TYPE_045,

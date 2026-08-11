@@ -185,6 +185,19 @@ Unk_D_800E70A0 D_800E7188[] = {
     { 0x5a, 0x3f, 0x00, 0x00 }, { 0xa6, 0x3f, 0x00, 0x00 }, { 0x5a, 0x91, 0x00, 0x00 }, { 0xa6, 0x91, 0x00, 0x00 },
 };
 
+/* Character-staging positions for the eighth-screen mode.
+ *
+ * D_800E7188 above is indexed gScreenModeSelection*4 and holds a four-slot row
+ * per pre-8P screen mode, so it has neither a row for SCREEN_MODE_8P (index 4,
+ * which reads off the end) nor room for more than four players. This is that
+ * mode's row: a 4x2 grid, players one-four across the top and five-eight across
+ * the bottom, mirroring how the eight viewports are laid out. Indexed directly
+ * by player, so it needs one entry per player. */
+Unk_D_800E70A0 sCharSelect8pStaging[NUM_PLAYERS] = {
+    { 0x38, 0x3f, 0, 0 }, { 0x68, 0x3f, 0, 0 }, { 0x98, 0x3f, 0, 0 }, { 0xC8, 0x3f, 0, 0 },
+    { 0x38, 0x91, 0, 0 }, { 0x68, 0x91, 0, 0 }, { 0x98, 0x91, 0, 0 }, { 0xC8, 0x91, 0, 0 },
+};
+
 Unk_D_800E70A0 D_800E7208[][2] = {
     {
         { 0x9d, 0x70, 0x00, 0x00 },
@@ -301,9 +314,15 @@ Unk_D_800E70A0 D_800E7480[] = {
     { 0x9b, 0xbe, 0x00, 0x00 }, { 0x80, 0x5a, 0x00, 0x00 },
 };
 
-RGBA16 D_800E74A8[] = {
+/* Cursor tint, one per player. render_cursor_player() indexes this by player, so
+   it needs an entry for each of them: at five it ran off the end for players six
+   through eight. The first four are the original colours; the last four are new
+   and chosen to stay apart from them, since players five through eight reuse the
+   four border textures and the tint is what tells the two halves apart. */
+RGBA16 D_800E74A8[NUM_PLAYERS] = {
     { 0x00, 0xf3, 0xf3, 0xff }, { 0xff, 0xa8, 0xc3, 0xff }, { 0xff, 0xfe, 0x7a, 0xff },
-    { 0x7b, 0xfc, 0x7b, 0xff }, { 0xff, 0xff, 0x00, 0xff },
+    { 0x7b, 0xfc, 0x7b, 0xff }, { 0xff, 0x8c, 0x1a, 0xff }, { 0xb4, 0x82, 0xff, 0xff },
+    { 0xff, 0xff, 0xff, 0xff }, { 0xff, 0x5a, 0x5a, 0xff },
 };
 
 RGBA16 D_800E74D0[] = {
@@ -2840,6 +2859,15 @@ void setup_menus(void) {
                 add_menu_item(CHARACTER_SELECT_MENU_2P_CURSOR, 0, 0, MENU_ITEM_PRIORITY_C);
                 add_menu_item(CHARACTER_SELECT_MENU_3P_CURSOR, 0, 0, MENU_ITEM_PRIORITY_C);
                 add_menu_item(CHARACTER_SELECT_MENU_4P_CURSOR, 0, 0, MENU_ITEM_PRIORITY_C);
+                /* Only added when they are actually playing, so the four-player
+                   screen is untouched. Each cursor draws nothing anyway while
+                   its player has no grid position. */
+                if (gPlayerCount > 4) {
+                    add_menu_item(CHARACTER_SELECT_MENU_5P_CURSOR, 0, 0, MENU_ITEM_PRIORITY_C);
+                    add_menu_item(CHARACTER_SELECT_MENU_6P_CURSOR, 0, 0, MENU_ITEM_PRIORITY_C);
+                    add_menu_item(CHARACTER_SELECT_MENU_7P_CURSOR, 0, 0, MENU_ITEM_PRIORITY_C);
+                    add_menu_item(CHARACTER_SELECT_MENU_8P_CURSOR, 0, 0, MENU_ITEM_PRIORITY_C);
+                }
                 break;
             case COURSE_SELECT_MENU:
                 add_menu_item(COURSE_SELECT_BACKGROUND, 0, 0, MENU_ITEM_PRIORITY_2);
@@ -6187,6 +6215,12 @@ void add_menu_item(s32 type, s32 column, s32 row, s8 priority) {
         case CHARACTER_SELECT_MENU_4P_CURSOR:
             load_menu_img(gMenuTexturesBorderPlayer[type - CHARACTER_SELECT_MENU_1P_CURSOR]);
             break;
+        case CHARACTER_SELECT_MENU_5P_CURSOR:
+        case CHARACTER_SELECT_MENU_6P_CURSOR:
+        case CHARACTER_SELECT_MENU_7P_CURSOR:
+        case CHARACTER_SELECT_MENU_8P_CURSOR:
+            load_menu_img(gMenuTexturesBorderPlayer[type - CHARACTER_SELECT_MENU_5P_CURSOR]);
+            break;
         case CHARACTER_SELECT_MENU_MARIO:
         case CHARACTER_SELECT_MENU_LUIGI:
         case CHARACTER_SELECT_MENU_TOAD:
@@ -6638,11 +6672,27 @@ void render_menus(MenuItem* arg0) {
                 func_800A8270(var_a1, arg0);
                 func_800A0FA4(arg0, var_a1);
                 /* Counts past four borrow the four-player icon, so the number
-                   itself has to be drawn or the picker looks stuck on 4P. Drawn
-                   from the icon's own position so it follows the item as the
-                   menu slides it around. */
+                   itself has to be drawn or the picker looks stuck on 4P.
+
+                   Drawn through the menu's own text path -- the same one
+                   draw_version() uses a few cases above -- rather than
+                   print_str_num(). That prints through the debug text routines,
+                   which emit their own texture and render-mode commands without
+                   restoring what the menu had set; the count came out as a
+                   couple of grey boxes and every menu item drawn after it was
+                   corrupted.
+
+                   Placed in the gap between the banner and the icon row, which
+                   is clear at every player count, rather than following the
+                   icon: the icons slide in from off-screen and a label pinned to
+                   one would spend the transition outside the frame. */
                 if ((arg0->type == MENU_ITEM_UI_4P_GAME) && (gPlayerCount > 4)) {
-                    print_str_num(arg0->column + 4, arg0->row + 34, "players ", gPlayerCount);
+                    char countLabel[16];
+
+                    sprintf(countLabel, "%d PLAYERS", gPlayerCount);
+                    set_text_color(TEXT_GREEN);
+                    print_text1(SCREEN_WIDTH / 2 - (s32) ((f32) get_string_width(countLabel) * 0.25f), 62, countLabel,
+                                0, 0.5f, 0.5f, 0);
                 }
                 break;
             case MENU_ITEM_UI_OK:
@@ -6744,7 +6794,17 @@ void render_menus(MenuItem* arg0) {
             case CHARACTER_SELECT_MENU_2P_CURSOR:
             case CHARACTER_SELECT_MENU_3P_CURSOR:
             case CHARACTER_SELECT_MENU_4P_CURSOR:
-                temp_a0 = arg0->type - CHARACTER_SELECT_MENU_1P_CURSOR;
+            case CHARACTER_SELECT_MENU_5P_CURSOR:
+            case CHARACTER_SELECT_MENU_6P_CURSOR:
+            case CHARACTER_SELECT_MENU_7P_CURSOR:
+            case CHARACTER_SELECT_MENU_8P_CURSOR:
+                /* Two blocks of four, so which one the type sits in decides
+                   whether four is added to the index within it. */
+                if (arg0->type >= CHARACTER_SELECT_MENU_5P_CURSOR) {
+                    temp_a0 = (arg0->type - CHARACTER_SELECT_MENU_5P_CURSOR) + 4;
+                } else {
+                    temp_a0 = arg0->type - CHARACTER_SELECT_MENU_1P_CURSOR;
+                }
                 if (gCharacterGridSelections[temp_a0]) {
                     if (gCharacterGridIsSelected[temp_a0] == 0) {
                         temp_t2 = 0x000000FF;
@@ -7263,8 +7323,25 @@ void render_cursor_player(MenuItem* arg0, s32 arg1, s32 arg2) {
     temp_v1 = &D_800E74A8[arg1];
     gDPSetPrimColor(gDisplayListHead++, 0, 0, temp_v1->red, temp_v1->green, temp_v1->blue, temp_v1->alpha);
     gDPSetEnvColor(gDisplayListHead++, arg2, arg2, arg2, 0x00);
-    gDisplayListHead = render_menu_textures(
-        gDisplayListHead, gMenuTexturesBorderPlayer[arg1], arg0->column, arg0->row);
+    /* Only four border textures exist and the ROM has no art for a fifth through
+       eighth, so players above the fourth reuse them and are told apart by the
+       tint above. The numeral in the border art is the original player's, so two
+       cursors will show the same digit until there is art for the rest. */
+    gDisplayListHead =
+        render_menu_textures(gDisplayListHead, gMenuTexturesBorderPlayer[arg1 % ARRAY_COUNT(gMenuTexturesBorderPlayer)],
+                             arg0->column, arg0->row);
+
+    /* The borrowed border carries the original player's numeral baked into it,
+       so a fifth player wearing the first player's art reads as another "1".
+       Painting the right number over that corner is what makes the two tell
+       apart; the tint alone was not enough to stop it looking like a duplicate. */
+    if (arg1 >= (s32) ARRAY_COUNT(gMenuTexturesBorderPlayer)) {
+        char playerNumber[4];
+
+        sprintf(playerNumber, "%d", arg1 + 1);
+        set_text_color(TEXT_GREEN);
+        print_text1(arg0->column + 5, arg0->row + 57, playerNumber, 0, 0.8f, 0.8f, 0);
+    }
 }
 
 void func_800A12BC(MenuItem* arg0, MenuTexture* arg1) {
@@ -9395,6 +9472,14 @@ void handle_menus_with_pri_arg(s32 priSpecial) {
             case CHARACTER_SELECT_MENU_2P_CURSOR:
             case CHARACTER_SELECT_MENU_3P_CURSOR:
             case CHARACTER_SELECT_MENU_4P_CURSOR:
+            case CHARACTER_SELECT_MENU_5P_CURSOR:
+            case CHARACTER_SELECT_MENU_6P_CURSOR:
+            case CHARACTER_SELECT_MENU_7P_CURSOR:
+            case CHARACTER_SELECT_MENU_8P_CURSOR:
+                /* Without the second block here the new cursors are never given
+                   a position and sit at the (0, 0) they were added with, which
+                   is the stray box that appeared over the screen's top-left
+                   corner. */
                 update_cursor(menuItem);
                 break;
             case CHARACTER_SELECT_MENU_MARIO:
@@ -10797,7 +10882,9 @@ void func_800AAC18(MenuItem* arg0) {
             if (gPlayerSelectMenuSelection == 3) {
                 temp_v0 = func_800AAFCC(temp_a1);
                 if (temp_v0 >= 0) {
-                    var_t0 = &D_800E7188[(gScreenModeSelection * 4) + temp_v0];
+                    var_t0 = (gScreenModeSelection == SCREEN_MODE_8P)
+                                 ? &sCharSelect8pStaging[temp_v0]
+                                 : &D_800E7188[(gScreenModeSelection * 4) + temp_v0];
                     arg0->column = (s32) var_t0->column;
                     arg0->row = (s32) var_t0->row;
                     arg0->state = 2;
@@ -10817,7 +10904,9 @@ void func_800AAC18(MenuItem* arg0) {
             if (arg0->state == 2) {
                 temp_v0 = func_800AAFCC(temp_a1);
                 if (temp_v0 >= 0) {
-                    var_t0 = &D_800E7188[(gScreenModeSelection * 4) + temp_v0];
+                    var_t0 = (gScreenModeSelection == SCREEN_MODE_8P)
+                                 ? &sCharSelect8pStaging[temp_v0]
+                                 : &D_800E7188[(gScreenModeSelection * 4) + temp_v0];
                 }
             } else {
                 var_t0 = &D_800E7108[0][temp_a1];
@@ -10839,9 +10928,23 @@ void update_cursor(MenuItem* arg0) {
     s32 playerId;
     s8 characterSelectionIndex;
 
-    playerId = arg0->type - CHARACTER_SELECT_MENU_1P_CURSOR;
+    /* Two blocks of four, as in the load and render switches. */
+    if (arg0->type >= CHARACTER_SELECT_MENU_5P_CURSOR) {
+        playerId = (arg0->type - CHARACTER_SELECT_MENU_5P_CURSOR) + 4;
+    } else {
+        playerId = arg0->type - CHARACTER_SELECT_MENU_1P_CURSOR;
+    }
     characterSelectionIndex = gCharacterGridSelections[playerId];
-    arg0->priority = 0xE - (playerId * 2);
+    /* Draw order, highest first, and it has to stay above the 6 an unhovered
+       portrait sits at -- a cursor that sinks below the portraits is drawn
+       behind the very thing it marks.
+
+       Spacing of one rather than the original two, because two only had four
+       players to cover: 0xE - 2n falls to 6 at the fifth player and to 0 by the
+       eighth, so players five onward tied with or sank beneath the portrait band
+       and their cursors disappeared. One keeps all eight distinct, ordered, and
+       clear of 6. Four players still rank in the same order they always did. */
+    arg0->priority = 0xE - playerId;
     hover_cursor_over_character_portrait(arg0, characterSelectionIndex - 1);
 }
 
@@ -10850,7 +10953,9 @@ void func_800AAE18(MenuItem* arg0) {
 
     temp_v0 = func_800AAFCC(arg0->type - CHARACTER_SELECT_MENU_MARIO);
     if (temp_v0 >= 0) {
-        arg0->priority = 0xE - (temp_v0 * 2);
+        /* Matched to update_cursor()'s spacing above, so a hovered portrait and
+           the cursor on it keep ranking together. */
+        arg0->priority = 0xE - temp_v0;
     } else {
         arg0->priority = 6;
     }
@@ -10862,7 +10967,20 @@ void func_800AAE18(MenuItem* arg0) {
  * is found.
  **/
 MenuItem* get_menu_item_player_count(void) {
-    s32 count = gPlayerCount - 1;
+    /* Every caller is func_800A9E58, which lays the game-mode and CC rows out
+       from this item's column and row. There is no icon past 4P GAME, so counts
+       above four have to borrow one, and an unclamped count found no item at
+       all -- returned NULL, and took the whole 50/100/150cc row with it.
+       (func_800A9D5C makes the same substitution when deciding which icon to
+       light, but borrows the fourth, because that is the one it draws.)
+
+       Two rather than four, because this row hangs to the *right* of whichever
+       column it is anchored to. Vanilla only ever shows it for one and two
+       players -- the counts that offer Grand Prix -- so the fourth column has
+       never had to fit it, and anchoring there ran the CC boxes off the right
+       edge of the screen. Two is the rightmost column vanilla proves it fits
+       under. */
+    s32 count = ((gPlayerCount > 4) ? 2 : gPlayerCount) - 1;
     for (size_t i = 0; i < ARRAY_COUNT(gMenuItems); i++) {
         if (gMenuItems[i].type == (count + MENU_ITEM_UI_1P_GAME)) {
             return &gMenuItems[i];
@@ -10987,7 +11105,12 @@ s32 func_800AAFCC(s32 characterId) {
     s32 someIndex = 0;
     s32 ret = false;
 
-    for (; someIndex < 4; someIndex++) {
+    /* Which player, if any, is hovering this portrait. Bounded at four it could
+       not see players five through eight, so a portrait held only by one of them
+       counted as unheld: it kept the dimming box drawn over unpicked characters
+       and never took the raised draw priority that puts a hovered portrait above
+       its neighbours. */
+    for (; someIndex < NUM_PLAYERS; someIndex++) {
         if ((characterId + 1) == gCharacterGridSelections[someIndex]) {
             ret = true;
             break;

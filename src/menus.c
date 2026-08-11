@@ -9,6 +9,7 @@
 #include "menus.h"
 #include "engine/TrackBrowser.h"
 #include "engine/editor/Editor.h"
+#include "port/Engine.h"
 #include "main.h"
 #include "code_800029B0.h"
 #include "racing/actors.h"
@@ -37,7 +38,12 @@ f32 gIntroModelPosY;
 f32 gIntroModelPosZ;
 s32 gMenuFadeType;
 s8 gCharacterGridSelections[NUM_PLAYERS];   // Map from each player to current grid position (1-4 top, 5-8 bottom)
-bool gCharacterGridIsSelected[4]; // Sets true if a character is selected for each player
+/* One entry per player, not per quadrant. player_select_menu_act() indexes this
+   by controller, and the reset loop in the CHARACTER_SELECT_MENU case walks
+   ARRAY_COUNT(gCharacterGridSelections) -- so at four entries every player above
+   the fourth wrote past the end, into whatever global the linker placed next.
+   That is what scrambled the cursors on the player-select screen. */
+bool gCharacterGridIsSelected[NUM_PLAYERS]; // Sets true if a character is selected for each player
 s8 gSubMenuSelection;             // Map Select states, Options and Ghost Data text selection
 s8 gMainMenuSelection;
 s8 gPlayerSelectMenuSelection; // grid screen state?
@@ -118,8 +124,14 @@ _Static_assert(ARRAY_COUNT(sScreenModePlayerTable) == ARRAY_COUNT(sScreenModePla
 _Static_assert(ARRAY_COUNT(sScreenModePlayerTable) == NUM_SCREEN_MODE_ROWS,
                "NUM_SCREEN_MODE_ROWS must match the screen mode tables");
 
-// Set indexed slots numbers for one-two-three-four mode selection
-const s8 gPlayerModeSelection[] = { 1, 2, 2, 2 }; // @port 3p and 4p add Grand Prix
+/* Highest row the game-mode column can move to, per player count -- so one less
+   than the number of usable entries in that count's gGameModePlayerSelection
+   row. Counts two and up offer Grand Prix, VS and Battle (@port: 3 and 4 players
+   add Grand Prix), so they stop at row 2.
+
+   Sized rather than left open: the header declared it unsized, so the
+   four-entry definition won and every count above four read past the end. */
+const s8 gPlayerModeSelection[NUM_PLAYERS] = { 1, 2, 2, 2, 2, 2, 2, 2 };
 
 // Limit for each index column in one-two-three-four mode selection
 const s8 sGameModePlayerColumnDefault[][3] = {
@@ -157,6 +169,21 @@ const s32 gGameModePlayerSelection[][3] = {
     { GRAND_PRIX, VERSUS, BATTLE },          // 7p game modes
     { GRAND_PRIX, VERSUS, BATTLE },          // 8p game modes
 };
+
+/* Every table above is subscripted by gPlayerCount - 1 somewhere in
+   main_menu_act(), so each needs a row per player. Three of them already did and
+   gPlayerModeSelection did not, which read past its end the moment the picker
+   could reach five -- and did so silently, because an unsized extern in the
+   header hid the length from every use site. Checked here so the next table
+   added to this family cannot repeat it. */
+_Static_assert(ARRAY_COUNT(gPlayerModeSelection) == NUM_PLAYERS,
+               "gPlayerModeSelection is indexed by player count and needs a row each");
+_Static_assert(ARRAY_COUNT(gGameModePlayerSelection) == NUM_PLAYERS,
+               "gGameModePlayerSelection is indexed by player count and needs a row each");
+_Static_assert(ARRAY_COUNT(sGameModePlayerColumnDefault) == NUM_PLAYERS,
+               "sGameModePlayerColumnDefault is indexed by player count and needs a row each");
+_Static_assert(ARRAY_COUNT(sGameModePlayerColumnExtra) == NUM_PLAYERS,
+               "sGameModePlayerColumnExtra is indexed by player count and needs a row each");
 
 // Map from character grid position id to character id
 // Note: changing order doesn't affect graphics, only the selection
@@ -197,7 +224,19 @@ void update_menus(void) {
     u16 controllerIdx;
 
     if (gFadeModeSelection == FADE_MODE_NONE) {
-        for (controllerIdx = 0; controllerIdx < 4; controllerIdx++) {
+        /* The character-select screen is the one menu where players five through
+           eight act for themselves, each on their own controller, so it polls
+           the full roster. Every other menu is a single-controller flow that
+           only ever reacts to controller one (the act functions gate their
+           real actions on controllerIdx == PLAYER_ONE), so widening the loop
+           for them would just spin over pads that do nothing -- it stays at
+           four to leave their behaviour untouched. */
+        u16 controllerCount =
+            ((gMenuSelection == CHARACTER_SELECT_MENU) || (gMenuSelection == PLAYER_SELECT_MENU_FROM_QUIT))
+                ? NUM_PLAYERS
+                : 4;
+
+        for (controllerIdx = 0; controllerIdx < controllerCount; controllerIdx++) {
             // Debug, quick jump through menus using the start button.
             if ((is_screen_being_faded() == 0) && (gEnableDebugMode) &&
                 ((gControllers[controllerIdx].buttonPressed & START_BUTTON) != 0)) {
