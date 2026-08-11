@@ -1527,7 +1527,15 @@ void spawn_multiplayer_cameras(u32 mode) {
             screens = 4;
             break;
         case SCREEN_MODE_8P:
-            screens = NUM_PLAYERS;
+            /* One viewport camera per human -- the CPU karts race without their
+               own screen -- so a five-player race makes five, not eight. */
+            screens = (size_t) gPlayerCount;
+            if (screens > NUM_PLAYERS) {
+                screens = NUM_PLAYERS;
+            }
+            if (screens < 1) {
+                screens = 1;
+            }
             break;
     }
     for (size_t i = 0; i < screens; i++) {
@@ -1574,7 +1582,18 @@ void load_kart_textures(void) {
             screens = 4;
             break;
         case SCREEN_MODE_8P:
-            screens = NUM_PLAYERS;
+            /* One viewport per human, matching the cameras. Looping the fixed
+               eight here dereferenced gScreenContexts[5..7].camera, which are
+               NULL now that only the human screens get cameras -- the crash a
+               five-player start hit. Each viewport still loads all eight karts'
+               textures via the inner loop, so the CPU karts still render. */
+            screens = (size_t) gPlayerCount;
+            if (screens > NUM_PLAYERS) {
+                screens = NUM_PLAYERS;
+            }
+            if (screens < 1) {
+                screens = 1;
+            }
             break;
     }
 

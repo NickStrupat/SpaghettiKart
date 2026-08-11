@@ -6,6 +6,7 @@
 
 #include "skybox_and_splitscreen.h"
 #include "code_800029B0.h"
+#include <screen_grid.h>
 #include <common_structs.h>
 #include "memory.h"
 #include "../camera.h"
@@ -314,15 +315,26 @@ void func_802A4300(void) {
              * put, so they bunched toward the centre as the window widened. */
             f32 leftEdge = OTRGetDimensionFromLeftEdge(0);
             f32 span = OTRGetDimensionFromRightEdge(SCREEN_WIDTH) - leftEdge;
+            s32 columns = screen_grid_columns(SCREEN_MODE_8P);
+            s32 rows = screen_grid_rows(SCREEN_MODE_8P);
             s32 column;
+            s32 row;
 
-            for (column = 1; column < 4; column++) {
-                s32 boundary = (s32) (leftEdge + ((span * column) / 4.0f));
+            /* One vertical per interior column boundary -- two for a 3x2 grid,
+               three for 4x2 -- placed by aspect the same way as before. */
+            for (column = 1; column < columns; column++) {
+                s32 boundary = (s32) (leftEdge + ((span * column) / (f32) columns));
 
                 gDPFillWideRectangle(gDisplayListHead++, boundary - 3, 0, boundary - 1, SCREEN_HEIGHT - 1);
             }
-            gDPFillWideRectangle(gDisplayListHead++, OTRGetRectDimensionFromLeftEdge(0), 119,
-                                 OTRGetGameRenderWidth(), 121);
+            /* One horizontal per interior row boundary. The rows split the fixed
+               240 height, so these stay at plain multiples of SCREEN_HEIGHT/rows. */
+            for (row = 1; row < rows; row++) {
+                s32 boundary = (SCREEN_HEIGHT * row) / rows;
+
+                gDPFillWideRectangle(gDisplayListHead++, OTRGetRectDimensionFromLeftEdge(0), boundary - 1,
+                                     OTRGetGameRenderWidth(), boundary + 1);
+            }
             break;
         }
     }
@@ -802,8 +814,17 @@ void set_screen(void) {
     s32 i;
     /* Every existing mode initialises exactly four contexts regardless of how
        many it actually displays, so this stays 4 for them and behaviour is
-       unchanged. Only the eighth-screen mode walks the full array. */
-    s32 screenCount = (gActiveScreenMode == SCREEN_MODE_8P) ? NUM_PLAYERS : 4;
+       unchanged. The eighth-screen mode initialises one context per human --
+       viewports now track the human count rather than a fixed eight -- so a
+       five-player race lays out five cells, not eight. */
+    s32 screenCount = (gActiveScreenMode == SCREEN_MODE_8P) ? gPlayerCount : 4;
+
+    if (screenCount > NUM_PLAYERS) {
+        screenCount = NUM_PLAYERS;
+    }
+    if (screenCount < 1) {
+        screenCount = 1;
+    }
 
     for (i = 0; i < screenCount; i++) {
         wrapper->controllers = controller;
@@ -862,8 +883,11 @@ void set_screen(void) {
                 }
                 break;
             case SCREEN_MODE_8P:
-                wrapper->screenStartX = sScreen8pCentreX[i];
-                wrapper->screenStartY = sScreen8pCentreY[i];
+                /* Cell centres now come from the live grid, which is 3x2 for
+                   five or six players and 4x2 for seven or eight, rather than a
+                   fixed eight-entry table. */
+                wrapper->screenStartX = screen_cell_center_x(SCREEN_MODE_8P, i);
+                wrapper->screenStartY = screen_cell_center_y(SCREEN_MODE_8P, i);
                 break;
         }
         player++;

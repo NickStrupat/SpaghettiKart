@@ -4,6 +4,13 @@
 #include "defines.h"
 #include "mk64.h" /* SCREEN_WIDTH, SCREEN_HEIGHT */
 
+/* The eighth-screen grid sizes itself to how many humans are actually racing,
+   not to a fixed eight: five or six share a 3x2 grid, seven or eight a 4x2. An
+   odd count leaves one spare cell, which the caller fills with a minimap. Read
+   here so every consumer -- HUD placement, viewport setup, cameras, dividers --
+   derives the same layout. */
+extern s8 gPlayerCount;
+
 /**
  * @file Where a player's viewport sits, as a grid position.
  *
@@ -39,7 +46,9 @@ static inline s32 screen_grid_columns(s32 screenMode) {
         case SCREEN_MODE_3P_4P_SPLITSCREEN:
             return 2;
         case SCREEN_MODE_8P:
-            return 4;
+            /* Three columns are enough to hold five or six players in two rows;
+               seven or eight need a fourth. */
+            return (gPlayerCount <= 6) ? 3 : 4;
         case SCREEN_MODE_1P:
         case SCREEN_MODE_2P_SPLITSCREEN_HORIZONTAL:
         default:
@@ -98,6 +107,34 @@ static inline s32 screen_cell_center_y(s32 screenMode, s32 playerId) {
  */
 static inline s32 screen_cell_is_right_half(s32 screenMode, s32 playerId) {
     return screen_cell_center_x(screenMode, playerId) >= (SCREEN_WIDTH / 2);
+}
+
+/** Width in 320-space of one cell of the grid. */
+static inline s32 screen_cell_width(s32 screenMode) {
+    return SCREEN_WIDTH / screen_grid_columns(screenMode);
+}
+
+/** Height in 240-space of one cell of the grid. */
+static inline s32 screen_cell_height(s32 screenMode) {
+    return SCREEN_HEIGHT / screen_grid_rows(screenMode);
+}
+
+/**
+ * How many cells the eighth-screen grid draws: the human viewports plus, when
+ * the count is odd, one spare cell for the minimap. 5 -> 6, 6 -> 6, 7 -> 8,
+ * 8 -> 8. Meaningful only for SCREEN_MODE_8P.
+ */
+static inline s32 screen_8p_cell_count(void) {
+    return screen_grid_columns(SCREEN_MODE_8P) * screen_grid_rows(SCREEN_MODE_8P);
+}
+
+/**
+ * The cell index that holds the minimap, or -1 when every cell is a player. It
+ * is the cell right after the last human -- present only when the human count is
+ * odd, since an even count fills the grid exactly.
+ */
+static inline s32 screen_8p_minimap_cell(void) {
+    return (gPlayerCount & 1) ? gPlayerCount : -1;
 }
 
 #endif /* SCREEN_GRID_H */

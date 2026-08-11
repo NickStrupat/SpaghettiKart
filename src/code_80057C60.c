@@ -955,6 +955,41 @@ void func_800590D4(void) {
     }
 }
 
+/**
+ * Draw the track minimap in the eighth-screen grid's spare cell.
+ *
+ * When the human count is odd the grid has one cell with no player, and that
+ * cell is always the rightmost of the bottom row. Point the minimap at its
+ * centre and reuse the ordinary minimap draw -- the track map, the live player
+ * dots, and the finish-line marker -- then put the position back so the normal
+ * per-screen minimap is unaffected. Silent for even counts and other modes.
+ */
+void draw_8p_minimap_cell(void) {
+    s32 cell;
+    s32 savedX;
+    s32 savedY;
+
+    if ((gScreenModeSelection != SCREEN_MODE_8P) || (screen_8p_minimap_cell() < 0)) {
+        return;
+    }
+
+    cell = screen_8p_minimap_cell();
+    savedX = CM_GetProps()->Minimap.Pos[0].X;
+    savedY = CM_GetProps()->Minimap.Pos[0].Y;
+
+    CM_GetProps()->Minimap.Pos[0].X = screen_cell_center_x(SCREEN_MODE_8P, cell);
+    CM_GetProps()->Minimap.Pos[0].Y = screen_cell_center_y(SCREEN_MODE_8P, cell);
+
+    func_8004EE54(0);
+    if (gModeSelection != BATTLE) {
+        set_minimap_finishline_position(0);
+    }
+    func_8004F3E4(0);
+
+    CM_GetProps()->Minimap.Pos[0].X = savedX;
+    CM_GetProps()->Minimap.Pos[0].Y = savedY;
+}
+
 void func_800591B4(void) {
 
     if ((gHUDDisable == 0) && (D_800DC5B8 != 0)) {
@@ -982,6 +1017,7 @@ void func_800591B4(void) {
                         }
                         func_8004F3E4(1);
                     }
+                    draw_8p_minimap_cell();
                 }
             }
             if ((gHUDModes != 2) && (gModeSelection == GRAND_PRIX) && (D_8018D2BC != 0)) {

@@ -13,6 +13,7 @@
 #include "replays.h"
 #include "main.h"
 #include "code_800029B0.h"
+#include <screen_grid.h>
 #include "code_80057C60.h"
 #include "update_objects.h"
 #include "menu_items.h"
@@ -771,36 +772,43 @@ void func_8028F588(void) {
             gScreenThreeCtx->screenHeight = screenWidth;
             gScreenFourCtx->screenHeight = screenWidth;
             break;
-        case SCREEN_MODE_8P:
-            /* This is the race-start grow animation: every arm scales its cell
-               by D_802BA034 until it reaches full size. Without an arm here the
-               eighth-screen viewports would stay at the 4x4 that set_screen
-               starts them from and never open.
+        case SCREEN_MODE_8P: {
+            /* Race-start grow animation: each cell scales by D_802BA034 up to its
+               full size. The cell size and the number of viewports both come
+               from the live grid now -- a five-player race grows five cells of a
+               3x2 grid, not eight of a 4x2 -- so this reads screen_cell_width and
+               screen_cell_height rather than the fixed 80x120 it used to. */
+            s32 cellW = screen_cell_width(SCREEN_MODE_8P);
+            s32 cellH = screen_cell_height(SCREEN_MODE_8P);
+            s32 humans = gPlayerCount;
 
-               The stored value is twice the pixel dimension, clamped four short
-               of the maximum -- 320 wide clamps at 0x280 to 0x027C, 160 at
-               0x140 to 0x013C. An 80-wide cell therefore clamps at 0xA0 to
-               0x9C, and the 120 height is identical to the quadrant arm above.
-               Written as a loop because eight contexts do not unroll usefully. */
-            screenWidth = (s16) (s32) (80.0f * D_802BA034);
+            if (humans > NUM_PLAYERS) {
+                humans = NUM_PLAYERS;
+            }
+            if (humans < 1) {
+                humans = 1;
+            }
+
+            screenWidth = (s16) (s32) ((f32) cellW * D_802BA034);
             if (screenWidth <= 0) {
                 screenWidth = 1;
-            } else if (screenWidth >= 0xA0) {
-                screenWidth = 0x9C;
+            } else if (screenWidth > cellW) {
+                screenWidth = cellW;
             }
-            for (size_t s = 0; s < NUM_PLAYERS; s++) {
+            for (size_t s = 0; s < (size_t) humans; s++) {
                 gScreenContexts[s].screenWidth = screenWidth;
             }
-            screenWidth = (s16) (s32) (120.0f * D_802BA034);
+            screenWidth = (s16) (s32) ((f32) cellH * D_802BA034);
             if (screenWidth <= 0) {
                 screenWidth = 1;
-            } else if (screenWidth >= 0xF0) {
-                screenWidth = 0x00EC;
+            } else if (screenWidth > cellH) {
+                screenWidth = cellH;
             }
-            for (size_t s = 0; s < NUM_PLAYERS; s++) {
+            for (size_t s = 0; s < (size_t) humans; s++) {
                 gScreenContexts[s].screenHeight = screenWidth;
             }
             break;
+        }
     }
 }
 
@@ -1058,7 +1066,8 @@ void func_8028FCBC(void) {
                             }
                             break;
                         case SCREEN_MODE_3P_4P_SPLITSCREEN:
-                            // @port Grand Prix with 3 or 4 players ends once every human has finished. As with two,
+                        case SCREEN_MODE_8P:
+                            // @port Grand Prix with 3 to 8 players ends once every human has finished. As with two,
                             // gPlayerWinningIndex is the human who placed worst.
                             if (all_humans_finished()) {
                                 gPlayerWinningIndex = PLAYER_ONE;
@@ -1096,7 +1105,20 @@ void func_8028FCBC(void) {
             } else {
                 switch (gModeSelection) {
                     case GRAND_PRIX:
-                        if (D_80150120 != 0) {
+                        if (gScreenModeSelection == SCREEN_MODE_8P) {
+                            /* The winner-screen-expand transitions (func_8028E678
+                               and func_8028E438) have no eighth-screen arm, so
+                               they would leave the mode stuck. Advance directly
+                               instead: set_next_course() bumps the cup to the
+                               next track (or ENDING after the last), and the
+                               quit-to-transition fields carry the scene change --
+                               the same three lines func_8028E678 ends on for the
+                               smaller modes, without the screen animation. */
+                            gIsInQuitToMenuTransition = 1;
+                            gQuitToMenuTransitionCounter = 5;
+                            gRaceState = RACE_EXIT;
+                            set_next_course();
+                        } else if (D_80150120 != 0) {
                             func_8028E678();
                         } else if (gScreenModeSelection == SCREEN_MODE_1P) {
                             func_80092564();
