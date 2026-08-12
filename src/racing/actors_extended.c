@@ -975,15 +975,21 @@ void player_use_item(Player* player) {
 // Check if a player is using an item?
 void check_player_use_item(void) {
     Player* player;
-    struct Controller* target;
     struct Controller* controller;
-    struct Controller* loopController;
+    s32 playerId;
 
-    for (player = &gPlayers[0], loopController = &gControllers[0], target = &gControllers[4]; loopController != target;
-         player++, loopController++) {
-        controller = loopController;
+    /* Vanilla stopped at gControllers[4], which was one past the four human
+       slots (the old combined-input aggregate). Controllers and players are
+       both NUM_PLAYERS long now, so that sentinel cut off players five through
+       eight — they could hold items but never fire them with Z. */
+    for (playerId = 0; playerId < NUM_PLAYERS; playerId++) {
+        player = &gPlayers[playerId];
+        controller = &gControllers[playerId];
         if (prevent_item_use(player) == false) {
             if ((player->type & PLAYER_INVISIBLE_OR_BOMB) != 0) {
+                /* Time-trial / ghost bomb remaps: stock only ever put ghosts on
+                   players one through three and routed their Z through the
+                   trailing controller slots. Leave that path alone. */
                 if ((player - gPlayerTwo) == 0) {
                     controller = gControllerSix;
                 } else if ((player - gPlayerThree) == 0) {
