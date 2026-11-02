@@ -4,26 +4,30 @@
 #include <libultraship/libultraship.h>
 
 /**
- * Online races with rollback netcode (GekkoNet).
+ * Online races with rollback netcode. Players meet in a room on a relay server (see Lobby.h and the Netplay window);
+ * NetSession.h runs the race itself.
  *
- * During a netplay race the session owns the race loop: every frame it sends the local player's input,
- * receives remote inputs, and tells the game which frames to save, load (roll back to) and advance.
- * Remote inputs that arrive late are predicted; when a prediction was wrong the session loads an
- * earlier snapshot and re-simulates the frames since then with the corrected inputs.
- *
- * Until the lobby exists (phase 3), a session is started from environment variables for testing:
- *   SK_NETPLAY_PLAYER=0                 This peer's player index.
+ * Automated tests start without the window, from environment variables. Either peers connect directly:
  *   SK_NETPLAY_PEERS=127.0.0.1:7000,127.0.0.1:7001
  *                                       One UDP address per player, in player order. Each peer binds the
  *                                       port of its own entry.
- * Optional:
+ *   SK_NETPLAY_PLAYER=0                 This peer's player index.
  *   SK_NETPLAY_MODE / _TRACK / _SEED    Race settings, as RaceConfig::FromEnvironment() reads them.
+ * or bots meet through a relay (tools/netplay-relay):
+ *   SK_NETPLAY_RELAY=127.0.0.1:7777     Relay server address.
+ *   SK_NETPLAY_HOST=1                   Create the room; otherwise join it.
+ *   SK_NETPLAY_ROOM_FILE=<file>         The host writes the room code here; guests wait for it.
+ *   SK_NETPLAY_ROOM=ABC234              Or: the code of the room to join.
+ *   SK_NETPLAY_PLAYERS=2                Host: start once this many players are ready.
+ *   SK_NETPLAY_RACES=1                  Host: races to run before exiting.
+ *   SK_NETPLAY_MODE / _TRACK / _CUP     Host: race settings.
+ * Options for both:
  *   SK_NETPLAY_BOT=1                    Drive the local player with seeded synthetic inputs.
- *   SK_NETPLAY_FRAMES=1800              Exit after this many shown race frames (0 runs until quit).
+ *   SK_NETPLAY_FRAMES=1800              End each race after this many shown frames (0 runs until it ends).
  *   SK_NETPLAY_DELAY_MS=60              Simulated one-way delay added to received packets.
  *   SK_NETPLAY_JITTER_MS=20             Random extra delay, up to this many ms.
  *   SK_NETPLAY_LOSS=5                   Percentage of received packets to drop.
- *   SK_NETPLAY_LOG=<file>               On exit, write each frame's checksum, to compare peers.
+ *   SK_NETPLAY_LOG=<file>               When a race ends, write each frame's checksum, to compare peers.
  *   SK_NETPLAY_DESYNC_AT=300            Corrupt this peer's state at that frame, to test desync detection.
  */
 
@@ -34,7 +38,7 @@ extern "C" {
 /** Reads the environment. Call once after the engine has started. */
 void Netplay_Init(void);
 
-/** Starts the session once its race has loaded. Call every frame after the gamestate update. */
+/** Talks to the lobby and starts the session once its race has loaded. Call every frame after the gamestate update. */
 void Netplay_BeginFrame(void);
 
 /** @returns true while a netplay session runs the race. */
@@ -52,7 +56,7 @@ bool Netplay_ConsumeLocalPads(OSContPad* pads);
  */
 void Netplay_RunRaceFrame(void);
 
-/** Starts the test race once the game has booted. Call after the frame's game logic. */
+/** Ends races that are over and starts the ones the lobby asks for. Call after the frame's game logic. */
 void Netplay_EndFrame(void);
 
 /** @returns true once a test session is done and the game should exit. */
@@ -61,8 +65,18 @@ bool Netplay_IsFinished(void);
 /** @returns the process exit code for a finished test session: 0 on success, 1 on desync or disconnect. */
 s32 Netplay_GetExitCode(void);
 
+/** Ends any race and leaves the room. Call before the engine saves the config, so overridden settings are not kept. */
+void Netplay_Shutdown(void);
+
 #ifdef __cplusplus
 }
+
+namespace Netplay {
+/** Ends this player's race; the others' races end too. */
+void LeaveRace();
+/** @returns true while this player is in, or loading, a netplay race. */
+bool IsRaceRunning();
+} // namespace Netplay
 #endif
 
 #endif // NETPLAY_NETPLAY_H

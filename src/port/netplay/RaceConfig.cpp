@@ -5,6 +5,7 @@
 
 #include "port/Game.h"
 #include "engine/TrackBrowser.h"
+#include "engine/World.h"
 
 extern "C" {
 #include "main.h"
@@ -104,6 +105,17 @@ RaceConfig RaceConfig::FromEnvironment(const std::string& prefix, s8 playerCount
     return config;
 }
 
+RaceConfig RaceConfig::FromLocalCVars() {
+    RaceConfig config = MakeDefault();
+    for (size_t i = 0; i < kGameplayIntCVars.size(); i++) {
+        config.IntCVars[i] = CVarGetInteger(kGameplayIntCVars[i].Name, kGameplayIntCVars[i].Default);
+    }
+    for (size_t i = 0; i < kGameplayFloatCVars.size(); i++) {
+        config.FloatCVars[i] = CVarGetFloat(kGameplayFloatCVars[i].Name, kGameplayFloatCVars[i].Default);
+    }
+    return config;
+}
+
 s32 RaceConfig::GetScreenMode() const {
     switch (PlayerCount) {
         case 1:
@@ -113,6 +125,72 @@ s32 RaceConfig::GetScreenMode() const {
         default:
             return SCREEN_MODE_3P_4P_SPLITSCREEN;
     }
+}
+
+void RaceConfig::Write(RelayProtocol::ByteWriter& writer) const {
+    writer.Write8((u8) TrackName.size());
+    writer.WriteBytes(TrackName.data(), TrackName.size());
+    writer.Write8((u8) ModeSelection);
+    writer.Write8((u8) CCSelection);
+    writer.Write8((u8) MirrorMode);
+    writer.Write8((u8) PlayerCount);
+    for (s8 character : Characters) {
+        writer.Write8((u8) character);
+    }
+    writer.Write8((u8) CupIndex);
+    writer.Write8((u8) CourseIndexInCup);
+    writer.Write16(RandomSeed);
+    for (s32 value : IntCVars) {
+        writer.Write32((u32) value);
+    }
+    // The bits of a float are the same on every platform the game runs on (IEEE 754).
+    for (f32 value : FloatCVars) {
+        u32 bits;
+        memcpy(&bits, &value, sizeof(bits));
+        writer.Write32(bits);
+    }
+}
+
+bool RaceConfig::Read(RelayProtocol::ByteReader& reader) {
+    TrackName.resize(reader.Read8());
+    reader.ReadBytes(TrackName.data(), TrackName.size());
+    ModeSelection = reader.Read8();
+    CCSelection = reader.Read8();
+    MirrorMode = reader.Read8();
+    PlayerCount = (s8) reader.Read8();
+    for (s8& character : Characters) {
+        character = (s8) reader.Read8();
+    }
+    CupIndex = reader.Read8();
+    CourseIndexInCup = (s8) reader.Read8();
+    RandomSeed = reader.Read16();
+    for (s32& value : IntCVars) {
+        value = (s32) reader.Read32();
+    }
+    for (f32& value : FloatCVars) {
+        const u32 bits = reader.Read32();
+        memcpy(&value, &bits, sizeof(value));
+    }
+    if (reader.Failed()) {
+        return false;
+    }
+
+    const bool validMode = (ModeSelection == GRAND_PRIX) || (ModeSelection == VERSUS) || (ModeSelection == BATTLE);
+    if (!validMode || (CCSelection > CC_EXTRA) || (PlayerCount < 1) || (PlayerCount > (s8) Characters.size())) {
+        return false;
+    }
+    for (s8 character : Characters) {
+        if ((character < MARIO) || (character > BOWSER)) {
+            return false;
+        }
+    }
+    if (ModeSelection == GRAND_PRIX) {
+        // The battle cup is always last.
+        const size_t numGrandPrixCups = GetWorld()->Cups.size() - 1;
+        return ((size_t) CupIndex < numGrandPrixCups) &&
+               ((size_t) CourseIndexInCup < GetWorld()->Cups[CupIndex]->GetSize());
+    }
+    return gTrackRegistry.Find(TrackName);
 }
 
 void GameplayCVarOverride::Apply(const RaceConfig& config) {

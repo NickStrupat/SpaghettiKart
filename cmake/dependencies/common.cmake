@@ -56,6 +56,8 @@ if(WIN32)
   target_link_libraries(GekkoNet PRIVATE ws2_32 mswsock)
 endif()
 target_link_libraries(${PROJECT_NAME} PRIVATE GekkoNet)
+# The relay client (src/port/netplay/RelayClient.cpp) uses GekkoNet's copy of standalone ASIO.
+target_include_directories(${PROJECT_NAME} PRIVATE ${gekkonet_SOURCE_DIR}/GekkoLib/thirdparty/asio)
 
 # libultraship
 # Removes MPQ/OTR support

@@ -8,6 +8,8 @@
 #include <array>
 #include <string>
 
+#include "tools/netplay-relay/RelayProtocol.h"
+
 constexpr size_t kNumGameplayIntCVars = 17;
 constexpr size_t kNumGameplayFloatCVars = 2;
 
@@ -33,6 +35,9 @@ struct RaceConfig {
     /** A config with every gameplay CVar at its default value. */
     static RaceConfig MakeDefault();
 
+    /** A default config with the player's own gameplay CVar values, which a netplay host shares with its guests. */
+    static RaceConfig FromLocalCVars();
+
     /**
      * A default config adjusted by environment variables, for automated test runs:
      * <prefix>MODE=gp|vs|battle, <prefix>TRACK=<resource name>, <prefix>SEED=<number>.
@@ -41,6 +46,10 @@ struct RaceConfig {
 
     /** Screen mode the simulation must run in for this many human players. */
     s32 GetScreenMode() const;
+
+    void Write(RelayProtocol::ByteWriter& writer) const;
+    /** @returns false if the data is cut short or names a mode, track or character this game does not have. */
+    bool Read(RelayProtocol::ByteReader& reader);
 };
 
 /**

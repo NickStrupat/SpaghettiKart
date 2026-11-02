@@ -1086,6 +1086,7 @@ extern "C"
     while (WindowIsRunning() && !Harness_IsFinished() && !Netplay_IsFinished()) {
         push_frame();
     }
+    Netplay_Shutdown();
     CustomEngineDestroy();
     // GameEngine::Instance->ProcessFrame(push_frame);
     GameEngine::Instance->Destroy();

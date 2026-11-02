@@ -1,19 +1,12 @@
-#include "Netplay.h"
+#include "NetSession.h"
 
 #include <array>
 #include <chrono>
 #include <cstdio>
-#include <cstdlib>
 #include <cstring>
 #include <deque>
-#include <optional>
-#include <string>
-#include <vector>
-
-#include <gekkonet.h>
 
 #include "Checksum.h"
-#include "RaceConfig.h"
 #include "SimState.h"
 #include "SyntheticDriver.h"
 
@@ -25,8 +18,6 @@ extern "C" {
 
 namespace {
 
-// Frames to wait after boot before starting the test race, so the engine and menus finish initializing.
-constexpr u32 kBootFrames = 30;
 // How far the session may run ahead of the slowest peer's confirmed input: 8 frames is 266 ms at 30 fps.
 constexpr unsigned char kPredictionWindow = 8;
 // Frames the local input is held back, trading a little latency for fewer rollbacks.
@@ -38,41 +29,34 @@ static_assert(kNumSnapshots >= kPredictionWindow + 2);
 constexpr size_t kMaxPlayers = 4;
 // GekkoNet averages frame advantage over 26 frames; re-check only once the average reflects earlier waits.
 constexpr u32 kTimeSyncInterval = 26;
+// Peers load the race at different speeds; give up if they have not all connected after this long.
+constexpr auto kConnectTimeout = std::chrono::seconds(30);
 
 static_assert(sizeof(PadInput) == 4, "PadInput is sent to peers as raw bytes");
 
-enum class SessionState { Off, WaitingForBoot, WaitingForRace, Running, Finished };
+enum class SessionState { Off, WaitingForRace, Connecting, Running };
 
 struct DelayedPacket {
     GekkoNetResult* Result;
     std::chrono::steady_clock::time_point ReleaseTime;
 };
 
-struct NetSession {
+struct NetSessionState {
     SessionState State = SessionState::Off;
-
-    // Test configuration, from the environment
-    s32 LocalPlayer = 0;
-    std::vector<std::string> PeerAddresses;
-    RaceConfig Config;
-    u32 TotalFrames = 0;
-    u32 DelayMs = 0;
-    u32 JitterMs = 0;
-    u32 LossPercent = 0;
-    std::string LogPath;
+    SessionSettings Settings;
     std::optional<SyntheticDriver> Bot;
-    // Test of desync detection: corrupt this peer's state after this shown frame.
-    u32 DesyncAtFrame = 0;
+    SessionResult Result = SessionResult::Running;
+    std::string ResultMessage;
 
     GekkoSession* Gekko = nullptr;
     GekkoNetAdapter* Socket = nullptr;
+    std::chrono::steady_clock::time_point ConnectStarted;
     // GekkoNet stores only a frame number per state; the snapshots themselves live here.
     std::array<SimSnapshot, kNumSnapshots> Snapshots;
     std::array<s32, kNumSnapshots> SnapshotFrames;
     // Last checksum saved for each frame. After a rollback it is the corrected one.
     std::vector<u32> FrameChecksums;
     GameplayCVarOverride CVars;
-    u32 BootFramesLeft = kBootFrames;
     u32 ShownFrames = 0;
     // Time sync: a peer running ahead of the others skips advancing now and then so they catch up.
     bool WaitingThisFrame = false;
@@ -80,7 +64,6 @@ struct NetSession {
     u32 WaitsLeft = 0;
     u32 FramesUntilTimeSync = kTimeSyncInterval;
     u32 WaitedFrames = 0;
-    s32 ExitCode = EXIT_SUCCESS;
 
     // Simulated network conditions
     std::deque<DelayedPacket> DelayedPackets;
@@ -88,17 +71,7 @@ struct NetSession {
     u32 RandomState = 0x2545F491;
 };
 
-NetSession sNet;
-
-const char* GetEnv(const char* name) {
-    const char* value = getenv(name);
-    return ((value != nullptr) && (value[0] != '\0')) ? value : nullptr;
-}
-
-u32 GetEnvU32(const char* name, u32 fallback) {
-    const char* value = GetEnv(name);
-    return (value != nullptr) ? (u32) strtoul(value, nullptr, 10) : fallback;
-}
+NetSessionState sNet;
 
 // xorshift32, for simulated packet loss and jitter
 u32 NextRandom() {
@@ -114,7 +87,7 @@ void FreePacket(GekkoNetResult* packet) {
     sNet.Socket->free_data(packet);
 }
 
-// Adapter wrapping the UDP socket that delays and drops received packets, to test rollback on localhost.
+// Adapter wrapping the real one that delays and drops received packets, to test rollback on localhost.
 void LagSend(GekkoNetAddress* addr, const char* data, int length) {
     sNet.Socket->send_data(addr, data, length);
 }
@@ -124,12 +97,13 @@ GekkoNetResult** LagReceive(int* length) {
     int count = 0;
     GekkoNetResult** received = sNet.Socket->receive_data(&count);
     for (int i = 0; i < count; i++) {
-        if ((NextRandom() % 100) < sNet.LossPercent) {
+        if ((NextRandom() % 100) < sNet.Settings.LossPercent) {
             FreePacket(received[i]);
             continue;
         }
-        const u32 jitter = (sNet.JitterMs > 0) ? (NextRandom() % (sNet.JitterMs + 1)) : 0;
-        sNet.DelayedPackets.push_back({ received[i], now + std::chrono::milliseconds(sNet.DelayMs + jitter) });
+        const u32 jitterMs = sNet.Settings.JitterMs;
+        const u32 jitter = (jitterMs > 0) ? (NextRandom() % (jitterMs + 1)) : 0;
+        sNet.DelayedPackets.push_back({ received[i], now + std::chrono::milliseconds(sNet.Settings.DelayMs + jitter) });
     }
 
     // Jitter can reorder packets, as real networks do.
@@ -157,45 +131,15 @@ size_t GetSnapshotIndex(s32 frame) {
 }
 
 void WriteChecksumLog() {
-    FILE* log = fopen(sNet.LogPath.c_str(), "w");
+    FILE* log = fopen(sNet.Settings.LogPath.c_str(), "w");
     if (log == nullptr) {
-        printf("[Netplay] Could not write %s\n", sNet.LogPath.c_str());
+        printf("[Netplay] Could not write %s\n", sNet.Settings.LogPath.c_str());
         return;
     }
     for (size_t frame = 0; frame < sNet.FrameChecksums.size(); frame++) {
         fprintf(log, "%zu %08x\n", frame, sNet.FrameChecksums[frame]);
     }
     fclose(log);
-}
-
-void Finish(s32 exitCode, const char* verdict) {
-    if (sNet.Gekko != nullptr) {
-        GekkoRollbackStats rollbacks = {};
-        gekko_rollback_stats(sNet.Gekko, &rollbacks);
-        GekkoNetworkStats network = {};
-        gekko_network_stats(sNet.Gekko, (sNet.LocalPlayer == 0) ? 1 : 0, &network);
-        printf("[Netplay] %s: %u frames shown, %u rollbacks (avg %.1f, max %u frames), %u stalls, %u time-sync "
-               "waits, ping %.0f ms\n",
-               verdict, sNet.ShownFrames, rollbacks.total_count, rollbacks.avg_frames, rollbacks.max_frames,
-               rollbacks.total_stalls, sNet.WaitedFrames, network.avg_ping);
-        gekko_destroy(&sNet.Gekko);
-        for (DelayedPacket& packet : sNet.DelayedPackets) {
-            FreePacket(packet.Result);
-        }
-        sNet.DelayedPackets.clear();
-        gekko_default_adapter_destroy();
-    } else {
-        printf("[Netplay] %s\n", verdict);
-    }
-    if (!sNet.LogPath.empty()) {
-        WriteChecksumLog();
-    }
-    sNet.CVars.Restore();
-    SimState_SetRollbackMode(false);
-    // The game exits with _Exit(), which skips flushing stdio.
-    fflush(stdout);
-    sNet.ExitCode = exitCode;
-    sNet.State = SessionState::Finished;
 }
 
 /**
@@ -208,8 +152,9 @@ void WriteDesyncReport(s32 frame) {
         printf("[Netplay] Frame %d is no longer kept; no desync report\n", frame);
         return;
     }
-    const std::string path = (sNet.LogPath.empty() ? std::string("netplay") : sNet.LogPath) + ".desync-p" +
-                             std::to_string(sNet.LocalPlayer) + "-f" + std::to_string(frame) + ".txt";
+    const std::string& logPath = sNet.Settings.LogPath;
+    const std::string path = (logPath.empty() ? std::string("netplay") : logPath) + ".desync-p" +
+                             std::to_string(sNet.Settings.LocalPlayer) + "-f" + std::to_string(frame) + ".txt";
     FILE* report = fopen(path.c_str(), "w");
     if (report == nullptr) {
         return;
@@ -224,14 +169,11 @@ void WriteDesyncReport(s32 frame) {
     printf("[Netplay] Desync report written to %s\n", path.c_str());
 }
 
-void StartSession() {
-    const std::string& ownAddress = sNet.PeerAddresses[sNet.LocalPlayer];
-    const size_t colon = ownAddress.rfind(':');
-    const unsigned short port = (unsigned short) atoi(ownAddress.c_str() + colon + 1);
-
+void StartGekkoSession() {
+    const SessionSettings& settings = sNet.Settings;
     gekko_create(&sNet.Gekko, GekkoGameSession);
     GekkoConfig config = {};
-    config.num_players = (unsigned char) sNet.PeerAddresses.size();
+    config.num_players = (unsigned char) settings.Addresses.size();
     config.max_spectators = 0;
     config.max_input_prediction_window = kPredictionWindow;
     config.input_size = sizeof(PadInput);
@@ -240,38 +182,33 @@ void StartSession() {
     config.desync_detection = true;
     gekko_start(sNet.Gekko, &config);
 
-    try {
-        sNet.Socket = gekko_default_adapter(port);
-    } catch (const std::exception& e) {
-        printf("[Netplay] Could not open UDP port %u: %s\n", port, e.what());
-        Finish(EXIT_FAILURE, "FAIL");
-        return;
-    }
-    const bool simulateNetwork = (sNet.DelayMs > 0) || (sNet.JitterMs > 0) || (sNet.LossPercent > 0);
+    sNet.Socket = settings.Adapter;
+    const bool simulateNetwork = (settings.DelayMs > 0) || (settings.JitterMs > 0) || (settings.LossPercent > 0);
     gekko_net_adapter_set(sNet.Gekko, simulateNetwork ? &sLagAdapter : sNet.Socket);
 
     // Actor handles follow the order they are added in, so handle == player index.
-    for (s32 player = 0; player < (s32) sNet.PeerAddresses.size(); player++) {
-        if (player == sNet.LocalPlayer) {
+    for (s32 player = 0; player < (s32) settings.Addresses.size(); player++) {
+        if (player == settings.LocalPlayer) {
             gekko_add_actor(sNet.Gekko, GekkoLocalPlayer, nullptr);
             gekko_set_local_delay(sNet.Gekko, player, kLocalInputDelay);
         } else {
-            GekkoNetAddress address = { (void*) sNet.PeerAddresses[player].c_str(),
-                                        (unsigned int) sNet.PeerAddresses[player].size() };
-            gekko_add_actor(sNet.Gekko, GekkoRemotePlayer, &address);
+            std::vector<u8> address = settings.Addresses[player];
+            GekkoNetAddress gekkoAddress = { address.data(), (unsigned int) address.size() };
+            gekko_add_actor(sNet.Gekko, GekkoRemotePlayer, &gekkoAddress);
         }
     }
 
     sNet.SnapshotFrames.fill(-1);
-    sNet.State = SessionState::Running;
-    printf("[Netplay] Session started: player %d of %zu on port %u\n", sNet.LocalPlayer, sNet.PeerAddresses.size(),
-           port);
+    sNet.ConnectStarted = std::chrono::steady_clock::now();
+    sNet.State = SessionState::Connecting;
+    printf("[Netplay] Session started: player %d of %zu\n", settings.LocalPlayer, settings.Addresses.size());
+    fflush(stdout);
 }
 
 void HandleSessionEvents() {
     int count = 0;
     GekkoSessionEvent** events = gekko_session_events(sNet.Gekko, &count);
-    for (int i = 0; (i < count) && (sNet.State == SessionState::Running); i++) {
+    for (int i = 0; (i < count) && (sNet.Gekko != nullptr); i++) {
         const GekkoSessionEvent* event = events[i];
         switch (event->type) {
             case GekkoPlayerConnected:
@@ -279,24 +216,35 @@ void HandleSessionEvents() {
                 break;
             case GekkoSessionStarted:
                 printf("[Netplay] All players connected; race starting\n");
+                sNet.State = SessionState::Running;
                 break;
             case GekkoPlayerDisconnected: {
-                printf("[Netplay] Player %d disconnected\n", event->data.disconnected.handle);
-                // A peer that reached the end of the test leaves first.
-                const bool done = (sNet.TotalFrames > 0) && (sNet.ShownFrames + kPredictionWindow >= sNet.TotalFrames);
-                Finish(done ? EXIT_SUCCESS : EXIT_FAILURE, done ? "PASS" : "FAIL");
+                const s32 player = event->data.disconnected.handle;
+                printf("[Netplay] Player %d disconnected\n", player);
+                // A peer that reached the end of a test leaves first.
+                if (NetSession::IsNearPlannedEnd()) {
+                    NetSession::Stop(SessionResult::Completed, "Race complete");
+                } else {
+                    NetSession::Stop(SessionResult::PeerLeft, "Player " + std::to_string(player + 1) + " disconnected");
+                }
                 break;
             }
-            case GekkoDesyncDetected:
-                printf("[Netplay] DESYNC at frame %d: local checksum %08x, player %d has %08x\n",
-                       event->data.desynced.frame, event->data.desynced.local_checksum,
-                       event->data.desynced.remote_handle, event->data.desynced.remote_checksum);
-                WriteDesyncReport(event->data.desynced.frame);
-                Finish(EXIT_FAILURE, "FAIL");
+            case GekkoDesyncDetected: {
+                const auto& desync = event->data.desynced;
+                printf("[Netplay] DESYNC at frame %d: local checksum %08x, player %d has %08x\n", desync.frame,
+                       desync.local_checksum, desync.remote_handle, desync.remote_checksum);
+                WriteDesyncReport(desync.frame);
+                NetSession::Stop(SessionResult::Desync,
+                                 "The game went out of sync with player " + std::to_string(desync.remote_handle + 1) +
+                                     " at frame " + std::to_string(desync.frame));
                 break;
+            }
             default:
                 break;
         }
+    }
+    if (count > 0) {
+        fflush(stdout);
     }
 }
 
@@ -338,60 +286,111 @@ void LoadFrame(const GekkoGameEvent::GekkoEventData::GekkoLoad& load) {
 
 } // namespace
 
-extern "C" void Netplay_Init(void) {
-    const char* peers = GetEnv("SK_NETPLAY_PEERS");
-    if (peers == nullptr) {
-        return;
+namespace NetSession {
+
+void Start(const SessionSettings& settings) {
+    if (sNet.State != SessionState::Off) {
+        Stop(SessionResult::Failed, "A new race started");
+    }
+    sNet.Settings = settings;
+    sNet.Result = SessionResult::Running;
+    sNet.ResultMessage.clear();
+    sNet.FrameChecksums.clear();
+    sNet.ShownFrames = 0;
+    sNet.WaitingThisFrame = false;
+    sNet.WaitedLastFrame = false;
+    sNet.WaitsLeft = 0;
+    sNet.FramesUntilTimeSync = kTimeSyncInterval;
+    sNet.WaitedFrames = 0;
+    sNet.RandomState = 0x2545F491 ^ ((u32) (settings.LocalPlayer + 1) * 7919);
+    sNet.Bot.reset();
+    if (settings.BotSeed.has_value()) {
+        sNet.Bot.emplace(*settings.BotSeed);
     }
 
-    std::string list = peers;
-    size_t start = 0;
-    while (start <= list.size()) {
-        const size_t comma = list.find(',', start);
-        const size_t end = (comma == std::string::npos) ? list.size() : comma;
-        sNet.PeerAddresses.push_back(list.substr(start, end - start));
-        start = end + 1;
-    }
-    sNet.LocalPlayer = (s32) GetEnvU32("SK_NETPLAY_PLAYER", 0);
-
-    if ((sNet.PeerAddresses.size() < 2) || (sNet.PeerAddresses.size() > kMaxPlayers) ||
-        (sNet.LocalPlayer >= (s32) sNet.PeerAddresses.size())) {
-        Finish(EXIT_FAILURE, "FAIL: SK_NETPLAY_PEERS needs 2-4 addresses and SK_NETPLAY_PLAYER must index one");
-        return;
-    }
     if (!SimState_IsSupported()) {
-        Finish(EXIT_FAILURE, "FAIL: this build cannot save simulation state (needs clang)");
+        sNet.Result = SessionResult::Failed;
+        sNet.ResultMessage = "This build cannot save simulation state, which netplay needs (build it with clang)";
         return;
     }
-
-    sNet.Config = RaceConfig::FromEnvironment("SK_NETPLAY_", (s8) sNet.PeerAddresses.size());
-    sNet.TotalFrames = GetEnvU32("SK_NETPLAY_FRAMES", 0);
-    sNet.DelayMs = GetEnvU32("SK_NETPLAY_DELAY_MS", 0);
-    sNet.JitterMs = GetEnvU32("SK_NETPLAY_JITTER_MS", 0);
-    sNet.LossPercent = GetEnvU32("SK_NETPLAY_LOSS", 0);
-    sNet.DesyncAtFrame = GetEnvU32("SK_NETPLAY_DESYNC_AT", 0);
-    if (const char* logPath = GetEnv("SK_NETPLAY_LOG")) {
-        sNet.LogPath = logPath;
-    }
-    if (GetEnvU32("SK_NETPLAY_BOT", 0) != 0) {
-        sNet.Bot.emplace((sNet.Config.RandomSeed + 1) * 0x9E3779B9u * (u32) (sNet.LocalPlayer + 1));
-    }
-    sNet.RandomState ^= (u32) (sNet.LocalPlayer + 1) * 7919;
-    sNet.State = SessionState::WaitingForBoot;
+    sNet.CVars.Apply(settings.Config);
+    SimState_SetRollbackMode(true);
+    RaceConfig_StartRace(settings.Config);
+    sNet.State = SessionState::WaitingForRace;
 }
 
-extern "C" void Netplay_BeginFrame(void) {
+void Stop(SessionResult result, const std::string& message) {
+    if (sNet.State == SessionState::Off) {
+        return;
+    }
+    const char* verdict = IsSuccess(result) ? "PASS" : "FAIL";
+    if (sNet.Gekko != nullptr) {
+        GekkoRollbackStats rollbacks = {};
+        gekko_rollback_stats(sNet.Gekko, &rollbacks);
+        GekkoNetworkStats network = {};
+        gekko_network_stats(sNet.Gekko, (sNet.Settings.LocalPlayer == 0) ? 1 : 0, &network);
+        printf("[Netplay] %s: %s. %u frames shown, %u rollbacks (avg %.1f, max %u frames), %u stalls, %u time-sync "
+               "waits, ping %.0f ms\n",
+               verdict, message.c_str(), sNet.ShownFrames, rollbacks.total_count, rollbacks.avg_frames,
+               rollbacks.max_frames, rollbacks.total_stalls, sNet.WaitedFrames, network.avg_ping);
+        gekko_destroy(&sNet.Gekko);
+        for (DelayedPacket& packet : sNet.DelayedPackets) {
+            FreePacket(packet.Result);
+        }
+        sNet.DelayedPackets.clear();
+    } else {
+        printf("[Netplay] %s: %s\n", verdict, message.c_str());
+    }
+    if (!sNet.Settings.LogPath.empty()) {
+        WriteChecksumLog();
+    }
+    sNet.CVars.Restore();
+    SimState_SetRollbackMode(false);
+    // The game exits with _Exit(), which skips flushing stdio.
+    fflush(stdout);
+    sNet.Socket = nullptr;
+    sNet.Result = result;
+    sNet.ResultMessage = message;
+    sNet.State = SessionState::Off;
+}
+
+bool IsActive() {
+    return sNet.State != SessionState::Off;
+}
+
+s32 GetLocalPlayer() {
+    return sNet.Settings.LocalPlayer;
+}
+
+u32 GetShownFrames() {
+    return sNet.ShownFrames;
+}
+
+bool IsNearPlannedEnd() {
+    return (sNet.Settings.TotalFrames > 0) && (sNet.ShownFrames + kPredictionWindow >= sNet.Settings.TotalFrames);
+}
+
+SessionResult GetResult() {
+    return sNet.Result;
+}
+
+const std::string& GetResultMessage() {
+    return sNet.ResultMessage;
+}
+
+void BeginFrame() {
     if ((sNet.State == SessionState::WaitingForRace) && (gGamestate == RACING)) {
-        StartSession();
+        StartGekkoSession();
     }
 }
 
-extern "C" bool Netplay_IsInRace(void) {
-    return (sNet.State == SessionState::Running) && (gGamestate == RACING);
+bool IsInRace() {
+    return ((sNet.State == SessionState::Connecting) || (sNet.State == SessionState::Running)) &&
+           (gGamestate == RACING);
 }
 
-extern "C" bool Netplay_ConsumeLocalPads(OSContPad* pads) {
-    if (!Netplay_IsInRace()) {
+bool ConsumeLocalPads(OSContPad* pads) {
+    if (!IsInRace()) {
         return false;
     }
 
@@ -419,13 +418,17 @@ extern "C" bool Netplay_ConsumeLocalPads(OSContPad* pads) {
         // Pausing would only pause this peer.
         input.Buttons = pads[0].button & ~START_BUTTON;
     }
-    gekko_add_local_input(sNet.Gekko, sNet.LocalPlayer, &input);
+    gekko_add_local_input(sNet.Gekko, sNet.Settings.LocalPlayer, &input);
     return true;
 }
 
-extern "C" void Netplay_RunRaceFrame(void) {
+void RunRaceFrame() {
     HandleSessionEvents();
-    if (sNet.State != SessionState::Running) {
+    if ((sNet.State == SessionState::Connecting) &&
+        (std::chrono::steady_clock::now() - sNet.ConnectStarted > kConnectTimeout)) {
+        Stop(SessionResult::ConnectFailed, "Not every player connected");
+    }
+    if (!IsInRace()) {
         SimState_RedrawFrame();
         return;
     }
@@ -471,28 +474,22 @@ extern "C" void Netplay_RunRaceFrame(void) {
         SimState_RedrawFrame();
         return;
     }
-    if ((sNet.DesyncAtFrame > 0) && (sNet.ShownFrames + 1 == sNet.DesyncAtFrame)) {
+    const SessionSettings& settings = sNet.Settings;
+    if ((settings.DesyncAtFrame > 0) && (sNet.ShownFrames + 1 == settings.DesyncAtFrame)) {
         gRandomSeed16 ^= 1;
     }
-    if ((sNet.TotalFrames > 0) && (++sNet.ShownFrames >= sNet.TotalFrames)) {
-        Finish(EXIT_SUCCESS, "PASS");
+    sNet.ShownFrames++;
+    if ((settings.TotalFrames > 0) && (sNet.ShownFrames >= settings.TotalFrames)) {
+        Stop(SessionResult::Completed, "Race complete");
     }
 }
 
-extern "C" void Netplay_EndFrame(void) {
-    if ((sNet.State == SessionState::WaitingForBoot) && (--sNet.BootFramesLeft == 0)) {
-        // Start the race after this frame's menu update, which would otherwise overwrite the track selection.
-        sNet.CVars.Apply(sNet.Config);
-        SimState_SetRollbackMode(true);
-        RaceConfig_StartRace(sNet.Config);
-        sNet.State = SessionState::WaitingForRace;
+void EndFrame() {
+    // The game leaves a race (results menu, quit) by setting gGamestate to 255 and gGamestateNext to where it goes.
+    if (((sNet.State == SessionState::Connecting) || (sNet.State == SessionState::Running)) &&
+        (gGamestate != RACING)) {
+        Stop(SessionResult::RaceOver, "The race is over");
     }
 }
 
-extern "C" bool Netplay_IsFinished(void) {
-    return sNet.State == SessionState::Finished;
-}
-
-extern "C" s32 Netplay_GetExitCode(void) {
-    return sNet.ExitCode;
-}
+} // namespace NetSession

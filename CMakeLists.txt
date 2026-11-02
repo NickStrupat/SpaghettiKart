@@ -139,6 +139,15 @@ else()
 endif()
 set_property(SOURCE ${NETPLAY_SIM_FILES} APPEND PROPERTY COMPILE_OPTIONS "${NETPLAY_SIM_INCLUDE}")
 
+# Netplay only pairs players running the same code (see cmake/NetplayBuildId.cmake)
+set(NETPLAY_BUILD_ID_HEADER ${CMAKE_BINARY_DIR}/netplay/NetplayBuildId.h)
+add_custom_target(NetplayBuildId
+  COMMAND ${CMAKE_COMMAND} -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR} -DOUTPUT=${NETPLAY_BUILD_ID_HEADER}
+          -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/NetplayBuildId.cmake
+  BYPRODUCTS ${NETPLAY_BUILD_ID_HEADER})
+add_dependencies(${PROJECT_NAME} NetplayBuildId)
+target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_BINARY_DIR}/netplay)
+
 target_include_directories(
   ${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
                           ${CMAKE_CURRENT_SOURCE_DIR}/include
