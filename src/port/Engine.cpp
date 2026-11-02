@@ -1,4 +1,5 @@
 #include "Engine.h"
+#include "GamepadAssignment.h"
 
 #include <cstdlib>
 #include "ship/utils/StringHelper.h"
@@ -376,6 +377,8 @@ void GameEngine::Destroy() {
 bool ShouldClearTextureCacheAtEndOfFrame = false;
 
 void GameEngine::StartFrame() const {
+    GamepadAssignment::Apply();
+
     using Ship::KbScancode;
     const int32_t dwScancode = this->context->GetWindow()->GetLastScancode();
     this->context->GetWindow()->SetLastScancode(-1);

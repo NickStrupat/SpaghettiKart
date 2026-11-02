@@ -8,6 +8,7 @@
 #include "PortMenu.h"
 #include "UIWidgets.h"
 #include "port/Game.h"
+#include "port/GamepadAssignment.h"
 #include "engine/World.h"
 #include "port/netplay/Lobby.h"
 #include "port/netplay/Netplay.h"
@@ -292,6 +293,53 @@ void DrawRoom() {
     }
 }
 
+std::string GetGamepadLabel(const GamepadAssignment::Gamepad& gamepad) {
+    return "Controller " + std::to_string(gamepad.Number) + ": " + gamepad.Name;
+}
+
+/** Which gamepad drives this copy of the game, for two copies on one computer. Saved in its settings folder. */
+void DrawControllerChoice() {
+    const std::vector<GamepadAssignment::Gamepad> gamepads = GamepadAssignment::GetGamepads();
+    const s32 choice = CVarGetInteger(GamepadAssignment::kCVar, 0);
+    std::string current = "All controllers";
+    if (choice > 0) {
+        current = "Controller " + std::to_string(choice) + " (not connected)";
+        for (const GamepadAssignment::Gamepad& gamepad : gamepads) {
+            if (gamepad.Number == choice) {
+                current = GetGamepadLabel(gamepad);
+            }
+        }
+    }
+
+    s32 selected = choice;
+    if (ImGui::BeginCombo("Your controller", current.c_str())) {
+        if (ImGui::Selectable("All controllers", choice == 0)) {
+            selected = 0;
+        }
+        for (const GamepadAssignment::Gamepad& gamepad : gamepads) {
+            const std::string label = GetGamepadLabel(gamepad) + (gamepad.AnyButtonHeld ? "  (pressed)" : "");
+            if (ImGui::Selectable(label.c_str(), gamepad.Number == choice)) {
+                selected = gamepad.Number;
+            }
+        }
+        ImGui::EndCombo();
+    }
+    if (selected != choice) {
+        CVarSetInteger(GamepadAssignment::kCVar, selected);
+        Ship::Context::GetRawInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+    }
+
+    std::string pressed;
+    for (const GamepadAssignment::Gamepad& gamepad : gamepads) {
+        if (gamepad.AnyButtonHeld) {
+            pressed += (pressed.empty() ? "" : ", ") + std::to_string(gamepad.Number);
+        }
+    }
+    ImGui::TextColored(kDimColor, pressed.empty() ? "Hold a button to see its controller's number"
+                                                  : "Button held on controller %s", pressed.c_str());
+    ImGui::Separator();
+}
+
 void RegisterNetplayWidgets() {
     mPortMenu->AddSidebarEntry("Enhancements", "Netplay", 1);
     WidgetPath path = { "Enhancements", "Netplay", SECTION_COLUMN_1 };
@@ -306,6 +354,7 @@ RegisterMenuInitFunc sInitFunc(RegisterNetplayWidgets);
 } // namespace
 
 void NetplayWindow::DrawElement() {
+    DrawControllerChoice();
     switch (Lobby::GetState()) {
         case Lobby::State::Offline:
             DrawConnect();
