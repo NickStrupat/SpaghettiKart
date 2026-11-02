@@ -64,6 +64,7 @@ extern struct_D_802F1F80* gPlayerPalette;
 
 extern s32 D_80164A28;
 extern s16 gPlayersToRenderPlayerId[];
+extern s16 gKartAnimationSlot;
 extern s16 D_80164ABE[];
 extern s16 gPlayersToRenderScreenId[];
 extern Player* gPlayersToRenderPlayer[];

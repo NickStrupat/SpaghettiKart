@@ -11,6 +11,8 @@
 #include "audio/seqplayer.h"
 #include "port/Engine.h"
 
+f32 gAudioMasterVolume = 1.0f;
+
 void note_set_vel_pan_reverb(struct Note* note, f32 velocity, u8 pan, u8 reverbVol) {
     struct NoteSubEu* sub = &note->noteSubEu;
     f32 volRight, volLeft;
@@ -74,9 +76,8 @@ void note_set_vel_pan_reverb(struct Note* note, f32 velocity, u8 pan, u8 reverbV
         velocity = 1.0f;
     }
 
-    float master_vol = CVarGetFloat("gGameMasterVolume", 1.0f);
-    volLeft *= master_vol;
-    volRight *= master_vol;
+    volLeft *= gAudioMasterVolume;
+    volRight *= gAudioMasterVolume;
 
     sub->targetVolLeft = ((s32) (velocity * volLeft * 4095.999f));
     sub->targetVolRight = ((s32) (velocity * volRight * 4095.999f));

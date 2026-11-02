@@ -6,6 +6,7 @@
 #include <math.h>
 #include "port/Engine.h"
 #include "FrameInterpolation.h"
+#include "port/netplay/SimArena.h"
 #include "matrix.h"
 #include "engine/Matrix.h"
 #include "src/engine/CoreMath.h"
@@ -263,6 +264,8 @@ MtxF inv_actor_mtx;
 size_t inv_actor_mtx_path_index;
 
 Data& append(Op op) {
+    // Recordings outlive the frame, so they must not come from the netplay sim arena.
+    SimHeapPause pause;
     auto& m = current_path.back()->ops[op];
     current_path.back()->items.emplace_back(op, m.size());
     return m.emplace_back();
@@ -615,8 +618,14 @@ void FrameInterpolation_ShouldInterpolateFrame(bool shouldInterpolate) {
     is_recording = shouldInterpolate;
 }
 
+bool is_recording_paused;
+
+void FrameInterpolation_SetRecordingPaused(bool paused) {
+    is_recording_paused = paused;
+}
+
 bool check_if_recording() {
-    return (is_recording && GameEngine::GetInterpolationFPS() != 30);
+    return (is_recording && !is_recording_paused && GameEngine::GetInterpolationFPS() != 30);
 }
 
 void FrameInterpolation_StartRecord(void) {
@@ -646,6 +655,7 @@ void FrameInterpolation_RecordOpenChild(const void* a, uintptr_t b) {
         return;
     }
     label key = { a, b };
+    SimHeapPause pause;
     auto& m = current_path.back()->children[key];
     append(Op::OpenChild).open_child = { key, m.size() };
     current_path.push_back(&m.emplace_back());

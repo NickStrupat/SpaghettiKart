@@ -356,6 +356,8 @@ enum PLACE { FIRST_PLACE, SECOND_PLACE, THIRD_PLACE, FOURTH_PLACE };
  */
 #define MAX_TIME 0x927C0
 #define DEGREES_CONVERSION_FACTOR 182
+// Radians to binary angle (0x8000 / pi), for use with sins() / coss()
+#define RADIANS_CONVERSION_FACTOR 10430.378f
 
 // player->oobProps
 /* Deals with the lower out of bounds (OOB) plane on levels. Represented by fluids (water / lava)

@@ -106,6 +106,28 @@ public:
     void CleanWorld(void);
     void CleanActors(void);
 
+    /**
+     * Replaces the simulation containers with empty ones. Inside a sim heap scope, everything they allocate next
+     * comes from the sim arena (see port/netplay/SimArena.h).
+     */
+    void ResetSimContainers();
+
+    /**
+     * Calls fn(void* data, size_t size) for each World member that a netplay rollback snapshot saves and restores.
+     * The objects these containers own live in the sim arena.
+     */
+    template <typename Fn> void ForEachSimStateRange(Fn&& fn) {
+        fn(&mTrack, sizeof(mTrack));
+        fn(&Cameras, sizeof(Cameras));
+        fn(&StaticMeshActors, sizeof(StaticMeshActors));
+        fn(&Actors, sizeof(Actors));
+        fn(&Objects, sizeof(Objects));
+        fn(&Emitters, sizeof(Emitters));
+        fn(&Lakitus, sizeof(Lakitus));
+        fn(&mPlayerBombKart, sizeof(mPlayerBombKart));
+        fn(&Crossings, sizeof(Crossings));
+    }
+
     // getter/setter for current track
     Track* GetTrack() {
         return mTrack.get();

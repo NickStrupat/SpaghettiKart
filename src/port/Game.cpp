@@ -53,6 +53,9 @@ extern "C" {
 // #include "engine/wasm.h"
 }
 
+#include "port/netplay/DeterminismHarness.h"
+#include "port/netplay/Netplay.h"
+
 extern "C" void Graphics_PushFrame(Gfx* pool) {
     GameEngine::ProcessGfxCommands(pool);
 }
@@ -1078,7 +1081,9 @@ extern "C"
 
     thread5_game_loop();
     gEditor.Load();
-    while (WindowIsRunning()) {
+    Harness_Init();
+    Netplay_Init();
+    while (WindowIsRunning() && !Harness_IsFinished() && !Netplay_IsFinished()) {
         push_frame();
     }
     CustomEngineDestroy();
@@ -1088,5 +1093,5 @@ extern "C"
     // remaining static destructors: their order is unspecified and some log after
     // spdlog's own statics are gone, crashing on quit (same class as issue #689).
     // Mirrors the _Exit precedent on the extraction error paths.
-    _Exit(0);
+    _Exit(Harness_GetExitCode() | Netplay_GetExitCode());
 }

@@ -33,6 +33,12 @@ void FrameInterpolation_ShouldInterpolateFrame(bool shouldInterpolate);
 
 bool check_if_recording();
 
+/**
+ * Stops recording without ending the frame's recording, for netplay rollback frames that are simulated
+ * and drawn but never shown.
+ */
+void FrameInterpolation_SetRecordingPaused(bool paused);
+
 void FrameInterpolation_StartRecord(void);
 
 void FrameInterpolation_StopRecord(void);

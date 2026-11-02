@@ -36,6 +36,10 @@
 #include "port/Engine.h"
 
 s8 gRenderingFramebufferByPlayer[] = { 0x00, 0x02, 0x00, 0x01, 0x00, 0x01, 0x00, 0x02 };
+// Cycles 0..2 once per race frame. Stands in for sRenderingFramebuffer when choosing which karts refresh their
+// animation frame: that index depends on how many frames this machine has drawn, so it differs between netplay
+// peers and is not part of rollback state. The result feeds back into player state.
+s16 gKartAnimationSlot = 0;
 
 s32 gPlayersToRenderCount = 0;
 
@@ -223,7 +227,7 @@ void init_render_player(Player* player, Camera* camera, s8 playerId, s8 screenId
                 }
             } else {
                 if ((check_player_camera_collision(player, camera, D_80165574 + sp4C, D_80165576) == 1) & 0xFFFF) {
-                    if ((sRenderingFramebuffer == gRenderingFramebufferByPlayer[playerId]) ||
+                    if ((gKartAnimationSlot == gRenderingFramebufferByPlayer[playerId]) ||
                         ((gLastAnimFrameSelector[screenId][playerId] - player->animFrameSelector[screenId]) > 0x13) ||
                         ((gLastAnimFrameSelector[screenId][playerId] - player->animFrameSelector[screenId]) < -0x13) ||
                         (D_80165190[screenId][playerId] == (s16) 1U)) {

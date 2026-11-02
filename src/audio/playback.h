@@ -16,6 +16,10 @@
 #define NOTE_ALLOC_SEQ 4
 #define NOTE_ALLOC_GLOBAL_FREELIST 8
 
+// gGameMasterVolume, copied once per audio frame on the main thread by GameEngine::StartAudioFrame().
+// The audio thread must not read CVars: the main thread can insert CVars at any time, which rehashes the map.
+extern f32 gAudioMasterVolume;
+
 void note_set_vel_pan_reverb(struct Note* note, f32 velocity, u8 pan, u8 reverbVol);
 void note_set_resampling_rate(struct Note* note, f32 resamplingRateInput);
 s32 build_synthetic_wave(struct Note* note, struct SequenceChannelLayer* seqLayer, s32 waveId);

@@ -44,7 +44,10 @@ void ResizeMinimap(MinimapProps* minimap) {
     }
 }
 
+// Display list patch cache; not rollback state.
+NOT_SIM_STATE_BEGIN
 static std::unordered_set<std::string> gModifiedGfxSet;
+NOT_SIM_STATE_END
 
 static void SwapTriangleVertices(Gfx* cmd) {
     int8_t opcode = cmd->words.w0 >> 24;

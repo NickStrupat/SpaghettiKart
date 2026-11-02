@@ -282,6 +282,16 @@ void World::CleanWorld(void) {
     Sky::Instance->GetSkyActors().clear();
 }
 
+void World::ResetSimContainers() {
+    decltype(Cameras)().swap(Cameras);
+    decltype(StaticMeshActors)().swap(StaticMeshActors);
+    decltype(Actors)().swap(Actors);
+    decltype(Objects)().swap(Objects);
+    decltype(Emitters)().swap(Emitters);
+    decltype(Lakitus)().swap(Lakitus);
+    decltype(Crossings)().swap(Crossings);
+}
+
 void World::CleanActors(void) {
     World::Reset();
     Actors.clear();

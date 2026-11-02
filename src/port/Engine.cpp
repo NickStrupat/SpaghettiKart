@@ -56,6 +56,7 @@ float gInterpolationStep = 0.0f;
 #include <fast/resource/factory/LightFactory.h>
 // #include <PngFactory.h>
 #include "audio/internal.h"
+#include "audio/playback.h"
 #include "audio/GameAudio.h"
 }
 
@@ -506,10 +507,8 @@ void GameEngine::HandleAudioThread() {
 
         GameEngine::Instance->gHMAS->CreateBuffer((u8*)hmas_buffer, 4 * num_audio_samples * sizeof(float));
 
-        float master_vol = CVarGetFloat("gGameMasterVolume", 1.0f);
-
         for (size_t i = 0; i < SAMPLES_PER_FRAME; i++) {
-            mix_buffer[i] = nas_buffer[i] + ((int16_t)(hmas_buffer[i] * 32767.0f) * master_vol);
+            mix_buffer[i] = nas_buffer[i] + ((int16_t)(hmas_buffer[i] * 32767.0f) * gAudioMasterVolume);
         }
 
         AudioPlayerPlayFrame((u8*) mix_buffer, 2 * num_audio_samples * 4);
@@ -522,6 +521,7 @@ void GameEngine::HandleAudioThread() {
 void GameEngine::StartAudioFrame() {
     {
         std::unique_lock<std::mutex> Lock(audio.mutex);
+        gAudioMasterVolume = CVarGetFloat("gGameMasterVolume", 1.0f);
         audio.processing = true;
     }
 

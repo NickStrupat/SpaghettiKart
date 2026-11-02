@@ -41,23 +41,23 @@ void AStarship::BeginPlay() {
 }
 
 void AStarship::Tick() {
-    static float angle = 0.0f;
+    Angle += Speed;
 
-    angle += Speed;
-
-    // Move relative to the initial position
+    // Move relative to the initial position.
+    // Table trig and explicit s32/s64 casts keep this identical across platforms (netplay).
 
     FVector pos = GetLocation();
     FVector spawn = SpawnPos;
-    pos.x = spawn.x + SpeedB * cosf(angle);
-    pos.z = spawn.z + SpeedB * sinf(angle);
+    u16 binAngle = (u16) (s64) (Angle * RADIANS_CONVERSION_FACTOR);
+    pos.x = spawn.x + SpeedB * coss(binAngle);
+    pos.z = spawn.z + SpeedB * sins(binAngle);
     SetLocation(pos);
 
     // Keep y from changing (or adjust it if necessary)
     //Pos.y = Spawn.y;
 
     // Rotate to face forward along the circle
-    Rot[1] = angle * (180.0f / M_PI) + 90.0f;
+    Rot[1] = (s16) (s32) (Angle * (180.0f / M_PI) + 90.0f);
 }
 
 bool AStarship::IsMod() { return true; }

@@ -29,19 +29,20 @@ ASpaghettiShip::ASpaghettiShip(const SpawnParams& params) : AActor(params) {
 }
 
 void ASpaghettiShip::Tick() {
-    static float angle = 0.0f; // Keeps track of the ship's rotation around the circle
     float radius = 150.0f;      // The radius of the circular path
     float speed = 0.01f;       // Speed of rotation
 
-    angle += speed; // Increment the angle to move in a circle
+    Angle += speed; // Increment the angle to move in a circle
 
-    // Update the position based on a circular path
+    // Update the position based on a circular path.
+    // Table trig and explicit s32/s64 casts keep this identical across platforms (netplay).
     FVector spawn = SpawnPos;
-    Pos[0] = spawn.x + radius * cosf(angle);
-    Pos[2] = spawn.z + radius * sinf(angle);
+    u16 binAngle = (u16) (s64) (Angle * RADIANS_CONVERSION_FACTOR);
+    Pos[0] = spawn.x + radius * coss(binAngle);
+    Pos[2] = spawn.z + radius * sins(binAngle);
 
     // Rotate to face forward along the circle
-    Rot[1] = -static_cast<int16_t>(angle * (32768.0f / M_PI / 2.0f));
+    Rot[1] = -static_cast<int16_t>(static_cast<int32_t>(Angle * (32768.0f / M_PI / 2.0f)));
 
     WheelRot.pitch += 500;
 }

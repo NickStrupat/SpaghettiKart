@@ -17,6 +17,7 @@
 #include "port/Game.h"
 #include "port/audio/HMAS.h"
 #include "engine/TrackBrowser.h"
+#include "port/netplay/SimState.h"
 
 s8 D_8018EF10;
 UnkStruct8018EF18 D_8018EF18[16];
@@ -1277,6 +1278,11 @@ void func_800C40F0(u8 arg0) {
 void play_sound(u32 soundBits, Vec3f* position, u8 cameraId, f32* arg3, f32* arg4, s8* arg5) {
     u8 bank;
     struct Sound* temp_v0;
+
+    // Netplay rollback re-simulates frames whose sounds already played.
+    if (SimState_IsResimulating()) {
+        return;
+    }
 
     bank = soundBits >> 0x1C;
     if (sSoundBankDisabled[bank] == false) {

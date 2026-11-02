@@ -127,6 +127,18 @@ if(SPAGHETTIKART_IOS)
 endif()
 
 add_executable(${PROJECT_NAME} ${ALL_FILES})
+
+# Netplay rollback: place the simulation's mutable globals in one section (see src/port/netplay/SimSection.h)
+set(NETPLAY_SIM_FILES ${ALL_FILES})
+list(FILTER NETPLAY_SIM_FILES INCLUDE REGEX "^src/([^/]+\\.c|racing/.+\\.c|data/.+\\.c|buffers/random\\.c|engine/.+\\.cpp)$")
+list(FILTER NETPLAY_SIM_FILES EXCLUDE REGEX "^src/engine/(editor/|registry/|mods/|TrackBrowser\\.cpp|wasm\\.cpp|HM_Intro\\.cpp)")
+if(MSVC)
+  set(NETPLAY_SIM_INCLUDE "/FI${CMAKE_CURRENT_SOURCE_DIR}/src/port/netplay/SimSection.h")
+else()
+  set(NETPLAY_SIM_INCLUDE "-include;${CMAKE_CURRENT_SOURCE_DIR}/src/port/netplay/SimSection.h")
+endif()
+set_property(SOURCE ${NETPLAY_SIM_FILES} APPEND PROPERTY COMPILE_OPTIONS "${NETPLAY_SIM_INCLUDE}")
+
 target_include_directories(
   ${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
                           ${CMAKE_CURRENT_SOURCE_DIR}/include

@@ -4,12 +4,16 @@
 #include <mk64.h>
 #include "main.h"
 
+NOT_SIM_STATE_BEGIN
 struct ProfilerFrameData gProfilerFrameData[2];
+NOT_SIM_STATE_END
 
 s32 gEnableResourceMeters = 0;
 
 s16 D_800DC664 = 0;
+NOT_SIM_STATE_BEGIN
 s16 D_800DC668 = 1;
+NOT_SIM_STATE_END
 s16 D_800DC66C = 0;
 
 void profiler_log_thread5_time(enum ProfilerGameEvent eventID) {

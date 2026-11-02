@@ -33,4 +33,5 @@ public:
     virtual bool IsMod() override;
 
     IRotator WheelRot = {0, 0, 0};
+    float Angle = 0.0f; // Keeps track of the ship's rotation around the circle
 };

@@ -31,6 +31,7 @@ public:
     }
 
     float SpeedB;
+    float Angle = 0.0f;
 
     virtual void SetSpawnParams(SpawnParams& params) override;
     virtual void Tick() override;

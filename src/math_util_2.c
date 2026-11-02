@@ -17,7 +17,10 @@
 #include "engine/Matrix.h"
 #include "port/interpolation/FrameInterpolation.h"
 
+// Render-time matrix stack; not rollback state.
+NOT_SIM_STATE_BEGIN
 Mat4 sInterpolationMatrixStack[0x1000];
+NOT_SIM_STATE_END
 Mat4* gInterpolationMatrix = &sInterpolationMatrixStack[0];
 
 UNUSED void operator_or(s32* arg0, s32 arg1) {

@@ -1,5 +1,7 @@
 if(MSVC)
-  target_compile_options(${PROJECT_NAME} PRIVATE /fp:fast)
+  # Netplay requires bit-identical float results across platforms: no fast-math.
+  # Since VS 2022 17.0, /fp:precise also disables FMA contraction.
+  target_compile_options(${PROJECT_NAME} PRIVATE /fp:precise)
 
   if("${CMAKE_VS_PLATFORM_NAME}" STREQUAL "x64")
     target_compile_options(${PROJECT_NAME} PRIVATE
@@ -36,7 +38,9 @@ else()
     -Wno-missing-field-initializers
     -Wno-parentheses
     -Wno-missing-braces
-    -ffast-math
+    # Netplay requires bit-identical float results across platforms: no fast-math, no FMA contraction.
+    -fno-fast-math
+    -ffp-contract=off
     -flto=auto
     -pipe)
   target_link_options(${PROJECT_NAME} PRIVATE -flto=auto)

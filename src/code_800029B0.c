@@ -25,6 +25,7 @@
 #include "courses/all_course_data.h"
 #include "courses/all_course_packed.h"
 #include "menus.h"
+#include "render_player.h"
 #include <assets/textures/other_textures.h>
 #include <assets/models/tracks/mario_raceway/mario_raceway_data.h>
 #include <assets/models/tracks/moo_moo_farm/moo_moo_farm_data.h>
@@ -191,6 +192,8 @@ void setup_race(void) {
     int i;
 
     LUSLOG_DEBUG("Setup Race!", 0);
+
+    gKartAnimationSlot = 0;
     LUSLOG_DEBUG("Game Speed: %d", gTickLogic);
 
     gPlayerCountSelection1 = gPlayerCount;

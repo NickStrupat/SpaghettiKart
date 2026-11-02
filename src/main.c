@@ -36,6 +36,9 @@
 #include "enhancements/freecam/freecam.h"
 #include "engine/editor/Editor.h"
 #include "port/interpolation/FrameInterpolation.h"
+#include "port/netplay/DeterminismHarness.h"
+#include "port/netplay/SimState.h"
+#include "port/netplay/Netplay.h"
 #include "engine/wasm.h"
 #include "port/Game.h"
 #include "port/Engine.h"
@@ -55,11 +58,15 @@ struct SPTask* create_next_audio_frame_task(void);
 struct VblankHandler* gVblankHandler1 = NULL;
 struct VblankHandler* gVblankHandler2 = NULL;
 
+// Render, audio and OS state in this file is wrapped in NOT_SIM_STATE so netplay rollback snapshots skip it
+// (see port/netplay/SimSection.h).
+NOT_SIM_STATE_BEGIN
 struct SPTask* gActiveSPTask = NULL;
 struct SPTask* sCurrentAudioSPTask = NULL;
 struct SPTask* sCurrentDisplaySPTask = NULL;
 struct SPTask* sNextAudioSPTask = NULL;
 struct SPTask* sNextDisplaySPTask = NULL;
+NOT_SIM_STATE_END
 
 struct Controller gControllers[NUM_PLAYERS];
 struct Controller* gControllerOne = &gControllers[0];
@@ -82,6 +89,7 @@ Player* gPlayerSeven = &gPlayers[6];
 Player* gPlayerEight = &gPlayers[7];
 
 UNUSED s32 D_800FD850[3];
+NOT_SIM_STATE_BEGIN
 struct GfxPool gGfxPools[2];
 struct GfxPool* gGfxPool;
 
@@ -103,6 +111,7 @@ OSMesg gSIEventMesgBuf[3];
 OSContStatus gControllerStatuses[4];
 OSContPad gControllerPads[4];
 u8 gControllerBits;
+NOT_SIM_STATE_END
 // Contains a 32x32 grid of indices into gCollisionIndices containing indices into gCollisionMesh
 CollisionGrid gCollisionGrid[1024];
 u16 gNumActors;
@@ -127,6 +136,7 @@ f32 D_80150150;
 UNUSED f32 D_80150154;
 
 struct D_80150158 gD_80150158[16];
+NOT_SIM_STATE_BEGIN
 Gfx* gDisplayListHead;
 
 struct SPTask* gGfxSPTask;
@@ -138,11 +148,13 @@ uintptr_t gPhysicalZBuffer;
 UNUSED u32 D_801502B8;
 UNUSED u32 D_801502BC;
 Mat4 sBillBoardMtx; // Faces 2D actors at the camera
+NOT_SIM_STATE_END
 
 s32 padding[2048];
 
 u16 D_80152308;
 
+NOT_SIM_STATE_BEGIN
 UNUSED OSThread paddingThread;
 OSThread gIdleThread;
 ALIGNED8 u8 gIdleThreadStack[STACKSIZE]; // Based on sm64 and padding between bss symbols.
@@ -161,6 +173,7 @@ ALIGNED8 u8 gGfxSPTaskYieldBuffer[4352];
 ALIGNED8 u32 gGfxSPTaskStack[256];
 OSMesg gPIMesgBuf[32];
 OSMesgQueue gPIMesgQueue;
+NOT_SIM_STATE_END
 
 s32 gGamestate = 0xFFFF;
 // gRaceState is externed as an s32 in other files. D_800DC514 is only used in main.c, likely a developer mistake.
@@ -180,13 +193,18 @@ s32 gModeSelection = GRAND_PRIX;
 s32 D_800DC540 = 0;
 s32 D_800DC544 = 0;
 s32 gCCSelection = CC_150;
+// Selects the gfx pool each frame, so it must keep counting through rollbacks.
+NOT_SIM_STATE_BEGIN
 s32 gGlobalTimer = 0;
+NOT_SIM_STATE_END
 UNUSED s32 D_800DC550 = 0;
 UNUSED s32 D_800DC554 = 0;
 UNUSED s32 D_800DC558 = 0;
 // Framebuffer rendering values (max 3)
+NOT_SIM_STATE_BEGIN
 u16 sRenderedFramebuffer = 0;
 u16 sRenderingFramebuffer = 0;
+NOT_SIM_STATE_END
 UNUSED u16 D_800DC564 = 0;
 s32 D_800DC568 = 0;
 s32 D_800DC56C[8] = { 0 };
@@ -309,9 +327,14 @@ void create_gfx_task_structure(void) {
 #endif
 }
 
+// Wall-clock frame time; not rollback state.
+NOT_SIM_STATE_BEGIN
 f32 gDeltaTime = 0.0f;
+NOT_SIM_STATE_END
 void calculate_delta_time(void) {
+    NOT_SIM_STATE_BEGIN
     static u32 prevtime = 0;
+    NOT_SIM_STATE_END
     u32 now = osGetCount();
     f32 deltaTime;
 
@@ -343,33 +366,25 @@ void init_controllers(void) {
     }
 }
 
-void update_controller(s32 index) {
-    struct Controller* controller = &gControllers[index];
+/**
+ * Updates a controller's held, pressed and released state from one pad reading.
+ * Netplay feeds every player's pad through here so all peers derive identical controller state.
+ */
+void apply_pad_to_controller(struct Controller* controller, OSContPad* pad) {
     u16 stick;
 
-    if (sIsController1Unplugged) {
-        return;
+    controller->rawStickX = pad->stick_x;
+    controller->rawStickY = pad->stick_y;
+
+    controller->rightRawStickX = pad->right_stick_x;
+    controller->rightRawStickY = pad->right_stick_y;
+
+    if ((pad->button & 4) != 0) {
+        pad->button |= Z_TRIG;
     }
-
-    // Prevents pause menu intereference while controlling flycam
-    // Freecam only works with controller 1
-    if ((CVarGetInteger("gFreecam", 0) == 1) && (gGamestate == RACING) && (index == 0)) {
-        freecam_update_controller();
-        return;
-    }
-
-    controller->rawStickX = gControllerPads[index].stick_x;
-    controller->rawStickY = gControllerPads[index].stick_y;
-
-    controller->rightRawStickX = gControllerPads[index].right_stick_x;
-    controller->rightRawStickY = gControllerPads[index].right_stick_y;
-
-    if ((gControllerPads[index].button & 4) != 0) {
-        gControllerPads[index].button |= Z_TRIG;
-    }
-    controller->buttonPressed = gControllerPads[index].button & (gControllerPads[index].button ^ controller->button);
-    controller->buttonDepressed = controller->button & (gControllerPads[index].button ^ controller->button);
-    controller->button = gControllerPads[index].button;
+    controller->buttonPressed = pad->button & (pad->button ^ controller->button);
+    controller->buttonDepressed = controller->button & (pad->button ^ controller->button);
+    controller->button = pad->button;
 
     stick = 0;
     if (controller->rawStickX < -50) {
@@ -389,16 +404,25 @@ void update_controller(s32 index) {
     controller->stickDirection = stick;
 }
 
-void read_controllers(void) {
-    // OSMesg msg;
+void update_controller(s32 index) {
+    if (sIsController1Unplugged) {
+        return;
+    }
 
-    osContStartReadData(&gSIEventMesgQueue);
-    // osRecvMesg(&gSIEventMesgQueue, &msg, OS_MESG_BLOCK);
-    osContGetReadData(gControllerPads);
-    update_controller(0);
-    update_controller(1);
-    update_controller(2);
-    update_controller(3);
+    // Prevents pause menu intereference while controlling flycam
+    // Freecam only works with controller 1
+    if ((CVarGetInteger("gFreecam", 0) == 1) && (gGamestate == RACING) && (index == 0)) {
+        freecam_update_controller();
+        return;
+    }
+
+    apply_pad_to_controller(&gControllers[index], &gControllerPads[index]);
+}
+
+/**
+ * Updates controller five, which holds the combined state of controllers one to four.
+ */
+void combine_controllers(void) {
     gControllerFive->button = (s16) (((gControllerOne->button | gControllerTwo->button) | gControllerThree->button) |
                                      gControllerFour->button);
     gControllerFive->buttonPressed =
@@ -416,6 +440,29 @@ void read_controllers(void) {
     gControllerFive->stickDepressed =
         (s16) (((gControllerOne->stickDepressed | gControllerTwo->stickDepressed) | gControllerThree->stickDepressed) |
                gControllerFour->stickDepressed);
+}
+
+void read_controllers(void) {
+    // OSMesg msg;
+
+    osContStartReadData(&gSIEventMesgQueue);
+    // osRecvMesg(&gSIEventMesgQueue, &msg, OS_MESG_BLOCK);
+    osContGetReadData(gControllerPads);
+    if (Netplay_ConsumeLocalPads(gControllerPads)) {
+        // Netplay applies every player's pad itself as the session advances frames.
+        return;
+    }
+    if (Harness_OverridePads(gControllerPads)) {
+        for (s32 i = 0; i < 4; i++) {
+            apply_pad_to_controller(&gControllers[i], &gControllerPads[i]);
+        }
+    } else {
+        update_controller(0);
+        update_controller(1);
+        update_controller(2);
+        update_controller(3);
+    }
+    combine_controllers();
 }
 
 void func_80000BEC(void) {
@@ -697,7 +744,13 @@ void process_game_tick(void) {
     }
 }
 
-void race_logic_loop(void) {
+/**
+ * Advances the race simulation by one frame (gTickLogic ticks) without rendering.
+ * Netplay rollback calls this on its own to re-simulate frames.
+ *
+ * @returns false while quitting to the menu; that frame has nothing further to simulate or render.
+ */
+bool race_sim_frame(void) {
     ClearMatrixPools();
     ClearObjectsMatrixPool();
     Editor_ClearMatrix();
@@ -710,7 +763,11 @@ void race_logic_loop(void) {
     }
     if (gIsInQuitToMenuTransition != 0) {
         func_802A38B4();
-        return;
+        return false;
+    }
+
+    if (++gKartAnimationSlot == 3) {
+        gKartAnimationSlot = 0;
     }
 
     if (sNumVBlanks >= 6) {
@@ -735,6 +792,13 @@ void race_logic_loop(void) {
         }
     }
     func_8005A070();
+    return true;
+}
+
+/**
+ * Builds the display list for the race frame produced by race_sim_frame().
+ */
+void race_render_frame(void) {
     CM_TickEditor();
     profiler_log_thread5_time(LEVEL_SCRIPT_EXECUTE);
     sNumVBlanks = 0;
@@ -807,6 +871,21 @@ void race_logic_loop(void) {
     FB_WriteFramebufferSliceToCPU(&gDisplayListHead, gPortFramebuffers[sRenderingFramebuffer], true);
     gDPFullSync(gDisplayListHead++);
     gSPEndDisplayList(gDisplayListHead++);
+}
+
+void race_logic_loop(void) {
+    if (Netplay_IsInRace()) {
+        Netplay_RunRaceFrame();
+        return;
+    }
+
+    SimState_BeginSimFrame();
+    bool simulated = race_sim_frame();
+    SimState_EndSimFrame();
+    if (!simulated) {
+        return;
+    }
+    race_render_frame();
 
     // End of frame cleanup of actors, objects, etc.
     CM_RunGarbageCollector();
@@ -1113,7 +1192,9 @@ void update_gamestate(void) {
              * In laymens terms, random_u16() outputs the same value every time.
              */
             // init_segment_racing();
+            SimState_BeginRaceSetup();
             setup_race();
+            SimState_EndRaceSetup();
             TrackBrowser_ResetSelectedTrack(); // Same function as gCurrentlyLoadedTrackAddr
             break;
         case ENDING:
@@ -1172,12 +1253,16 @@ void thread5_iteration(void) {
         gGamestate = gGamestateNext;
         update_gamestate();
     }
+    Harness_BeginFrame();
+    Netplay_BeginFrame();
     profiler_log_thread5_time(THREAD5_START);
     config_gfx_pool();
     read_controllers();
     FB_CreateFramebuffers();
     clear_framebuffer(0); // Clear the framebuffer
     game_state_handler();
+    Harness_EndFrame();
+    Netplay_EndFrame();
 
     // call_render_hook();
 

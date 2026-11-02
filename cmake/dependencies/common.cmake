@@ -34,6 +34,29 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(tomlplusplus)
 target_link_libraries(${PROJECT_NAME} PRIVATE tomlplusplus::tomlplusplus)
 
+# =================== GekkoNet (netplay rollback) ===================
+# Built from its sources here rather than through its own CMake project, which forces the static MSVC runtime.
+FetchContent_Declare(
+  gekkonet
+  GIT_REPOSITORY https://github.com/HeatXD/GekkoNet.git
+  GIT_TAG 9da2363d7c5a68cc77f8dfe2da7cf51d3afe3bee
+  SOURCE_SUBDIR do-not-add-subdirectory)
+FetchContent_MakeAvailable(gekkonet)
+file(GLOB GEKKONET_SOURCES ${gekkonet_SOURCE_DIR}/GekkoLib/src/*.cpp)
+add_library(GekkoNet STATIC ${GEKKONET_SOURCES})
+target_include_directories(GekkoNet
+  PUBLIC ${gekkonet_SOURCE_DIR}/GekkoLib/include
+  PRIVATE ${gekkonet_SOURCE_DIR}/GekkoLib/include/private
+          ${gekkonet_SOURCE_DIR}/GekkoLib/thirdparty
+          ${gekkonet_SOURCE_DIR}/GekkoLib/thirdparty/asio)
+target_compile_definitions(GekkoNet PUBLIC GEKKONET_STATIC)
+target_compile_features(GekkoNet PRIVATE cxx_std_20)
+if(WIN32)
+  target_compile_definitions(GekkoNet PRIVATE _WIN32_WINNT=0x0A00)
+  target_link_libraries(GekkoNet PRIVATE ws2_32 mswsock)
+endif()
+target_link_libraries(${PROJECT_NAME} PRIVATE GekkoNet)
+
 # libultraship
 # Removes MPQ/OTR support
 set(EXCLUDE_MPQ_SUPPORT TRUE CACHE BOOL "")

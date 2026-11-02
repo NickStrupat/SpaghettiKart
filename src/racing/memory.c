@@ -25,7 +25,10 @@
 s32 sGfxSeekPosition;
 s32 sPackedSeekPosition;
 
+// Track data and other loaded assets; not rollback state.
+NOT_SIM_STATE_BEGIN
 static u8 sMemoryPool[0x10000000] ALIGNED4096;
+NOT_SIM_STATE_END
 uintptr_t sPoolEnd = (uintptr_t) (sMemoryPool + sizeof(sMemoryPool));
 
 uintptr_t sPoolFreeSpace;
