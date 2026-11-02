@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """
-Names the variables behind a netplay rollback mismatch.
+Names the variables behind a netplay rollback mismatch or desync.
 
 The determinism harness (src/port/netplay/DeterminismHarness.h) writes a trace with SK_DETERMINISM_TRACE.
 On a rollback mismatch it lists every byte range where the re-simulated state differs from the original,
 as link-time addresses. This script maps those addresses to symbols using nm on the same executable.
 
+Netplay peers run with SK_NETPLAY_DUMP=1 write the state each segment starts from; given two of those files,
+this script lists where the two peers' states differ.
+
 Usage: tools/netplay-diff.py <executable> <trace file>
+       tools/netplay-diff.py <executable> <snapshot file> <snapshot file>
 """
 import bisect
 import platform
@@ -39,18 +43,82 @@ def demangle(names):
     return output.splitlines()
 
 
+def read_snapshot(path):
+    """Returns the header fields and the data, bss, arena and world bytes of a snapshot file."""
+    with open(path, "rb") as file:
+        header = file.readline().split()
+        data_address, data_size = int(header[1], 16), int(header[2])
+        bss_address, bss_size = int(header[3], 16), int(header[4])
+        arena_size, world_size = int(header[5]), int(header[6])
+        data = file.read(data_size)
+        bss = file.read(bss_size)
+        arena = file.read(arena_size)
+        world = file.read(world_size)
+    return (data_address, data, bss_address, bss, arena, world)
+
+
+def is_pointer(value):
+    """Heap and image addresses differ between processes (ASLR) without the game behaving differently."""
+    return 0x100000000 <= value < 0x800000000000
+
+
+def differing_runs(a, b, base):
+    """
+    Yields (address, length) for each run of differing bytes; runs fewer than 8 bytes apart are merged.
+    Aligned 8-byte words holding a pointer on both sides are skipped.
+    """
+    size = min(len(a), len(b))
+    i = 0
+    while i < size:
+        if a[i] == b[i]:
+            i += 1
+            continue
+        word = (base + i) & ~7
+        start = word - base
+        if start >= 0 and start + 8 <= size:
+            value_a = int.from_bytes(a[start:start + 8], "little")
+            value_b = int.from_bytes(b[start:start + 8], "little")
+            if is_pointer(value_a) and is_pointer(value_b):
+                i = start + 8
+                continue
+        end = i
+        while end < size and (a[end] != b[end] or a[end:end + 8] != b[end:end + 8]):
+            end += 1
+        yield (base + i, end - i)
+        i = end
+
+
+def snapshot_lines(path_a, path_b):
+    """Compares two snapshot files and returns the differences in the trace file's line format."""
+    a = read_snapshot(path_a)
+    b = read_snapshot(path_b)
+    lines = ["rollback differences between " + path_a + " and " + path_b]
+    for address, length in differing_runs(a[1], b[1], a[0]):
+        lines.append(f"sim_data {address:x} {length}")
+    for address, length in differing_runs(a[3], b[3], a[2]):
+        lines.append(f"sim_bss {address:x} {length}")
+    if len(a[4]) != len(b[4]):
+        lines.append(f"arena size {len(a[4])} vs {len(b[4])}")
+    for address, length in differing_runs(a[4], b[4], 0):
+        lines.append(f"arena {address:x} {length}")
+    for address, length in differing_runs(a[5], b[5], 0):
+        lines.append(f"world {address:x} {length}")
+    return lines
+
+
 def main():
-    if len(sys.argv) != 3:
+    if len(sys.argv) not in (3, 4):
         print(__doc__)
         sys.exit(1)
 
     symbols = load_symbols(sys.argv[1])
     addresses = [address for address, _ in symbols]
+    lines = snapshot_lines(sys.argv[2], sys.argv[3]) if len(sys.argv) == 4 else open(sys.argv[2])
 
     differences = {}
     order = []
     inside = False
-    for line in open(sys.argv[2]):
+    for line in lines:
         if line.startswith("rollback differences"):
             inside = True
             print(line.strip())

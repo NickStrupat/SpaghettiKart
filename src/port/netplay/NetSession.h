@@ -3,6 +3,7 @@
 
 #include <libultraship/libultraship.h>
 
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -11,13 +12,44 @@
 
 #include "RaceConfig.h"
 
-/** One netplay race. Everything but LocalPlayer and the addresses must be the same on every peer. */
+/**
+ * Requests a player sends along with its inputs. The simulation acts on them on the frame they belong to, so every
+ * peer does the same thing at the same time.
+ */
+enum class PadControl : u8 {
+    None = 0,
+    Leave = 1,      // Any player: everyone quits to the menus
+    Restart = 2,    // Player 1 (the host): race this course again
+    NextCourse = 3, // Player 1, Grand Prix: move on as if the race had finished; a testing aid
+};
+
+enum class BarrierStatus { Waiting, Passed, Failed };
+
+struct TestControl {
+    u32 SegmentFrame; // Shown frame within each segment
+    PadControl Control;
+};
+
+/**
+ * One netplay race series: from the first race until the players leave it. Everything but LocalPlayer and the
+ * address entries must be the same on every peer.
+ *
+ * A series is split into segments, one GekkoNet session per loaded race. When a race ends (a Grand Prix moving on,
+ * a restart), every peer freezes the simulation on the frame that started the transition, waits until all peers
+ * have confirmed that same frame, then loads the next race outside of any session: loading is never rolled back.
+ */
 struct SessionSettings {
     s32 LocalPlayer = 0;
     /** Each player's peer address, in player order, as GekkoNet sees them: opaque bytes. The local entry is unused. */
     std::vector<std::vector<u8>> Addresses;
-    /** Carries GekkoNet's packets. Owned by the caller, and must outlive the session. */
-    GekkoNetAdapter* Adapter = nullptr;
+    /** Carries GekkoNet's packets for one segment. Owned by the caller; must outlive the segment. */
+    std::function<GekkoNetAdapter*(u32 segment)> GetAdapter;
+    /**
+     * Agree with the other peers that a segment ended on the given frame. Without these, the series ends with the
+     * first race.
+     */
+    std::function<void(u32 segment, s32 frame)> ReachBarrier;
+    std::function<BarrierStatus(u32 segment, s32 frame)> GetBarrierStatus;
     RaceConfig Config;
 
     // Testing aids
@@ -26,14 +58,16 @@ struct SessionSettings {
     u32 DelayMs = 0;            // Simulated one-way delay added to received packets
     u32 JitterMs = 0;           // Random extra delay, up to this many ms
     u32 LossPercent = 0;        // Percentage of received packets to drop
-    std::string LogPath;        // When the race ends, write each frame's checksum here, to compare peers
+    std::string LogPath;        // After each segment, write each frame's checksum to <LogPath>.seg<N>
     u32 DesyncAtFrame = 0;      // Corrupt the local state at this frame, to test desync detection
+    std::vector<TestControl> TestControls; // Requests the local player makes in every segment
+    bool DumpSegmentStarts = false;        // Write the state each segment starts from to <LogPath>.seg<N>.start
 };
 
 enum class SessionResult {
     Running,
     Completed,     // Reached SessionSettings::TotalFrames
-    RaceOver,      // The race ended and the game left it
+    RaceOver,      // The series ended: the players left the race for the menus or the podium
     PeerLeft,      // Another player disconnected or ended the race
     Desync,        // The peers' simulations diverged
     ConnectFailed, // Not every player connected in time
@@ -60,11 +94,22 @@ void Start(const SessionSettings& settings);
 /** Ends the session and restores the player's own settings. The game stays on the race screen. */
 void Stop(SessionResult result, const std::string& message);
 
+/** Asks every peer to leave the race; the series ends for all on the same frame. */
+void RequestLeave();
+/** Player 1 only: asks every peer to race the current course again. */
+void RequestRestart();
+/** @returns true when RequestRestart() can be used: this is player 1 and a race is running. */
+bool CanRestart();
+
 /** @returns true from Start() until Stop(). */
 bool IsActive();
+/** @returns true while this peer waits for the others to confirm the end of a segment. */
+bool IsAtBarrier();
+/** @returns true when the series ended because a Grand Prix finished: the game is going to the podium. */
+bool IsHeadingToPodium();
 s32 GetLocalPlayer();
 u32 GetShownFrames();
-/** @returns true when the session is within a prediction window of TotalFrames, so a peer ending is expected. */
+/** @returns true when the series is within a prediction window of TotalFrames, so a peer ending is expected. */
 bool IsNearPlannedEnd();
 /** How the last session ended, and why. Running while one is active. */
 SessionResult GetResult();

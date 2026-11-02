@@ -260,6 +260,13 @@ void DrawRoom() {
         if (ImGui::Button("Leave race")) {
             Netplay::LeaveRace();
         }
+        if (Netplay::CanRestartRace()) {
+            ImGui::SameLine();
+            if (ImGui::Button("Restart race")) {
+                Netplay::RestartRace();
+            }
+        }
+        ImGui::TextColored(kDimColor, "Leaving takes everyone back to the room.");
     } else if (host) {
         const std::string blocker = Lobby::GetStartBlocker();
         ImGui::BeginDisabled(!blocker.empty());

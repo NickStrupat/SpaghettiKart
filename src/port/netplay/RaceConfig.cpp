@@ -12,6 +12,7 @@ extern "C" {
 #include "buffers.h"
 #include "menus.h"
 #include "code_800029B0.h"
+#include "menu_items.h"
 #include "defines.h"
 }
 
@@ -266,6 +267,15 @@ void RaceConfig_StartRace(const RaceConfig& config) {
     }
 
     gDemoMode = 0;
+    // A reset to the menus can interrupt the fade out of the last race, leaving its flags set.
+    gIsInQuitToMenuTransition = 0;
+    gQuitToMenuTransitionCounter = 0;
+    gIsGamePaused = 0;
+    // Where the menus were differs between peers; race code reads these, so give them the values a race started
+    // from the course select menu has.
+    gMenuSelection = RACING_DUPLICATE;
+    gDebugMenuSelection = DEBUG_MENU_DISABLED;
+    gCycleFlashMenu = 0;
     gRandomSeed16 = config.RandomSeed;
     gCurrentlyLoadedTrackAddr = 0; // Force a fresh track load
     gGamestateNext = RACING;

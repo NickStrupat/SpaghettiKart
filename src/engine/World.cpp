@@ -54,6 +54,10 @@ u32 World::GetCupIndex() {
     return this->CupIndex;
 }
 
+size_t* World::GetCupCursorPosition(size_t cupIndex) {
+    return &Cups[cupIndex]->CursorPosition;
+}
+
 u32 World::NextCup() {
     s32 hack = 1;
 

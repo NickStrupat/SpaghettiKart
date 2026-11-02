@@ -23,12 +23,15 @@
  *   SK_NETPLAY_MODE / _TRACK / _CUP     Host: race settings.
  * Options for both:
  *   SK_NETPLAY_BOT=1                    Drive the local player with seeded synthetic inputs.
- *   SK_NETPLAY_FRAMES=1800              End each race after this many shown frames (0 runs until it ends).
+ *   SK_NETPLAY_FRAMES=1800              End the series after this many shown frames (0 runs until it ends).
  *   SK_NETPLAY_DELAY_MS=60              Simulated one-way delay added to received packets.
  *   SK_NETPLAY_JITTER_MS=20             Random extra delay, up to this many ms.
  *   SK_NETPLAY_LOSS=5                   Percentage of received packets to drop.
- *   SK_NETPLAY_LOG=<file>               When a race ends, write each frame's checksum, to compare peers.
+ *   SK_NETPLAY_LOG=<file>               After each segment, write each frame's checksum, to compare peers.
  *   SK_NETPLAY_DESYNC_AT=300            Corrupt this peer's state at that frame, to test desync detection.
+ *   SK_NETPLAY_TEST_CONTROLS=restart@300,next@200,leave@500
+ *                                       Send these requests on that frame of every race (see PadControl).
+ *   SK_NETPLAY_DUMP=1                   Write the state each segment starts from, for tools/netplay-diff.py.
  */
 
 #ifdef __cplusplus
@@ -72,8 +75,11 @@ void Netplay_Shutdown(void);
 }
 
 namespace Netplay {
-/** Ends this player's race; the others' races end too. */
+/** Ends the race for everyone, on the same frame, and returns them all to the room. */
 void LeaveRace();
+/** Host only: everyone races the current course again. */
+void RestartRace();
+bool CanRestartRace();
 /** @returns true while this player is in, or loading, a netplay race. */
 bool IsRaceRunning();
 } // namespace Netplay

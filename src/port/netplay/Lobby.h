@@ -38,6 +38,9 @@ struct Member {
     s8 Character = 0;
     bool Ready = false;
     bool InRace = false;
+    u32 RaceId = 0;          // The race it runs, or ran last
+    u32 BarrierSegment = 0;  // The last segment of that race it confirmed the end of
+    s32 BarrierFrame = 0;    // The frame it confirmed that segment ended on
 };
 
 /** What the host picks. Guests see the host's choice. */
@@ -84,8 +87,12 @@ std::string GetStartBlocker();
 void StartRace();
 /** The race this peer has been asked to run, if any; taken once. */
 std::optional<RaceStart> TakeRaceStart();
-/** @returns the GekkoNet adapter for a race, carrying packets between the room's members. */
-GekkoNetAdapter* GetGekkoAdapter(u32 raceId);
+/** @returns the GekkoNet adapter for one segment of a race, carrying packets between the room's members. */
+GekkoNetAdapter* GetGekkoAdapter(u32 raceId, u32 segment);
+/** Tells the room that this peer confirmed a segment of its race ended on this frame. */
+void ReachBarrier(u32 raceId, u32 segment, s32 frame);
+/** @returns Passed once every player in the race confirmed the same end, Failed if one left or disagrees. */
+BarrierStatus GetBarrierStatus(u32 raceId, u32 segment, s32 frame);
 /** Tells the room that this peer's race ended, so that the others end theirs. */
 void ReportRaceEnded(u32 raceId, SessionResult result, const std::string& message);
 

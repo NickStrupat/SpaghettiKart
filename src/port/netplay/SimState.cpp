@@ -13,6 +13,7 @@
 
 extern "C" {
 #include "main.h"
+#include "code_800029B0.h"
 }
 
 #if defined(__clang__) && defined(__APPLE__)
@@ -31,6 +32,21 @@ struct Range {
 bool sRollbackMode = false;
 bool sResimulating = false;
 bool sSimFrameScopeOpen = false;
+bool sHostControlsMenus = false;
+u32 sRaceSetupCount = 0;
+
+void UpdateMenuController() {
+    if (!sHostControlsMenus) {
+        combine_controllers();
+        return;
+    }
+    gControllerFive->button = gControllerOne->button;
+    gControllerFive->buttonPressed = gControllerOne->buttonPressed;
+    gControllerFive->buttonDepressed = gControllerOne->buttonDepressed;
+    gControllerFive->stickDirection = gControllerOne->stickDirection;
+    gControllerFive->stickPressed = gControllerOne->stickPressed;
+    gControllerFive->stickDepressed = gControllerOne->stickDepressed;
+}
 
 // The section names must match SimSection.h.
 #if defined(__clang__) && defined(__APPLE__)
@@ -121,6 +137,7 @@ extern "C" bool SimState_IsRollbackMode(void) {
 }
 
 extern "C" void SimState_BeginRaceSetup(void) {
+    sRaceSetupCount++;
     if (!sRollbackMode) {
         return;
     }
@@ -135,12 +152,34 @@ extern "C" void SimState_BeginRaceSetup(void) {
     if (!trackName.empty()) {
         TrackBrowser_SetTrack(trackName.c_str());
     }
+    // setup_race() skips loading a course whose Track object sits at the address of the last one it loaded. The
+    // arena hands freed addresses out again, so the next course's object can land there; always load.
+    gCurrentlyLoadedTrackAddr = 0;
 }
 
 extern "C" void SimState_EndRaceSetup(void) {
     if (sRollbackMode) {
         SimHeap_EndScope();
     }
+}
+
+extern "C" u32 SimState_GetRaceSetupCount(void) {
+    return sRaceSetupCount;
+}
+
+extern "C" void SimState_SetHostControlsMenus(bool enabled) {
+    sHostControlsMenus = enabled;
+}
+
+extern "C" void SimState_ResetControllers(void) {
+    // Applying a released pad twice clears both the held state and the edges computed from it.
+    for (int pass = 0; pass < 2; pass++) {
+        for (size_t i = 0; i < 4; i++) {
+            OSContPad released = {};
+            apply_pad_to_controller(&gControllers[i], &released);
+        }
+    }
+    UpdateMenuController();
 }
 
 extern "C" void SimState_BeginSimFrame(void) {
@@ -163,7 +202,7 @@ extern "C" void SimState_AdvanceFrame(OSContPad* pads, bool shown) {
     for (size_t i = 0; i < 4; i++) {
         apply_pad_to_controller(&gControllers[i], &pads[i]);
     }
-    combine_controllers();
+    UpdateMenuController();
 
     // Same order as race_logic_loop().
     SimState_BeginSimFrame();
@@ -251,6 +290,17 @@ void WriteDifferences(const SimSnapshot& a, const SimSnapshot& b, FILE* out) {
     }
     WriteDifferingRuns("arena", a.Arena.data(), b.Arena.data(), std::min(a.Arena.size(), b.Arena.size()), 0, out);
     WriteDifferingRuns("world", a.World.data(), b.World.data(), std::min(a.World.size(), b.World.size()), 0, out);
+}
+
+void WriteSnapshotFile(const SimSnapshot& snapshot, FILE* out) {
+    const auto& sections = GetSectionRanges();
+    const uintptr_t slide = GetImageSlide();
+    fprintf(out, "SKSNAP %llx %zu %llx %zu %zu %zu\n", (unsigned long long) ((uintptr_t) sections[0].Data - slide),
+            sections[0].Size, (unsigned long long) ((uintptr_t) sections[1].Data - slide), sections[1].Size,
+            snapshot.Arena.size(), snapshot.World.size());
+    fwrite(snapshot.Section.data(), 1, snapshot.Section.size(), out);
+    fwrite(snapshot.Arena.data(), 1, snapshot.Arena.size(), out);
+    fwrite(snapshot.World.data(), 1, snapshot.World.size(), out);
 }
 
 } // namespace SimState

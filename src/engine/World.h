@@ -126,7 +126,15 @@ public:
         fn(&Lakitus, sizeof(Lakitus));
         fn(&mPlayerBombKart, sizeof(mPlayerBombKart));
         fn(&Crossings, sizeof(Crossings));
+        // A Grand Prix moves on to its next course from within the race
+        fn(&CurrentCup, sizeof(CurrentCup));
+        fn(&CupIndex, sizeof(CupIndex));
+        for (size_t i = 0; i < Cups.size(); i++) {
+            fn(GetCupCursorPosition(i), sizeof(size_t));
+        }
     }
+    // Cup.h includes this header, so Cup is incomplete here.
+    size_t* GetCupCursorPosition(size_t cupIndex);
 
     // getter/setter for current track
     Track* GetTrack() {

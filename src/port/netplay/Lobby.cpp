@@ -21,7 +21,8 @@ constexpr s8 kNumCharacters = BOWSER + 1;
 constexpr size_t kMaxMessageSize = 512;
 
 enum class MessageType : u8 {
-    MemberState = 1,  // u8 character, u8 ready, u32 race running (0 for none), u8 name length, name
+    MemberState = 1,  // u8 character, u8 ready, u32 race running or run last, u8 in race,
+                      // u32 last confirmed segment end and s32 its frame, u8 name length, name
     RoomSettings = 2, // Host only: u8 mode, u8 cc, u8 cup, u8 track length, track, u32 race (0 for none),
                       // then for a race: u8 player count, the slot of each player, RaceConfig
     RaceEnded = 3,    // u32 race, u8 SessionResult, u8 message length, message
@@ -46,6 +47,11 @@ struct LobbyState {
     // started. Unset until the host's settings first arrive.
     std::optional<u32> SeenRaceId;
     u32 RunningRaceId = 0;
+    // The race this peer runs, or ran last, and the end of its segments this peer confirmed
+    u32 LastRaceId = 0;
+    std::vector<u8> LastRaceSlots;
+    u32 BarrierSegment = 0;
+    s32 BarrierFrame = 0;
     std::optional<RaceStart> PendingStart;
     std::optional<RaceEnd> EndedElsewhere;
     std::string LastRaceMessage;
@@ -85,7 +91,10 @@ void BroadcastMemberState() {
     writer.Write8((u8) MessageType::MemberState);
     writer.Write8((u8) sLobby.Character);
     writer.Write8(IsReady() ? 1 : 0);
-    writer.Write32(sLobby.RunningRaceId);
+    writer.Write32(sLobby.LastRaceId);
+    writer.Write8(sLobby.RunningRaceId != 0 ? 1 : 0);
+    writer.Write32(sLobby.BarrierSegment);
+    writer.Write32((u32) sLobby.BarrierFrame);
     WriteString(writer, sLobby.Name, kMaxNameLength);
     sLobby.Relay.SendLobby(kBroadcast, message, writer.GetSize());
 }
@@ -111,7 +120,10 @@ void HandleMemberState(u8 source, ByteReader& reader) {
     Member member;
     member.Character = (s8) reader.Read8();
     member.Ready = reader.Read8() != 0;
-    member.InRace = reader.Read32() != 0;
+    member.RaceId = reader.Read32();
+    member.InRace = reader.Read8() != 0;
+    member.BarrierSegment = reader.Read32();
+    member.BarrierFrame = (s32) reader.Read32();
     member.Name = ReadString(reader);
     if (reader.Failed() || (source >= kMaxMembers) || (member.Character < 0) || (member.Character >= kNumCharacters)) {
         return;
@@ -216,6 +228,9 @@ void UpdateMembers() {
     self.Character = sLobby.Character;
     self.Ready = IsReady();
     self.InRace = sLobby.RunningRaceId != 0;
+    self.RaceId = sLobby.LastRaceId;
+    self.BarrierSegment = sLobby.BarrierSegment;
+    self.BarrierFrame = sLobby.BarrierFrame;
 }
 
 void ResetRoom() {
@@ -360,6 +375,10 @@ void SetCharacter(s8 character) {
 }
 
 void SetReady(bool ready) {
+    // Starting a race clears Ready, so that everyone confirms again for the next one.
+    if (ready && (sLobby.PendingStart.has_value() || (sLobby.RunningRaceId != 0))) {
+        return;
+    }
     sLobby.Changed |= (sLobby.Ready != ready);
     sLobby.Ready = ready;
 }
@@ -452,14 +471,53 @@ std::optional<RaceStart> TakeRaceStart() {
     start.swap(sLobby.PendingStart);
     if (start.has_value()) {
         sLobby.RunningRaceId = start->Id;
+        sLobby.LastRaceId = start->Id;
+        sLobby.LastRaceSlots = start->Slots;
+        sLobby.BarrierSegment = 0;
+        sLobby.BarrierFrame = 0;
         sLobby.LastRaceMessage.clear();
         sLobby.Changed = true;
     }
     return start;
 }
 
-GekkoNetAdapter* GetGekkoAdapter(u32 raceId) {
-    return sLobby.Relay.GetGekkoAdapter((u16) raceId);
+GekkoNetAdapter* GetGekkoAdapter(u32 raceId, u32 segment) {
+    // Packets still in flight from the previous segment carry its tag and are dropped.
+    return sLobby.Relay.GetGekkoAdapter((u16) ((raceId << 6) + (segment & 0x3F)));
+}
+
+void ReachBarrier(u32 raceId, u32 segment, s32 frame) {
+    if (raceId == sLobby.LastRaceId) {
+        sLobby.BarrierSegment = segment;
+        sLobby.BarrierFrame = frame;
+        sLobby.Changed = true;
+    }
+}
+
+BarrierStatus GetBarrierStatus(u32 raceId, u32 segment, s32 frame) {
+    if ((sLobby.Status != State::InRoom) || (raceId != sLobby.LastRaceId)) {
+        return BarrierStatus::Failed;
+    }
+    BarrierStatus status = BarrierStatus::Passed;
+    for (u8 slot : sLobby.LastRaceSlots) {
+        if (slot == (u8) sLobby.Relay.GetSlot()) {
+            continue;
+        }
+        const Member& member = sLobby.Members[slot];
+        if (!member.Present) {
+            return BarrierStatus::Failed;
+        }
+        if ((member.RaceId == raceId) && !member.InRace && (member.BarrierSegment < segment)) {
+            return BarrierStatus::Failed; // It left the race before this segment ended
+        }
+        if ((member.RaceId != raceId) || (member.BarrierSegment < segment)) {
+            // Still racing, or its state saying otherwise has not arrived yet; one that left ends the race anyway.
+            status = BarrierStatus::Waiting;
+        } else if ((member.BarrierSegment == segment) && (member.BarrierFrame != frame)) {
+            return BarrierStatus::Failed;
+        }
+    }
+    return status;
 }
 
 void ReportRaceEnded(u32 raceId, SessionResult result, const std::string& message) {

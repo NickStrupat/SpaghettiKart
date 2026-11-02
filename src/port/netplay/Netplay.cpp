@@ -1,5 +1,6 @@
 #include "Netplay.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -25,6 +26,8 @@ namespace {
 constexpr u32 kBootFrames = 30;
 // After returning to the menus, let them initialize before loading a race.
 constexpr u32 kMenuSettleFrames = 3;
+// Lobby tests watch this much of the podium after a Grand Prix: 15 s.
+constexpr u32 kTestPodiumFrames = 450;
 
 enum class TestMode {
     None,   // Races come from the lobby window
@@ -53,6 +56,8 @@ struct NetplayState {
     RaceConfig Config;
     GekkoNetAdapter* DirectSocket = nullptr;
 
+    std::vector<TestControl> TestControls;
+
     // Lobby test
     std::string RelayAddress;
     bool HostRoom = false;
@@ -64,6 +69,8 @@ struct NetplayState {
     u32 RacesEnded = 0;
     bool JoinedRoom = false;
     Lobby::Settings TestSettings;
+
+    u32 PodiumFrames = 0;
 
     // Lobby races
     std::optional<Lobby::RaceStart> PendingRace;
@@ -111,6 +118,31 @@ void ApplyTestOptions(SessionSettings* settings, u32 botSeed) {
     settings->LossPercent = sNetplay.LossPercent;
     settings->DesyncAtFrame = sNetplay.DesyncAtFrame;
     settings->LogPath = sNetplay.LogPath;
+    settings->TestControls = sNetplay.TestControls;
+    settings->DumpSegmentStarts = GetEnvU32("SK_NETPLAY_DUMP", 0) != 0;
+}
+
+/** Parses "restart@300,next@200,leave@500": a control and the frame of each segment to send it on. */
+std::vector<TestControl> ParseTestControls(const char* text) {
+    std::vector<TestControl> controls;
+    std::string list = text;
+    size_t start = 0;
+    while (start < list.size()) {
+        const size_t comma = std::min(list.find(',', start), list.size());
+        const std::string item = list.substr(start, comma - start);
+        const size_t at = item.find('@');
+        const std::string name = item.substr(0, at);
+        const u32 frame = (at == std::string::npos) ? 0 : (u32) strtoul(item.c_str() + at + 1, nullptr, 10);
+        if (name == "leave") {
+            controls.push_back({ frame, PadControl::Leave });
+        } else if (name == "restart") {
+            controls.push_back({ frame, PadControl::Restart });
+        } else if (name == "next") {
+            controls.push_back({ frame, PadControl::NextCourse });
+        }
+        start = comma + 1;
+    }
+    return controls;
 }
 
 void OnSessionEnded();
@@ -130,7 +162,7 @@ void StartDirectRace() {
     for (const std::string& address : sNetplay.PeerAddresses) {
         settings.Addresses.emplace_back(address.begin(), address.end());
     }
-    settings.Adapter = sNetplay.DirectSocket;
+    settings.GetAdapter = [](u32) { return sNetplay.DirectSocket; };
     settings.Config = sNetplay.Config;
     ApplyTestOptions(&settings, (sNetplay.Config.RandomSeed + 1) * 0x9E3779B9u * (u32) (sNetplay.LocalPlayer + 1));
     NetSession::Start(settings);
@@ -145,7 +177,12 @@ void StartLobbyRace(const Lobby::RaceStart& start) {
     for (u8 slot : start.Slots) {
         settings.Addresses.push_back({ slot });
     }
-    settings.Adapter = Lobby::GetGekkoAdapter(start.Id);
+    const u32 raceId = start.Id;
+    settings.GetAdapter = [raceId](u32 segment) { return Lobby::GetGekkoAdapter(raceId, segment); };
+    settings.ReachBarrier = [raceId](u32 segment, s32 frame) { Lobby::ReachBarrier(raceId, segment, frame); };
+    settings.GetBarrierStatus = [raceId](u32 segment, s32 frame) {
+        return Lobby::GetBarrierStatus(raceId, segment, frame);
+    };
     settings.Config = start.Config;
     if (sNetplay.Test == TestMode::Lobby) {
         ApplyTestOptions(&settings, (start.Config.RandomSeed + 1) * 0x9E3779B9u * (u32) (start.LocalPlayer + 1));
@@ -172,8 +209,11 @@ void OnSessionEnded() {
     Lobby::ReportRaceEnded(sNetplay.RunningRaceId, result, message);
     Lobby::SetLastRaceMessage(message);
     sNetplay.RunningRaceId = 0;
-    // Back to the menus: whatever the race's own ending would lead to is not synchronized between peers.
-    CM_RequestReset();
+    // A finished Grand Prix goes on to its podium, which each peer shows on its own. Otherwise everyone goes back
+    // to the menus, where the room picks the next race.
+    if (!NetSession::IsHeadingToPodium()) {
+        CM_RequestReset();
+    }
 
     if (sNetplay.Test == TestMode::Lobby) {
         sNetplay.RacesEnded++;
@@ -188,6 +228,10 @@ void OnSessionEnded() {
 void HandleRaceEndedElsewhere() {
     const std::optional<Lobby::RaceEnd> end = Lobby::TakeRaceEndedElsewhere();
     if (!end.has_value()) {
+        return;
+    }
+    if (NetSession::IsAtBarrier() && IsSuccess(end->Result)) {
+        // A peer that confirmed the end of the race went ahead; this peer follows once it hears of it.
         return;
     }
     if (NetSession::IsActive() && (end->Id == sNetplay.RunningRaceId)) {
@@ -287,6 +331,15 @@ void UpdateLobbyTest() {
         FinishTest(false, "Left the room: " + Lobby::GetError());
         return;
     }
+    // The podium waits for a button press, which bots do not make.
+    if (gGamestate == ENDING) {
+        if (++sNetplay.PodiumFrames == kTestPodiumFrames) {
+            printf("[Netplay] Leaving the podium\n");
+            CM_RequestReset();
+        }
+    } else {
+        sNetplay.PodiumFrames = 0;
+    }
     const Lobby::Member& self = Lobby::GetMembers()[Lobby::GetLocalSlot()];
     const bool racing = NetSession::IsActive() || sNetplay.PendingRace.has_value();
     if (!Lobby::IsHost() && !self.Ready && !racing && IsInMenus()) {
@@ -361,6 +414,9 @@ extern "C" void Netplay_Init(void) {
     if (const char* logPath = GetEnv("SK_NETPLAY_LOG")) {
         sNetplay.LogPath = logPath;
     }
+    if (const char* controls = GetEnv("SK_NETPLAY_TEST_CONTROLS")) {
+        sNetplay.TestControls = ParseTestControls(controls);
+    }
 }
 
 extern "C" void Netplay_BeginFrame(void) {
@@ -422,7 +478,15 @@ extern "C" void Netplay_Shutdown(void) {
 namespace Netplay {
 
 void LeaveRace() {
-    NetSession::Stop(SessionResult::PeerLeft, "Left the race");
+    NetSession::RequestLeave();
+}
+
+void RestartRace() {
+    NetSession::RequestRestart();
+}
+
+bool CanRestartRace() {
+    return NetSession::CanRestart();
 }
 
 bool IsRaceRunning() {

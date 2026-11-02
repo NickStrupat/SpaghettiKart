@@ -30,6 +30,17 @@ bool SimState_IsRollbackMode(void);
 /** Bracket setup_race(). In rollback mode, rebuilds the World and track inside the sim arena. */
 void SimState_BeginRaceSetup(void);
 void SimState_EndRaceSetup(void);
+/** @returns how many races have been set up, to notice when a new one has loaded. */
+u32 SimState_GetRaceSetupCount(void);
+
+/**
+ * When enabled, menus that read the combined controller (results, "continue" prompts) take input from player 1
+ * only, instead of from every player at once: in netplay, player 1 is the host, and two players pushing the same
+ * cursor in different directions would fight over it.
+ */
+void SimState_SetHostControlsMenus(bool enabled);
+/** Clears every controller's held and pressed buttons, so each peer starts a session from the same state. */
+void SimState_ResetControllers(void);
 
 /** Bracket the simulation half of a race frame. In rollback mode, routes its allocations into the sim arena. */
 void SimState_BeginSimFrame(void);
@@ -73,6 +84,12 @@ void Load(const SimSnapshot& snapshot);
  * Section ranges are given as link-time addresses, so `nm` on the executable names the variables.
  */
 void WriteDifferences(const SimSnapshot& a, const SimSnapshot& b, FILE* out);
+
+/**
+ * Writes a snapshot to a file, to compare the states of two peers with tools/netplay-diff.py: a text header
+ * "SKSNAP <data address> <data size> <bss address> <bss size> <arena size> <world size>", then the raw bytes.
+ */
+void WriteSnapshotFile(const SimSnapshot& snapshot, FILE* out);
 
 } // namespace SimState
 
