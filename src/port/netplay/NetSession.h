@@ -91,6 +91,8 @@ namespace NetSession {
 
 /** 1 (the default): each peer shows only its own player's view, full screen. 0: the race's split screen. */
 constexpr const char* kOwnViewCVar = "gNetplay.OwnView";
+/** 1 (the default): each peer plays only its own player's camera's sounds. 0: every camera's, as split screen does. */
+constexpr const char* kOwnAudioCVar = "gNetplay.OwnAudio";
 
 /**
  * Applies the race settings and starts loading the race; the GekkoNet session starts once it has loaded.

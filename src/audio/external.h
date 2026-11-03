@@ -234,6 +234,11 @@ void func_800C400C(void);
 void func_800C4084(u16);
 void func_800C40F0(u8);
 void play_sound(u32, Vec3f*, u8, f32*, f32*, s8*);
+/**
+ * @port: plays only the sounds of one split-screen camera, with one-player stereo, as netplay shows one player's view.
+ * Split screen otherwise mixes every camera's sounds, each panned hard to one side. -1 mixes them all again.
+ */
+void audio_set_only_camera(s8 cameraId);
 void func_800C41CC(u8, struct SoundCharacteristics*);
 void func_800C4398(void);
 void delete_sound_from_bank(u8, u8);

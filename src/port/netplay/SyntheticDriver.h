@@ -67,6 +67,8 @@ private:
     u32 mItemDelay = 0;
     s32 mDetourBox = -1;
     u32 mDetourFramesLeft = 0;
+    f32 mProgressMark = 0.0f;
+    u32 mNoProgressFrames = 0;
 };
 
 #endif // NETPLAY_SYNTHETIC_DRIVER_H

@@ -340,13 +340,21 @@ void DrawControllerChoice() {
                                                   : "Button held on controller %s", pressed.c_str());
 }
 
-/** Whether races show only this player's view, full screen, or the split screen of every player. */
-void DrawViewChoice() {
-    bool ownView = CVarGetInteger(NetSession::kOwnViewCVar, 1) != 0;
-    if (ImGui::Checkbox("Show only my player", &ownView)) {
-        CVarSetInteger(NetSession::kOwnViewCVar, ownView ? 1 : 0);
+void CheckboxCVar(const char* label, const char* cvar) {
+    bool enabled = CVarGetInteger(cvar, 1) != 0;
+    if (ImGui::Checkbox(label, &enabled)) {
+        CVarSetInteger(cvar, enabled ? 1 : 0);
         Ship::Context::GetRawInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
     }
+}
+
+/**
+ * Whether races show and sound only this player's view, or the split screen of every player, where each player's
+ * sounds come from one side.
+ */
+void DrawViewChoice() {
+    CheckboxCVar("Show only my player", NetSession::kOwnViewCVar);
+    CheckboxCVar("Hear only my player", NetSession::kOwnAudioCVar);
 }
 
 void RegisterNetplayWidgets() {

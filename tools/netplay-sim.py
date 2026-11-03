@@ -62,6 +62,7 @@ class Scenario:
     peer_env: dict = dataclasses.field(default_factory=dict)  # Extra environment, by peer index
     expect: dict = dataclasses.field(default_factory=dict)  # Minimum count of each event, on every peer
     timeout: int = 300  # Seconds
+    quiet_limit: int = 90  # Seconds without a new log line from any game before the scenario counts as stuck
 
 
 # Event names for Scenario.expect, and the log lines that count as one
@@ -148,6 +149,32 @@ def compare_checksum_logs(directory: Path, players: int):
     return len(host_logs), mismatches
 
 
+def wait_for_games(games, outputs, deadline, quiet_limit):
+    """Waits for every game to exit, and stops them all when time runs out or none logs anything for quiet_limit
+    seconds. @returns why they were stopped, or an empty string."""
+    reason = ""
+    last_sizes = None
+    last_change = time.monotonic()
+    while any(game.poll() is None for game in games):
+        now = time.monotonic()
+        sizes = [path.stat().st_size for path in outputs]
+        if sizes != last_sizes:
+            last_sizes = sizes
+            last_change = now
+        if now >= deadline:
+            reason = "stopped: the scenario's time ran out"
+        elif now - last_change >= quiet_limit:
+            reason = f"stopped: no game logged anything for {quiet_limit} s"
+        if reason:
+            for game in games:
+                if game.poll() is None:
+                    os.killpg(game.pid, signal.SIGKILL)
+                    game.wait()
+            break
+        time.sleep(0.5)
+    return reason
+
+
 def run_scenario(scenario: Scenario, args, run_dir: Path):
     directory = run_dir / scenario.name
     directory.mkdir(parents=True)
@@ -194,31 +221,23 @@ def run_scenario(scenario: Scenario, args, run_dir: Path):
         # The host creates the room and writes its code; guests wait for it.
         time.sleep(1.0 if i == 0 else 0.3)
 
-    timed_out = False
-    deadline = started + scenario.timeout
-    for game in games:
-        try:
-            game.wait(timeout=max(deadline - time.monotonic(), 0.1))
-        except subprocess.TimeoutExpired:
-            timed_out = True
-    for game in games:
-        if game.poll() is None:
-            os.killpg(game.pid, signal.SIGKILL)
-            game.wait()
+    stopped = wait_for_games(games, outputs, started + scenario.timeout, scenario.quiet_limit)
     relay.kill()
     relay.wait()
     relay_out.close()
     elapsed = time.monotonic() - started
 
     problems = []
-    if timed_out:
-        problems.append(f"timed out after {scenario.timeout} s")
+    if stopped:
+        problems.append(stopped)
     texts = [path.read_text(errors="replace") for path in outputs]
     for i, (game, text) in enumerate(zip(games, texts)):
         lines = [line for line in text.splitlines() if line.startswith("[Netplay]")]
-        if any(pattern in text for pattern in CRASH_PATTERNS) or game.returncode < 0:
+        if stopped:
+            problems.append(f"p{i} last logged: {lines[-1][10:] if lines else '(nothing)'}")
+        elif any(pattern in text for pattern in CRASH_PATTERNS) or game.returncode < 0:
             problems.append(f"p{i} crashed (exit {game.returncode})")
-        elif game.returncode != 0 and not timed_out:
+        elif game.returncode != 0:
             failure = next((line for line in reversed(lines) if "FAIL" in line or "DESYNC" in line), "")
             problems.append(f"p{i} exit {game.returncode}: {failure[10:]}")
         for line in lines:

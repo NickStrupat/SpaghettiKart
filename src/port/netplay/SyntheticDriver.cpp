@@ -11,6 +11,7 @@ extern "C" {
 #include "waypoints.h"
 #include "racing/math_util.h"
 #include "actor_types.h"
+#include "code_80005FD0.h"
 }
 
 namespace {
@@ -24,6 +25,10 @@ constexpr s32 kMaxStick = 80;
 constexpr f32 kStuckSpeed = 1.0f;
 constexpr u32 kStuckFrames = 45;
 constexpr u32 kReverseFrames = 40;
+// A racer that moved less than this share of a lap along the track in kNoProgressFrames is wedged or circling
+// without being slow: it backs out for longer.
+constexpr f32 kMinProgress = 0.01f;
+constexpr u32 kNoProgressFrames = 300;
 // After the race, A is pressed once in this many frames: menus react to a press, not a held button.
 constexpr u32 kConfirmInterval = 20;
 // In Battle, an item is fired at an opponent this close and about ahead.
@@ -222,11 +227,26 @@ bool SyntheticDriver::Unstick(s32 playerIndex, PadInput* pad) {
         pad->StickX = mReverseStickX;
         return true;
     }
-    const bool slow = (gRaceState == RACE_IN_PROGRESS) && (player->speed < kStuckSpeed);
+    const bool racing = gRaceState == RACE_IN_PROGRESS;
+    const bool slow = racing && (player->speed < kStuckSpeed);
     mSlowFrames = slow ? (mSlowFrames + 1) : 0;
-    if (mSlowFrames >= kStuckFrames) {
+
+    bool noProgress = false;
+    if ((gModeSelection != BATTLE) && racing) {
+        const f32 progress = gCourseCompletionPercentByPlayerId[playerIndex];
+        if ((mNoProgressFrames == 0) || (progress > mProgressMark + kMinProgress)) {
+            mProgressMark = progress;
+            mNoProgressFrames = 0;
+        }
+        noProgress = ++mNoProgressFrames >= kNoProgressFrames;
+    } else {
+        mNoProgressFrames = 0;
+    }
+
+    if ((mSlowFrames >= kStuckFrames) || noProgress) {
         mSlowFrames = 0;
-        mReverseFramesLeft = kReverseFrames;
+        mNoProgressFrames = 0;
+        mReverseFramesLeft = noProgress ? (kReverseFrames * 2) : kReverseFrames;
         mReverseStickX = (NextRandomNumber() % 2 == 0) ? kMaxStick : -kMaxStick;
         if (gModeSelection == BATTLE) {
             mDetourBox = GetItemBox(NextRandomNumber());

@@ -20,6 +20,7 @@ extern "C" {
 #include "defines.h"
 #include "code_800029B0.h"
 #include "racing/race_logic.h"
+#include "audio/external.h"
 }
 #include "port/Game.h"
 
@@ -669,6 +670,10 @@ const std::string& GetResultMessage() {
 }
 
 void BeginFrame() {
+    // Sounds follow the view: this player's camera only, unless the player turned that off.
+    const bool ownAudio = IsActive() && (CVarGetInteger(kOwnAudioCVar, 1) != 0);
+    audio_set_only_camera(ownAudio ? (s8) sNet.Settings.LocalPlayer : -1);
+
     // Wait for a newly set up race: right after a segment ends the old one is still on screen, fading out.
     if ((sNet.State == SessionState::WaitingForRace) && (gGamestate == RACING) &&
         (SimState_GetRaceSetupCount() != sNet.SetupCountAtWait)) {

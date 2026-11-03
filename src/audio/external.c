@@ -131,6 +131,8 @@ char external_unused_string00[] = "Error : Queue is not empty ( %x ) \n";
 char external_unused_string01[] = "specchg error\n";
 char external_unused_string02[] = "***** CAM MAX %d *****\n";
 u8 D_800EA244 = 0;
+// @port: the only camera whose sounds are heard (audio_set_only_camera()), or -1 for every camera
+s8 sOnlyCameraId = -1;
 char external_unused_string03[] = "entryout !!! %d\n";
 char external_unused_string04[] = "AFTER GOAL VOICE FLAME %d\n";
 char external_unused_string05[] = "*** Pause On ***\n";
@@ -155,6 +157,18 @@ char external_unused_string_eu_03[] = "SE FADE OUT TIME %d\n";
 #define AUDIO_LEFT_TYRE BACK_LEFT
 #define AUDIO_RIGHT_TYRE BACK_RIGHT
 #endif
+
+void audio_set_only_camera(s8 cameraId) {
+    sOnlyCameraId = cameraId;
+}
+
+/**
+ * @returns true for a sound that belongs to another split-screen camera than the only one heard. Cameras past the
+ * last screen, and camera 4 (sounds that belong to no camera), are always heard.
+ */
+static bool is_other_camera(u8 cameraId) {
+    return (sOnlyCameraId >= 0) && (cameraId <= D_800EA1C0) && (cameraId != sOnlyCameraId);
+}
 
 // Requires void in the argument list to match properly.
 void func_800C13F0(void) {
@@ -246,7 +260,8 @@ s8 func_800C16E8(f32 arg0, f32 arg1, u8 cameraId) {
     f32 var_f20;
     f32 var_f2;
 
-    if (D_800EA1C0 == 0) {
+    // @port: one camera heard alone gets the one-player stereo; split screen pans each camera hard to one side.
+    if ((D_800EA1C0 == 0) || (cameraId == sOnlyCameraId)) {
         if (D_800EA0F4 != 0) {
             var_f2 = 10.0f;
             var_f14 = 20.0f;
@@ -359,6 +374,10 @@ void func_800C19D0(u8 arg0, u8 arg1, u8 arg2) {
             temp_s0 = &sSoundBanks[arg0][arg1];
             temp_s0->distance = sqrtf(temp_s0->distance);
             sp3C = (func_800C1480(arg0, arg1) * *temp_s0->unk14) * D_80192C48[arg0].current;
+            // @port: silences sounds that were playing when another camera's sounds were turned off.
+            if (is_other_camera(temp_s0->cameraId)) {
+                sp3C = 0.0f;
+            }
             sp3B = func_800C15D0(arg0, arg1, arg2);
             sp34 = func_800C1934(arg0, arg1) * *temp_s0->unk10;
             sp33 = func_800C16E8(*temp_s0->unk00[0], *temp_s0->unk08, temp_s0->cameraId);
@@ -1280,7 +1299,7 @@ void play_sound(u32 soundBits, Vec3f* position, u8 cameraId, f32* arg3, f32* arg
     struct Sound* temp_v0;
 
     // Netplay rollback re-simulates frames whose sounds already played.
-    if (SimState_IsResimulating()) {
+    if (SimState_IsResimulating() || is_other_camera(cameraId)) {
         return;
     }
 
