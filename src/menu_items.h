@@ -669,7 +669,7 @@ extern s16 gGetPlayerByCharacterId[];
  */
 extern const char* sMenuTextureList[MENU_TEXTURE_BUFFER_MAX];
 extern u8* sTKMK00_LowResBuffer;
-extern u8* sGPPointsCopy;
+extern u8 sGPPointsCopy[4];
 extern void* gSomeDLBuffer;
 extern s8 gGPPointsByCharacterId[8];
 extern s8 gCharacterIdByGPOverallRank[];

@@ -1,13 +1,16 @@
 #include "NetSession.h"
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <deque>
+#include <vector>
 
 #include "Checksum.h"
 #include "NetLog.h"
+#include "RaceEvents.h"
 #include "SimState.h"
 #include "SyntheticDriver.h"
 
@@ -44,6 +47,8 @@ constexpr auto kBarrierTimeout = std::chrono::seconds(15);
 constexpr u32 kDirectBarrierFrames = 30;
 // A leave request that has not ended the race by then (the session is stuck) ends it locally.
 constexpr auto kLeaveTimeout = std::chrono::seconds(8);
+// SessionSettings::LeaveAfterRaces leaves on this frame of the next race, once it is under way.
+constexpr u32 kLeaveAfterRacesFrame = 30;
 // PadControl travels in two bits of the button word that no N64 button uses.
 constexpr u16 kControlShift = 6;
 constexpr u16 kControlMask = 0x3 << kControlShift;
@@ -226,6 +231,39 @@ void WriteDesyncReport(s32 frame) {
     NetLog("Desync report written to %s", path.c_str());
 }
 
+/**
+ * Writes the checksum breakdown of every frame still kept, for comparing peers after a failure: the peer that did not
+ * detect a desync never learns its frame.
+ */
+void WriteKeptFramesReport() {
+    if (sNet.Settings.LogPath.empty() || (sNet.Gekko == nullptr)) {
+        return;
+    }
+    const std::string path = sNet.Settings.LogPath + ".seg" + std::to_string(sNet.Segment) + ".kept.txt";
+    FILE* report = fopen(path.c_str(), "w");
+    if (report == nullptr) {
+        return;
+    }
+    std::vector<s32> frames;
+    for (size_t i = 0; i < kNumSnapshots; i++) {
+        if (sNet.SnapshotFrames[i] >= 0) {
+            frames.push_back(sNet.SnapshotFrames[i]);
+        }
+    }
+    std::sort(frames.begin(), frames.end());
+    static SimSnapshot sCurrent;
+    SimState::Save(sCurrent);
+    for (s32 frame : frames) {
+        SimState::Load(sNet.Snapshots[GetSnapshotIndex(frame)]);
+        fprintf(report, "frame %d\n", frame);
+        Sim_WriteChecksumBreakdown(report);
+    }
+    SimState::Load(sCurrent);
+    fclose(report);
+    NetLog("Kept frames %d-%d written to %s", frames.empty() ? -1 : frames.front(),
+           frames.empty() ? -1 : frames.back(), path.c_str());
+}
+
 /** Prints the segment's statistics, tears down its GekkoNet session and writes its checksum log. */
 void EndGekkoSession(const char* verdict, const std::string& message) {
     if (sNet.Gekko == nullptr) {
@@ -307,6 +345,7 @@ void StartGekkoSession() {
     sNet.State = SessionState::Connecting;
     NetLog("Segment %u started: player %d of %zu", sNet.Segment, settings.LocalPlayer,
            settings.Addresses.size());
+    RaceEvents::Reset();
     fflush(stdout);
 }
 
@@ -503,6 +542,10 @@ void LoadFrame(const GekkoGameEvent::GekkoEventData::GekkoLoad& load) {
 }
 
 PadControl GetLocalControl() {
+    const u32 leaveAfter = sNet.Settings.LeaveAfterRaces;
+    if ((leaveAfter > 0) && (sNet.Segment > leaveAfter) && (sNet.SegmentFrames == kLeaveAfterRacesFrame)) {
+        NetSession::RequestLeave();
+    }
     for (const TestControl& test : sNet.Settings.TestControls) {
         if (test.SegmentFrame == sNet.SegmentFrames) {
             if (test.Control == PadControl::Leave) {
@@ -537,7 +580,7 @@ void Start(const SessionSettings& settings) {
     sNet.RandomState = 0x2545F491 ^ ((u32) (settings.LocalPlayer + 1) * 7919);
     sNet.Bot.reset();
     if (settings.BotSeed.has_value()) {
-        sNet.Bot.emplace(*settings.BotSeed);
+        sNet.Bot.emplace(*settings.BotSeed, settings.BotStyle);
     }
 
     if (!SimState_IsSupported()) {
@@ -557,6 +600,9 @@ void Start(const SessionSettings& settings) {
 void Stop(SessionResult result, const std::string& message) {
     if (sNet.State == SessionState::Off) {
         return;
+    }
+    if (!IsSuccess(result)) {
+        WriteKeptFramesReport();
     }
     EndGekkoSession(IsSuccess(result) ? "PASS" : "FAIL", message);
     sNet.CVars.Restore();
@@ -660,7 +706,7 @@ bool ConsumeLocalPads(OSContPad* pads) {
 
     PadInput input;
     if (sNet.Bot.has_value()) {
-        input = sNet.Bot->Next();
+        input = sNet.Bot->Next(sNet.Settings.LocalPlayer);
     } else {
         input.StickX = pads[0].stick_x;
         input.StickY = pads[0].stick_y;
@@ -740,6 +786,7 @@ void RunRaceFrame() {
         }
         sNet.SegmentFrames++;
         sNet.ShownFrames++;
+        RaceEvents::Update(sNet.SegmentFrames);
         if ((settings.TotalFrames > 0) && (sNet.ShownFrames >= settings.TotalFrames)) {
             Stop(SessionResult::Completed, "Race complete");
             return;

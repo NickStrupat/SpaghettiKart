@@ -13,6 +13,7 @@
 #include "RaceConfig.h"
 #include "SimState.h"
 #include "SyntheticDriver.h"
+#include "RaceEvents.h"
 
 extern "C" {
 #include "main.h"
@@ -183,6 +184,8 @@ void FillPads(const std::array<PadInput, kNumPads>& inputs, OSContPad* pads) {
  * checking every re-simulated frame against its recorded checksum.
  * @returns false on a mismatch, after finishing the run.
  */
+void EndRun();
+
 bool RunRollbackCheck() {
     const u32 frame = sHarness.Frame;
     const u32 depth = sHarness.RollbackFrames;
@@ -238,8 +241,12 @@ extern "C" void Harness_Init(void) {
         sHarness.Path = path;
         sHarness.Config = MakeRecordConfig();
         sHarness.TotalFrames = (u32) GetEnvInt("SK_DETERMINISM_FRAMES", kDefaultFrames);
+        const char* driver = GetEnv("SK_DETERMINISM_DRIVER");
+        const SyntheticDriver::Style style = ((driver != nullptr) && (strcmp(driver, "random") == 0))
+                                                 ? SyntheticDriver::Style::Random
+                                                 : SyntheticDriver::Style::Racer;
         for (size_t i = 0; i < kNumPads; i++) {
-            sHarness.Drivers.emplace_back((sHarness.Config.RandomSeed + 1) * 0x9E3779B9u * (u32) (i + 1));
+            sHarness.Drivers.emplace_back((sHarness.Config.RandomSeed + 1) * 0x9E3779B9u * (u32) (i + 1), style);
         }
     } else if (const char* path = GetEnv("SK_DETERMINISM_VERIFY")) {
         sHarness.Mode = HarnessMode::Verify;
@@ -255,6 +262,7 @@ extern "C" void Harness_BeginFrame(void) {
     // RaceConfig_StartRace() takes effect on the next frame's gamestate update.
     if ((sHarness.State == HarnessState::WaitingForRace) && (gGamestate == RACING)) {
         sHarness.State = HarnessState::Running;
+        RaceEvents::Reset();
     }
 }
 
@@ -266,7 +274,7 @@ extern "C" bool Harness_OverridePads(OSContPad* pads) {
     std::array<PadInput, kNumPads> inputs = {};
     if (sHarness.Mode == HarnessMode::Record) {
         for (size_t i = 0; i < (size_t) sHarness.Config.PlayerCount; i++) {
-            inputs[i] = sHarness.Drivers[i].Next();
+            inputs[i] = sHarness.Drivers[i].Next((s32) i);
         }
         sHarness.Frames.push_back({ inputs, 0 });
     } else {
@@ -292,10 +300,16 @@ extern "C" void Harness_EndFrame(void) {
         return;
     }
     if (gGamestate != RACING) {
+        if (sHarness.Mode == HarnessMode::Record) {
+            // A racer driver finished the race and confirmed its results: the run ends with the race.
+            EndRun();
+            return;
+        }
         printf("[Determinism] FAIL: race ended early at frame %u\n", sHarness.Frame);
         Finish(EXIT_FAILURE);
         return;
     }
+    RaceEvents::Update(sHarness.Frame);
 
     const u64 checksum = Sim_GameplayChecksum();
     if ((sHarness.Trace != nullptr) && (sHarness.Frame < kTraceFrames)) {
@@ -317,8 +331,16 @@ extern "C" void Harness_EndFrame(void) {
     if (++sHarness.Frame < sHarness.TotalFrames) {
         return;
     }
+    EndRun();
+}
 
+namespace {
+
+/** Writes or checks the log and exits. */
+void EndRun() {
     if (sHarness.Mode == HarnessMode::Record) {
+        // The race may have ended before the planned frame count.
+        sHarness.Frames.resize(sHarness.Frame);
         if (!WriteLog(sHarness.Path)) {
             printf("[Determinism] FAIL: could not write log %s\n", sHarness.Path.c_str());
             Finish(EXIT_FAILURE);
@@ -335,6 +357,8 @@ extern "C" void Harness_EndFrame(void) {
     }
     Finish(EXIT_SUCCESS);
 }
+
+} // namespace
 
 extern "C" bool Harness_IsFinished(void) {
     return sHarness.State == HarnessState::Finished;

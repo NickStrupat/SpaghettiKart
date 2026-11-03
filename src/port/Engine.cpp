@@ -1,6 +1,7 @@
 #include "Engine.h"
 #include "GamepadAssignment.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include "ship/utils/StringHelper.h"
 #include "GameExtractor.h"
@@ -60,6 +61,25 @@ float gInterpolationStep = 0.0f;
 #include "audio/playback.h"
 #include "audio/GameAudio.h"
 }
+
+namespace {
+
+/**
+ * SK_FAST=<n>: for unattended tests, run as fast as the computer allows: no frame pacing, no sound output, and only
+ * every nth frame drawn. The game still builds every display list, so it plays exactly as at normal speed.
+ */
+u32 GetFastDrawInterval() {
+    static const u32 sInterval = []() {
+        const char* value = getenv("SK_FAST");
+        return (value != nullptr) ? (u32) std::max(atoi(value), 0) : 0u;
+    }();
+    return sInterval;
+}
+
+// Frames are paced to this rate in fast mode: effectively not at all.
+constexpr int kFastTargetFps = 1000000;
+
+} // namespace
 
 Fast::Interpreter* GetInterpreter() {
     return static_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow())
@@ -417,6 +437,15 @@ void GameEngine::RunCommands(Gfx* pool, const std::vector<std::unordered_map<Mtx
 
     interpreter->mInterpolationIndex = 0;
 
+    static u32 sFramesUntilDrawn = 0;
+    if (GetFastDrawInterval() > 0) {
+        if (sFramesUntilDrawn > 0) {
+            sFramesUntilDrawn--;
+            return;
+        }
+        sFramesUntilDrawn = GetFastDrawInterval() - 1;
+    }
+
     for (const auto& mtxStack : mtx_replacements) {
         wnd->DrawAndRunGraphicsCommands(pool, mtxStack);
         interpreter->mInterpolationIndex++;
@@ -473,7 +502,7 @@ void GameEngine::ProcessGfxCommands(Gfx* pool) {
 
     auto wnd = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow());
     if (wnd != nullptr) {
-        wnd->SetTargetFps(GetInterpolationFPS());
+        wnd->SetTargetFps((GetFastDrawInterval() > 0) ? kFastTargetFps : GetInterpolationFPS());
         wnd->SetMaximumFrameLatency(1);
     }
     RunCommands(pool, mtx_replacements);
@@ -514,7 +543,10 @@ void GameEngine::HandleAudioThread() {
             mix_buffer[i] = nas_buffer[i] + ((int16_t)(hmas_buffer[i] * 32767.0f) * gAudioMasterVolume);
         }
 
-        AudioPlayerPlayFrame((u8*) mix_buffer, 2 * num_audio_samples * 4);
+        // Fast mode would queue sound faster than it plays.
+        if (GetFastDrawInterval() == 0) {
+            AudioPlayerPlayFrame((u8*) mix_buffer, 2 * num_audio_samples * 4);
+        }
 
         audio.processing = false;
         audio.cv_from_thread.notify_one();

@@ -1,9 +1,10 @@
 /**
  * Netplay relay server: matches players by room code and forwards their packets.
  *
- *   netplay-relay [--port 7777] [--delay-ms N] [--jitter-ms N] [--loss PERCENT]
+ *   netplay-relay [--port 7777] [--delay-ms N] [--jitter-ms N] [--loss PERCENT] [--no-rate-limits]
  *
  * The delay, jitter and loss options degrade every packet the relay sends, to test rollback on one machine.
+ * --no-rate-limits is for tests that run several fast-forwarded games from one address.
  * Protocol: see RelayProtocol.h.
  */
 
@@ -50,6 +51,7 @@ struct Options {
     uint32_t DelayMs = 0;
     uint32_t JitterMs = 0;
     uint32_t LossPercent = 0;
+    bool RateLimits = true;
 };
 
 struct Client {
@@ -160,7 +162,7 @@ class RelayServer {
     void Handle(const uint8_t* data, size_t size, const udp::endpoint& from) {
         const Clock::time_point now = Clock::now();
         AddressLimits& limits = mLimits[from.address()];
-        if (!limits.Packets.Take(kPacketsPerSecond, kPacketBurst, now)) {
+        if (mOptions.RateLimits && !limits.Packets.Take(kPacketsPerSecond, kPacketBurst, now)) {
             return;
         }
 
@@ -210,7 +212,7 @@ class RelayServer {
         if (reader.Failed() || AnswerRepeatedRequest(from, request)) {
             return;
         }
-        if (!limits.Creates.Take(kCreatesPerSecond, kCreateBurst, now)) {
+        if (mOptions.RateLimits && !limits.Creates.Take(kCreatesPerSecond, kCreateBurst, now)) {
             SendError(from, request, ErrorCode::RateLimited);
             return;
         }
@@ -244,7 +246,7 @@ class RelayServer {
         if (reader.Failed() || AnswerRepeatedRequest(from, request)) {
             return;
         }
-        if (!limits.Joins.Take(kJoinsPerSecond, kJoinBurst, now)) {
+        if (mOptions.RateLimits && !limits.Joins.Take(kJoinsPerSecond, kJoinBurst, now)) {
             SendError(from, request, ErrorCode::RateLimited);
             return;
         }
@@ -518,6 +520,10 @@ class RelayServer {
 bool ParseOptions(int argc, char** argv, Options* options) {
     for (int i = 1; i < argc; i++) {
         const std::string arg = argv[i];
+        if (arg == "--no-rate-limits") {
+            options->RateLimits = false;
+            continue;
+        }
         if ((arg == "--help") || (arg == "-h") || (i + 1 >= argc)) {
             return false;
         }
@@ -542,7 +548,8 @@ bool ParseOptions(int argc, char** argv, Options* options) {
 int main(int argc, char** argv) {
     Options options;
     if (!ParseOptions(argc, argv, &options)) {
-        printf("Usage: %s [--port %u] [--delay-ms N] [--jitter-ms N] [--loss PERCENT]\n", argv[0], kDefaultPort);
+        printf("Usage: %s [--port %u] [--delay-ms N] [--jitter-ms N] [--loss PERCENT] [--no-rate-limits]\n", argv[0],
+               kDefaultPort);
         return 2;
     }
 

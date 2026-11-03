@@ -11,6 +11,7 @@
 #include <gekkonet.h>
 
 #include "RaceConfig.h"
+#include "SyntheticDriver.h"
 
 /**
  * Requests a player sends along with its inputs. The simulation acts on them on the frame they belong to, so every
@@ -54,6 +55,7 @@ struct SessionSettings {
 
     // Testing aids
     std::optional<u32> BotSeed; // Drive the local player with seeded synthetic inputs
+    SyntheticDriver::Style BotStyle = SyntheticDriver::Style::Racer;
     u32 TotalFrames = 0;        // End the race after this many shown frames; 0 never does
     u32 DelayMs = 0;            // Simulated one-way delay added to received packets
     u32 JitterMs = 0;           // Random extra delay, up to this many ms
@@ -62,6 +64,7 @@ struct SessionSettings {
     u32 DesyncAtFrame = 0;      // Corrupt the local state at this frame, to test desync detection
     std::vector<TestControl> TestControls; // Requests the local player makes in every segment
     bool DumpSegmentStarts = false;        // Write the state each segment starts from to <LogPath>.seg<N>.start
+    u32 LeaveAfterRaces = 0;               // Leave the series early in the race after this many; 0 never does
 };
 
 enum class SessionResult {

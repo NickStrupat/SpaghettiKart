@@ -10,6 +10,8 @@ extern "C" {
 #include "camera.h"
 #include "objects.h"
 #include "actor_types.h"
+#include "code_800029B0.h"
+#include "menu_items.h"
 }
 
 namespace {
@@ -61,11 +63,36 @@ void HashCamera(u64& hash, const Camera& camera) {
     HashValue(hash, camera.playerId);
 }
 
+/**
+ * The race's own flow: its state, the results and their menu items, and leaving it. The menu items advance in draw
+ * code, and the results end the race, so they must agree too.
+ */
+void HashRaceFlow(u64& hash) {
+    HashValue(hash, gRaceState);
+    HashValue(hash, D_8015F894);
+    HashValue(hash, gIsInQuitToMenuTransition);
+    HashValue(hash, gQuitToMenuTransitionCounter);
+    HashValue(hash, gGotoMode);
+    HashValue(hash, D_8018D9D8);
+    HashValue(hash, D_8018D9D9);
+    // MenuItem has no pointers.
+    HashBytes(hash, gMenuItems, sizeof(gMenuItems));
+}
+
 } // namespace
 
 extern "C" void Sim_WriteChecksumBreakdown(FILE* out) {
     u64 hash;
     fprintf(out, "rng %04x timer %08x\n", gRandomSeed16, *reinterpret_cast<const u32*>(&gCourseTimer));
+    fprintf(out, "flow race %d results %u leaving %u/%u goto %d confirm %d/%d\n", gRaceState, D_8015F894,
+            gIsInQuitToMenuTransition, gQuitToMenuTransitionCounter, gGotoMode, D_8018D9D8, D_8018D9D9);
+    for (size_t i = 0; i < MENU_ITEMS_MAX; i++) {
+        const MenuItem& item = gMenuItems[i];
+        if (item.type != 0) {
+            fprintf(out, "menu %zu type %d state %d substate %d param %d %d\n", i, item.type, item.state,
+                    item.subState, item.param1, item.param2);
+        }
+    }
 
     for (size_t i = 0; i < NUM_PLAYERS; i++) {
         hash = kFnvOffsetBasis;
@@ -100,6 +127,7 @@ extern "C" u64 Sim_GameplayChecksum(void) {
 
     HashValue(hash, gRandomSeed16);
     HashValue(hash, gCourseTimer);
+    HashRaceFlow(hash);
 
     // Player has no pointers and its padding is spelled out as unk_ fields.
     HashBytes(hash, gPlayers, sizeof(Player) * NUM_PLAYERS);

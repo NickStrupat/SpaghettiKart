@@ -31,8 +31,9 @@ Open UDP port 7777 in the server's firewall. Each player needs about 10 KB/s in 
 | `--delay-ms N` | Delays every packet the relay sends by N ms |
 | `--jitter-ms N` | Adds a random 0–N ms on top of the delay; this reorders packets |
 | `--loss P` | Drops P% of the packets the relay sends |
+| `--no-rate-limits` | Turns off the per-address limits below, for tests that run several fast-forwarded games on one machine |
 
-The last three options simulate a bad network, for testing rollback on one machine.
+`--delay-ms`, `--jitter-ms` and `--loss` simulate a bad network, for testing rollback on one machine.
 
 ## Behaviour
 
@@ -48,3 +49,6 @@ The last three options simulate a bad network, for testing rollback on one machi
 ```sh
 python3 tools/netplay-relay/test_relay.py build-relay/netplay-relay
 ```
+
+`tools/netplay-sim.py` plays whole races, cups and battles through a relay with bot-driven games, fast-forwarded, and
+checks that the games stayed in sync.

@@ -60,7 +60,9 @@ void guMtxCatL(Mtx* m, Mtx* n, Mtx* res);
 
 const char* sMenuTextureList[MENU_TEXTURE_BUFFER_MAX];
 u8* sTKMK00_LowResBuffer;
-u8* sGPPointsCopy;
+// @port: the points still to count on the Grand Prix results. A global rather than memory pool space, so that
+// netplay's savestates include it: rolling back the results must roll back the count.
+u8 sGPPointsCopy[4];
 void* gSomeDLBuffer;
 
 /**
@@ -1508,7 +1510,6 @@ void func_80091FA4(void) {
     //! @todo These sizes need to be sizeof() for shiftability if possible
     // sMenuTextureList = (u16*) get_next_available_memory_addr(0x000124F8);
     sTKMK00_LowResBuffer = (u8*) get_next_available_memory_addr(0x00001000);
-    sGPPointsCopy = get_next_available_memory_addr(4);
 
     for (i = 0; i < 5; i++) {
         gTransitionType[i] = 0;
@@ -2430,7 +2431,6 @@ void func_80093E60(void) {
 
     // sMenuTextureList = (u16*) get_next_available_memory_addr(0x000124F8);
     sTKMK00_LowResBuffer = get_next_available_memory_addr(0x00001000);
-    sGPPointsCopy = get_next_available_memory_addr(4U);
 
     for (i = 0; i < 5; i++) {
         gTransitionType[i] = 0;

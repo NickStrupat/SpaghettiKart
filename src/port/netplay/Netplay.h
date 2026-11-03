@@ -7,7 +7,8 @@
  * Online races with rollback netcode. Players meet in a room on a relay server (see Lobby.h and the Netplay window);
  * NetSession.h runs the race itself.
  *
- * Automated tests start without the window, from environment variables. Either peers connect directly:
+ * Automated tests start without the window, from environment variables; tools/netplay-sim.py runs a set of them.
+ * SK_FAST=10 runs a test fast-forwarded (see Engine.cpp). Either peers connect directly:
  *   SK_NETPLAY_PEERS=127.0.0.1:7000,127.0.0.1:7001
  *                                       One UDP address per player, in player order. Each peer binds the
  *                                       port of its own entry.
@@ -22,7 +23,8 @@
  *   SK_NETPLAY_RACES=1                  Host: races to run before exiting.
  *   SK_NETPLAY_MODE / _TRACK / _CUP     Host: race settings.
  * Options for both:
- *   SK_NETPLAY_BOT=1                    Drive the local player with seeded synthetic inputs.
+ *   SK_NETPLAY_BOT=1                    Drive the local player with seeded synthetic inputs: 1 races (follows the
+ *                                       track, uses items, confirms the screens after the race), 2 drives at random.
  *   SK_NETPLAY_FRAMES=1800              End the series after this many shown frames (0 runs until it ends).
  *   SK_NETPLAY_DELAY_MS=60              Simulated one-way delay added to received packets.
  *   SK_NETPLAY_JITTER_MS=20             Random extra delay, up to this many ms.
@@ -32,6 +34,8 @@
  *   SK_NETPLAY_TEST_CONTROLS=restart@300,next@200,leave@500
  *                                       Send these requests on that frame of every race (see PadControl).
  *   SK_NETPLAY_DUMP=1                   Write the state each segment starts from, for tools/netplay-diff.py.
+ *   SK_NETPLAY_TEST_SERIES_RACES=2      Leave the series once this many of its races ended: versus and Battle
+ *                                       races retry forever when bots confirm their results.
  *   SK_NETPLAY_TEST_RESET=1             Return to the menus before each lobby race, as a peer outside them does.
  *   SK_NETPLAY_TEST_START_DELAY=900     Host: idle this many frames in the room before starting (the title screen
  *                                       starts its attract demo race after 10 s).

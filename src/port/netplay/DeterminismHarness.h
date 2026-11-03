@@ -17,10 +17,13 @@
  *   SK_DETERMINISM_PLAYERS=1..4    Human players driven by synthetic inputs.
  *   SK_DETERMINISM_TRACK=mk:luigi_raceway   Track resource name (VS and Battle).
  *   SK_DETERMINISM_SEED=1          Seeds both the game RNG and the synthetic inputs.
+ *   SK_DETERMINISM_DRIVER=racer    How synthetic players drive: racer (follows the track, uses items) or random.
  * Either mode:
  *   SK_DETERMINISM_TRACE=<file>    Write per-component checksums for the first frames, and diagnostics on failure.
  *   SK_DETERMINISM_ROLLBACK=8      Rollback stress test: after every frame, load the state from 8 frames earlier
  *                                  and re-simulate up to the current frame, checking each re-simulated checksum.
+ * A recording ends early when the race does: a racer driver confirms the results.
+ * SK_FAST=10 runs fast-forwarded (see Engine.cpp).
  * The game exits when the run finishes: exit code 0 on success, 1 on a mismatch or error.
  */
 

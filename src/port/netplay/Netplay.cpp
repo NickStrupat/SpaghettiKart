@@ -47,6 +47,7 @@ struct NetplayState {
 
     // Options for both test modes
     bool UseBot = false;
+    SyntheticDriver::Style BotStyle = SyntheticDriver::Style::Racer;
     u32 TotalFrames = 0;
     u32 DelayMs = 0;
     u32 JitterMs = 0;
@@ -61,6 +62,7 @@ struct NetplayState {
     GekkoNetAdapter* DirectSocket = nullptr;
 
     std::vector<TestControl> TestControls;
+    u32 TestSeriesRaces = 0;
 
     // Lobby test
     std::string RelayAddress;
@@ -118,6 +120,7 @@ bool IsInMenus() {
 void ApplyTestOptions(SessionSettings* settings, u32 botSeed) {
     if (sNetplay.UseBot) {
         settings->BotSeed = botSeed;
+        settings->BotStyle = sNetplay.BotStyle;
     }
     settings->TotalFrames = sNetplay.TotalFrames;
     settings->DelayMs = sNetplay.DelayMs;
@@ -126,6 +129,7 @@ void ApplyTestOptions(SessionSettings* settings, u32 botSeed) {
     settings->DesyncAtFrame = sNetplay.DesyncAtFrame;
     settings->LogPath = sNetplay.LogPath;
     settings->TestControls = sNetplay.TestControls;
+    settings->LeaveAfterRaces = sNetplay.TestSeriesRaces;
     settings->DumpSegmentStarts = GetEnvU32("SK_NETPLAY_DUMP", 0) != 0;
 }
 
@@ -418,7 +422,9 @@ extern "C" void Netplay_Init(void) {
     if (sNetplay.Test == TestMode::None) {
         return;
     }
-    sNetplay.UseBot = GetEnvU32("SK_NETPLAY_BOT", 0) != 0;
+    const u32 bot = GetEnvU32("SK_NETPLAY_BOT", 0);
+    sNetplay.UseBot = bot != 0;
+    sNetplay.BotStyle = (bot == 2) ? SyntheticDriver::Style::Random : SyntheticDriver::Style::Racer;
     sNetplay.TotalFrames = GetEnvU32("SK_NETPLAY_FRAMES", 0);
     sNetplay.DelayMs = GetEnvU32("SK_NETPLAY_DELAY_MS", 0);
     sNetplay.JitterMs = GetEnvU32("SK_NETPLAY_JITTER_MS", 0);
@@ -429,6 +435,7 @@ extern "C" void Netplay_Init(void) {
     }
     sNetplay.TestResetBeforeRace = GetEnvU32("SK_NETPLAY_TEST_RESET", 0) != 0;
     sNetplay.TestStartDelay = GetEnvU32("SK_NETPLAY_TEST_START_DELAY", 0);
+    sNetplay.TestSeriesRaces = GetEnvU32("SK_NETPLAY_TEST_SERIES_RACES", 0);
     if (const char* controls = GetEnv("SK_NETPLAY_TEST_CONTROLS")) {
         sNetplay.TestControls = ParseTestControls(controls);
     }
