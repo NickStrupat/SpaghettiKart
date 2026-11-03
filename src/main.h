@@ -90,6 +90,7 @@ void setup_game_memory(void);
 void game_init_clear_framebuffer(void);
 bool race_sim_frame(void);
 void race_render_frame(void);
+void race_render_own_view(s32 playerId);
 void race_logic_loop(void);
 void game_state_handler(void);
 void interrupt_gfx_sptask(void);

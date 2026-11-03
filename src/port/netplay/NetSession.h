@@ -86,6 +86,9 @@ inline bool IsSuccess(SessionResult result) {
  */
 namespace NetSession {
 
+/** 1 (the default): each peer shows only its own player's view, full screen. 0: the race's split screen. */
+constexpr const char* kOwnViewCVar = "gNetplay.OwnView";
+
 /**
  * Applies the race settings and starts loading the race; the GekkoNet session starts once it has loaded.
  * Call after the frame's game logic: the menus overwrite the track selection while they run.

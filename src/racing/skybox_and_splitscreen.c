@@ -596,6 +596,7 @@ void race_begin_viewport_4p(ScreenContext* screen) {
 void render_screens(ScreenContext* screen, s32 mode, s32 someId, s32 playerId) {
     Camera* camera = screen->camera;
     s32 screenId = screen - gScreenContexts;
+    s32 hudMode;
 
     if (NULL == camera) {
         printf("[skybox_and_splitscreen.c] Skipping rendering for screen %ld. This viewport has no camera\n",
@@ -704,14 +705,16 @@ void render_screens(ScreenContext* screen, s32 mode, s32 someId, s32 playerId) {
     }
     render_player_snow_effect(camera);
     func_80058BF4(); // Setup texture modes
+    // Netplay's own view shows one player's screen alone, with the one-player HUD
+    hudMode = (gOwnViewPlayer >= 0) ? RENDER_SCREEN_MODE_1P_PLAYER_ONE : mode;
     if (D_800DC5B8 != 0) {
-        func_80058C20(mode); // Setup hud matrix
+        func_80058C20(hudMode); // Setup hud matrix
     }
     func_80093A5C(mode); // Perhaps pause render?
 
     if (CVarGetInteger("gDrawHUD", true) == true) {
         if (D_800DC5B8 != 0) {
-            render_hud(mode);
+            render_hud(hudMode);
         }
     }
 

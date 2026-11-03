@@ -11,6 +11,7 @@
 #include "port/GamepadAssignment.h"
 #include "engine/World.h"
 #include "port/netplay/Lobby.h"
+#include "port/netplay/NetSession.h"
 #include "port/netplay/Netplay.h"
 
 namespace GameUI {
@@ -337,7 +338,15 @@ void DrawControllerChoice() {
     }
     ImGui::TextColored(kDimColor, pressed.empty() ? "Hold a button to see its controller's number"
                                                   : "Button held on controller %s", pressed.c_str());
-    ImGui::Separator();
+}
+
+/** Whether races show only this player's view, full screen, or the split screen of every player. */
+void DrawViewChoice() {
+    bool ownView = CVarGetInteger(NetSession::kOwnViewCVar, 1) != 0;
+    if (ImGui::Checkbox("Show only my player", &ownView)) {
+        CVarSetInteger(NetSession::kOwnViewCVar, ownView ? 1 : 0);
+        Ship::Context::GetRawInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+    }
 }
 
 void RegisterNetplayWidgets() {
@@ -355,6 +364,8 @@ RegisterMenuInitFunc sInitFunc(RegisterNetplayWidgets);
 
 void NetplayWindow::DrawElement() {
     DrawControllerChoice();
+    DrawViewChoice();
+    ImGui::Separator();
     switch (Lobby::GetState()) {
         case Lobby::State::Offline:
             DrawConnect();

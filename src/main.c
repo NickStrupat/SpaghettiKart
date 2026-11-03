@@ -873,6 +873,71 @@ void race_render_frame(void) {
     gSPEndDisplayList(gDisplayListHead++);
 }
 
+/**
+ * Draws one player's screen alone, filling the window, with the one-player HUD. The race keeps its split-screen
+ * mode: netplay uses this so that each peer shows only its own player. It writes simulation state (the screen's size,
+ * the HUD layout), so the caller must undo it once the frame has been displayed.
+ */
+void race_render_own_view(s32 playerId) {
+    static const s32 sScreenModes[] = {
+        RENDER_SCREEN_MODE_3P_4P_PLAYER_ONE,
+        RENDER_SCREEN_MODE_3P_4P_PLAYER_TWO,
+        RENDER_SCREEN_MODE_3P_4P_PLAYER_THREE,
+        RENDER_SCREEN_MODE_3P_4P_PLAYER_FOUR,
+    };
+    ScreenContext* screen = &gScreenContexts[playerId];
+    s32 mode;
+    s32 columns = 1;
+    s32 rows = 1;
+
+    switch (gActiveScreenMode) {
+        case SCREEN_MODE_2P_SPLITSCREEN_HORIZONTAL:
+            mode = (playerId == 0) ? RENDER_SCREEN_MODE_2P_HORIZONTAL_PLAYER_ONE
+                                   : RENDER_SCREEN_MODE_2P_HORIZONTAL_PLAYER_TWO;
+            rows = 2;
+            break;
+        case SCREEN_MODE_2P_SPLITSCREEN_VERTICAL:
+            mode = (playerId == 0) ? RENDER_SCREEN_MODE_2P_VERTICAL_PLAYER_ONE
+                                   : RENDER_SCREEN_MODE_2P_VERTICAL_PLAYER_TWO;
+            columns = 2;
+            break;
+        case SCREEN_MODE_3P_4P_SPLITSCREEN:
+            mode = sScreenModes[playerId];
+            columns = 2;
+            rows = 2;
+            break;
+        default:
+            // One screen: a single player, or the winner's screen after a versus race.
+            race_render_frame();
+            return;
+    }
+
+    // Scaling rather than setting the size keeps the screen growing at the start of the race.
+    screen->screenWidth = MIN(screen->screenWidth * columns, SCREEN_WIDTH);
+    screen->screenHeight = MIN(screen->screenHeight * rows, SCREEN_HEIGHT);
+    screen->screenStartX = SCREEN_WIDTH / 2;
+    screen->screenStartY = SCREEN_HEIGHT / 2;
+    gScreenAspect = (f32) SCREEN_WIDTH / SCREEN_HEIGHT;
+    set_one_player_hud_layout(playerId);
+    gOwnViewPlayer = playerId;
+
+    profiler_log_thread5_time(LEVEL_SCRIPT_EXECUTE);
+    sNumVBlanks = 0;
+    gNumScreens = 0;
+    init_rdp();
+    if (D_800DC5B0 != 0) {
+        select_framebuffer();
+    }
+    render_screens(screen, mode, mode, playerId);
+    display_debug_info();
+    render_own_view_overlay(playerId);
+    gOwnViewPlayer = -1;
+    func_80093E20();
+    FB_WriteFramebufferSliceToCPU(&gDisplayListHead, gPortFramebuffers[sRenderingFramebuffer], true);
+    gDPFullSync(gDisplayListHead++);
+    gSPEndDisplayList(gDisplayListHead++);
+}
+
 void race_logic_loop(void) {
     if (Netplay_IsInRace()) {
         Netplay_RunRaceFrame();
@@ -1267,6 +1332,8 @@ void thread5_iteration(void) {
     // call_render_hook();
 
     end_master_display_list();
+    // The display list has run: netplay can undo the state changes of drawing it.
+    SimState_EndDisplay();
     display_and_vsync();
 }
 

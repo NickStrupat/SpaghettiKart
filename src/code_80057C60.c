@@ -45,6 +45,9 @@
 //! @warning this macro is undef'd at the end of this file
 #define MAKE_RGB(r, g, b) (((r) << 0x10) | ((g) << 0x08) | (b << 0x00))
 
+// The player whose screen netplay shows alone, with the one-player HUD (race_render_own_view()); -1 otherwise
+s32 gOwnViewPlayer = -1;
+
 s32 D_80165590;
 s32 D_80165594;
 s32 D_80165598;
@@ -410,6 +413,10 @@ void func_80057C60(void) {
 }
 
 void func_80057CE4(void) {
+    if (gOwnViewPlayer >= 0) {
+        race_set_viewport(&gScreenContexts[gOwnViewPlayer]);
+        return;
+    }
     switch (D_8018D21C) {
         case 0:
             race_set_viewport(gScreenOneCtx);
@@ -723,6 +730,8 @@ void func_80058F48(void) {
 }
 
 void func_80058F78(void) {
+    s32 playerId = (gOwnViewPlayer >= 0) ? gOwnViewPlayer : PLAYER_ONE;
+
     if (gHUDDisable == 0) {
 
         // @port: Tag the transform.
@@ -730,16 +739,16 @@ void func_80058F78(void) {
 
         set_matrix_hud_screen();
         if ((!gDemoMode) && (gIsHUDVisible != 0) && (D_801657D8 == 0)) {
-            draw_item_window(PLAYER_ONE);
+            draw_item_window(playerId);
             if (gHUDModes != 2) {
-                render_hud_timer(PLAYER_ONE);
-                draw_simplified_lap_count(PLAYER_ONE);
-                func_8004EB38(0);
+                render_hud_timer(playerId);
+                draw_simplified_lap_count(playerId);
+                func_8004EB38(playerId);
                 if (D_801657E6 != false) {
                     if (CVarGetInteger("gEnableDigitalSpeedometer", false) == true) {
-                        render_digital_speedometer(PLAYER_ONE);
+                        render_digital_speedometer(playerId);
                     }
-                    render_speedometer(PLAYER_ONE);
+                    render_speedometer(playerId);
                 }
             }
         }
@@ -750,6 +759,73 @@ void func_80058F78(void) {
 }
 
 void func_80059024(void) {
+}
+
+/**
+ * Puts a player's HUD where the one-player HUD settles after its slide-in (see init_hud_one_player() and
+ * func_8005A070()), for netplay's own view. Only the one-player race animates those positions.
+ */
+void set_one_player_hud_layout(s32 playerId) {
+    hud_player* hud = &playerHUD[playerId];
+    s32 i;
+
+    hud->itemBoxX = 0x00A0;
+    hud->itemBoxY = -0x0020;
+    hud->slideItemBoxX = 0;
+    hud->slideItemBoxY = 0x40;
+    hud->timerX = 0xE4;
+    hud->timerY = 0x0011;
+    for (i = 0; i < 3; i++) {
+        hud->lapCompletionTimeXs[i] = 0xE4;
+    }
+    hud->lapX = 0x53;
+    hud->lapAfterImage1X = 0x53;
+    hud->lapAfterImage2X = 0x53;
+    hud->lapY = 0x0019;
+    hud->rankX = 52;
+    hud->rankY = 0x00C8;
+    hud->rankScaling = 0.5f;
+    hud->speedometerX = 0x0156;
+    hud->speedometerY = 0x0106;
+}
+
+// Follows the minimap toggles of the race's split screen (func_8005A3C0()): with two players each has their own.
+static bool own_view_shows_minimap(s32 playerId) {
+    return (D_801657E8 != false) && (D_80165800[(gPlayerCountSelection1 == 2) ? playerId : 0] != 0);
+}
+
+/**
+ * Draws what func_800591B4() draws over the screens, for netplay's own view: the minimap where one player sees it,
+ * and only this player's rank.
+ */
+void render_own_view_overlay(s32 playerId) {
+    s32 playerCount = gPlayerCount;
+    IVector2D minimapPos = CM_GetProps()->Minimap.Pos[0];
+
+    if ((gHUDDisable != 0) || (D_800DC5B8 == 0)) {
+        return;
+    }
+    func_80057C60();
+    gSPDisplayList(gDisplayListHead++, D_0D0076F8);
+    gSPClearGeometryMode(gDisplayListHead++, G_ZBUFFER);
+    if (gIsHUDVisible != 0) {
+        if ((D_801657D8 == 0) && (!gDemoMode) && own_view_shows_minimap(playerId)) {
+            gPlayerCount = 1;
+            CM_GetProps()->Minimap.Pos[0].X = gMinimapOnePlayerX;
+            CM_GetProps()->Minimap.Pos[0].Y = gMinimapOnePlayerY;
+            func_8004EE54(0);
+            if (gModeSelection != BATTLE) {
+                set_minimap_finishline_position(0);
+            }
+            func_8004F3E4(0);
+            CM_GetProps()->Minimap.Pos[0] = minimapPos;
+            gPlayerCount = playerCount;
+        }
+        if ((D_8018D2A4 != 0) && (gModeSelection != BATTLE)) {
+            func_8004E800(playerId);
+        }
+    }
+    func_80057DD0();
 }
 
 void func_8005902C(void) {

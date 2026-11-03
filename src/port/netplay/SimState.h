@@ -56,17 +56,25 @@ void SimState_EndSimFrame(void);
 
 /**
  * Advances the race by one frame from the given pads: simulates, draws and collects garbage, in the same order as
- * race_logic_loop(). Draw code also mutates simulation state, so every simulated frame must be drawn.
+ * race_logic_loop(). Draw code also mutates simulation state, so every frame is drawn the same way on every peer:
+ * split screen, into the off-screen gfx pool, then discarded. SimState_DrawFrame() draws what is displayed.
  * @param pads Four pads, one per local controller slot.
  * @param shown True for the frame that will be displayed. Other frames, such as those re-simulated after a
- *              rollback, are drawn into the off-screen gfx pool and discarded, without sounds or interpolation.
+ *              rollback, run without sounds.
  */
 void SimState_AdvanceFrame(OSContPad* pads, bool shown);
 
-/** Draws the current race frame again and undoes the draw code's state changes, for frames netplay cannot advance. */
-void SimState_RedrawFrame(void);
+/**
+ * Draws the current race frame for display, without sounds. The draw's state changes are undone by
+ * SimState_EndDisplay(), as the display list points into the state it drew.
+ * @param viewPlayer The player whose view fills the screen (race_render_own_view()), or -1 for split screen.
+ */
+void SimState_DrawFrame(s32 viewPlayer);
 
-/** @returns true while SimState_AdvanceFrame() runs a frame that will not be shown, so audio can skip its sounds. */
+/** Undoes SimState_DrawFrame(). Call every frame once its display list has run. */
+void SimState_EndDisplay(void);
+
+/** @returns true while netplay re-runs a frame or a draw whose sounds already played, so audio can skip them. */
 bool SimState_IsResimulating(void);
 
 #ifdef __cplusplus

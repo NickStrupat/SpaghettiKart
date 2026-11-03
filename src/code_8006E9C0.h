@@ -31,6 +31,8 @@ void init_hud_two_player_vertical(void);
 void init_hud_three_four_player(void);
 void init_hud_two_player_horizontal(void);
 
+extern s32 gMinimapOnePlayerX;
+extern s32 gMinimapOnePlayerY;
 extern Vtx cloudvtx[4][4];
 extern Vtx cloudvtx2[3][4];
 extern s16 D_800E5520[];

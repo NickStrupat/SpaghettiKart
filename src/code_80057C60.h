@@ -50,6 +50,8 @@ void func_80058F78(void);
 void func_80059AC8(void);
 
 void func_80059024(void);
+void set_one_player_hud_layout(s32 playerId);
+void render_own_view_overlay(s32 playerId);
 void func_8005902C(void);
 void func_800590D4(void);
 void func_800591B4(void);
@@ -318,6 +320,7 @@ extern s8 D_801657B8[];
 extern s8 D_801657C8;
 extern s8 D_801657D0[];
 extern s8 D_801657D8;
+extern s32 gOwnViewPlayer;
 extern s8 D_801657E1;
 extern s8 D_801657E2;
 extern s8 D_801657E3;

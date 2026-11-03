@@ -38,6 +38,9 @@ bool sResimulating = false;
 bool sSimFrameScopeOpen = false;
 bool sHostControlsMenus = false;
 u32 sRaceSetupCount = 0;
+// The state before SimState_DrawFrame(), put back once the frame has been displayed
+SimSnapshot sBeforeDisplay;
+bool sDisplayPending = false;
 // The sim section as it was before the first race was set up
 std::vector<u8> sBaseline;
 
@@ -293,30 +296,43 @@ extern "C" void SimState_AdvanceFrame(OSContPad* pads, bool shown) {
     const bool simulated = race_sim_frame();
     SimState_EndSimFrame();
     if (simulated) {
-        if (shown) {
-            race_render_frame();
-        } else {
-            // Draw code writes state the simulation reads (init_render_player(), for one), so hidden frames are
-            // drawn too: into the gfx pool that is not on screen, then discarded.
-            struct GfxPool* shownPool = gGfxPool;
-            Gfx* shownHead = gDisplayListHead;
-            gGfxPool = (gGfxPool == &gGfxPools[0]) ? &gGfxPools[1] : &gGfxPools[0];
-            gDisplayListHead = gGfxPool->gfxPool;
-            race_render_frame();
-            gGfxPool = shownPool;
-            gDisplayListHead = shownHead;
-        }
+        // Draw code writes state the simulation reads (init_render_player(), for one), so every frame is drawn the
+        // same way on every peer: split screen, into the gfx pool that is not on screen, then discarded.
+        // SimState_DrawFrame() draws what is shown.
+        FrameInterpolation_SetRecordingPaused(true);
+        struct GfxPool* shownPool = gGfxPool;
+        Gfx* shownHead = gDisplayListHead;
+        gGfxPool = (gGfxPool == &gGfxPools[0]) ? &gGfxPools[1] : &gGfxPools[0];
+        gDisplayListHead = gGfxPool->gfxPool;
+        race_render_frame();
+        gGfxPool = shownPool;
+        gDisplayListHead = shownHead;
     }
     CM_RunGarbageCollector();
     FrameInterpolation_SetRecordingPaused(false);
     sResimulating = false;
 }
 
-extern "C" void SimState_RedrawFrame(void) {
-    static SimSnapshot sBeforeDraw;
-    SimState::Save(sBeforeDraw);
-    race_render_frame();
-    SimState::Load(sBeforeDraw);
+extern "C" void SimState_DrawFrame(s32 viewPlayer) {
+    if (!sDisplayPending) {
+        SimState::Save(sBeforeDisplay);
+        sDisplayPending = true;
+    }
+    // The frame's sounds played when it was simulated.
+    sResimulating = true;
+    if (viewPlayer >= 0) {
+        race_render_own_view(viewPlayer);
+    } else {
+        race_render_frame();
+    }
+    sResimulating = false;
+}
+
+extern "C" void SimState_EndDisplay(void) {
+    if (sDisplayPending) {
+        SimState::Load(sBeforeDisplay);
+        sDisplayPending = false;
+    }
 }
 
 extern "C" bool SimState_IsResimulating(void) {

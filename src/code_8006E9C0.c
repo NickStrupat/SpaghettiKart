@@ -33,6 +33,10 @@
 #include "engine/tracks/Track.h"
 #include "engine/sky/Sky.h"
 
+// The track's minimap position for a single player, kept when a split screen moves it (func_8006F008())
+s32 gMinimapOnePlayerX;
+s32 gMinimapOnePlayerY;
+
 void init_hud(void) {
 
     reset_object_variable();
@@ -204,6 +208,10 @@ void func_8006F008(void) {
             CM_GetProps()->Minimap.Width -
             CM_GetProps()->Minimap.PlayerX; // gMinimapPlayerX = gMinimapWidth - gMinimapPlayerX
     }
+
+    // Netplay shows each player its own screen, with the minimap where a single player has it.
+    gMinimapOnePlayerX = CM_GetProps()->Minimap.Pos[PLAYER_ONE].X;
+    gMinimapOnePlayerY = CM_GetProps()->Minimap.Pos[PLAYER_ONE].Y;
 
     switch (gPlayerCount) {
         case 2:

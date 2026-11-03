@@ -515,6 +515,10 @@ PadControl GetLocalControl() {
     return sNet.LeaveRequested ? PadControl::Leave : sNet.PendingControl;
 }
 
+s32 GetViewPlayer() {
+    return (CVarGetInteger(NetSession::kOwnViewCVar, 1) != 0) ? sNet.Settings.LocalPlayer : -1;
+}
+
 } // namespace
 
 namespace NetSession {
@@ -675,12 +679,12 @@ void RunRaceFrame() {
         Stop(SessionResult::ConnectFailed, "Not every player connected");
     }
     if (!IsInRace()) {
-        SimState_RedrawFrame();
+        SimState_DrawFrame(GetViewPlayer());
         return;
     }
     if (sNet.WaitingThisFrame) {
         gekko_network_poll(sNet.Gekko);
-        SimState_RedrawFrame();
+        SimState_DrawFrame(GetViewPlayer());
         UpdateBarrier(-1);
         return;
     }
@@ -696,7 +700,6 @@ void RunRaceFrame() {
         }
     }
 
-    bool drawn = false;
     for (int i = 0; i < count; i++) {
         const GekkoGameEvent* event = events[i];
         switch (event->type) {
@@ -710,7 +713,6 @@ void RunRaceFrame() {
                 UnpackInputs(event->data.adv, pads.data(), controls.data());
                 SimState_AdvanceFrame(pads.data(), i == shownAdvance);
                 ApplyControls(controls.data());
-                drawn |= (i == shownAdvance);
                 break;
             }
             case GekkoSaveEvent:
@@ -724,10 +726,8 @@ void RunRaceFrame() {
         }
     }
 
-    if (!drawn) {
-        // Waiting for remote input, or frozen: show the current frame again.
-        SimState_RedrawFrame();
-    }
+    // The new frame, or while waiting for remote input or frozen, the current one again.
+    SimState_DrawFrame(GetViewPlayer());
     if (IsTransitionPending()) {
         // Whatever started the transition, a restart request has nothing left to do.
         sNet.PendingControl = PadControl::None;
