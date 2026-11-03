@@ -7,6 +7,7 @@
 #include <deque>
 
 #include "Checksum.h"
+#include "NetLog.h"
 #include "SimState.h"
 #include "SyntheticDriver.h"
 
@@ -188,7 +189,7 @@ void WriteChecksumLog() {
     const std::string path = sNet.Settings.LogPath + ".seg" + std::to_string(sNet.Segment);
     FILE* log = fopen(path.c_str(), "w");
     if (log == nullptr) {
-        printf("[Netplay] Could not write %s\n", path.c_str());
+        NetLog("Could not write %s", path.c_str());
         return;
     }
     for (size_t frame = 0; frame < sNet.FrameChecksums.size(); frame++) {
@@ -204,7 +205,7 @@ void WriteChecksumLog() {
 void WriteDesyncReport(s32 frame) {
     const size_t index = GetSnapshotIndex(frame);
     if (sNet.SnapshotFrames[index] != frame) {
-        printf("[Netplay] Frame %d is no longer kept; no desync report\n", frame);
+        NetLog("Frame %d is no longer kept; no desync report", frame);
         return;
     }
     const std::string& logPath = sNet.Settings.LogPath;
@@ -222,21 +223,21 @@ void WriteDesyncReport(s32 frame) {
     Sim_WriteChecksumBreakdown(report);
     SimState::Load(sCurrent);
     fclose(report);
-    printf("[Netplay] Desync report written to %s\n", path.c_str());
+    NetLog("Desync report written to %s", path.c_str());
 }
 
 /** Prints the segment's statistics, tears down its GekkoNet session and writes its checksum log. */
 void EndGekkoSession(const char* verdict, const std::string& message) {
     if (sNet.Gekko == nullptr) {
-        printf("[Netplay] %s: %s\n", verdict, message.c_str());
+        NetLog("%s: %s", verdict, message.c_str());
         return;
     }
     GekkoRollbackStats rollbacks = {};
     gekko_rollback_stats(sNet.Gekko, &rollbacks);
     GekkoNetworkStats network = {};
     gekko_network_stats(sNet.Gekko, (sNet.Settings.LocalPlayer == 0) ? 1 : 0, &network);
-    printf("[Netplay] %s: %s. Segment %u: %u frames shown, %u rollbacks (avg %.1f, max %u frames), %u stalls, "
-           "%u time-sync waits, ping %.0f ms\n",
+    NetLog("%s: %s. Segment %u: %u frames shown, %u rollbacks (avg %.1f, max %u frames), %u stalls, "
+           "%u time-sync waits, ping %.0f ms",
            verdict, message.c_str(), sNet.Segment, sNet.SegmentFrames, rollbacks.total_count, rollbacks.avg_frames,
            rollbacks.max_frames, rollbacks.total_stalls, sNet.WaitedFrames, network.avg_ping);
     gekko_destroy(&sNet.Gekko);
@@ -304,7 +305,7 @@ void StartGekkoSession() {
     sNet.WaitedFrames = 0;
     sNet.ConnectStarted = std::chrono::steady_clock::now();
     sNet.State = SessionState::Connecting;
-    printf("[Netplay] Segment %u started: player %d of %zu\n", sNet.Segment, settings.LocalPlayer,
+    NetLog("Segment %u started: player %d of %zu", sNet.Segment, settings.LocalPlayer,
            settings.Addresses.size());
     fflush(stdout);
 }
@@ -342,7 +343,7 @@ void UpdateBarrier(s32 shownFrame) {
             barrier.Reached = true;
             barrier.Frame = confirmed;
             barrier.Since = std::chrono::steady_clock::now();
-            printf("[Netplay] Segment %u ends at frame %d\n", sNet.Segment, confirmed);
+            NetLog("Segment %u ends at frame %d", sNet.Segment, confirmed);
             fflush(stdout);
             if (sNet.Settings.ReachBarrier != nullptr) {
                 sNet.Settings.ReachBarrier(sNet.Segment, confirmed);
@@ -377,15 +378,15 @@ void HandleSessionEvents() {
         const GekkoSessionEvent* event = events[i];
         switch (event->type) {
             case GekkoPlayerConnected:
-                printf("[Netplay] Player %d connected\n", event->data.connected.handle + 1);
+                NetLog("Player %d connected", event->data.connected.handle + 1);
                 break;
             case GekkoSessionStarted:
-                printf("[Netplay] All players connected; race starting\n");
+                NetLog("All players connected; race starting");
                 sNet.State = SessionState::Running;
                 break;
             case GekkoPlayerDisconnected: {
                 const s32 player = event->data.disconnected.handle;
-                printf("[Netplay] Player %d disconnected\n", player + 1);
+                NetLog("Player %d disconnected", player + 1);
                 if (sNet.SegmentEnd.Reached) {
                     // Peers leave a segment as soon as they know everyone confirmed its end; the barrier decides.
                     break;
@@ -400,7 +401,7 @@ void HandleSessionEvents() {
             }
             case GekkoDesyncDetected: {
                 const auto& desync = event->data.desynced;
-                printf("[Netplay] DESYNC at frame %d: local checksum %08x, player %d has %08x\n", desync.frame,
+                NetLog("DESYNC at frame %d: local checksum %08x, player %d has %08x", desync.frame,
                        desync.local_checksum, desync.remote_handle + 1, desync.remote_checksum);
                 WriteDesyncReport(desync.frame);
                 NetSession::Stop(SessionResult::Desync,
@@ -541,6 +542,7 @@ void Start(const SessionSettings& settings) {
         return;
     }
     sNet.CVars.Apply(settings.Config);
+    SimState_RestoreBaseline();
     SimState_SetRollbackMode(true);
     SimState_SetHostControlsMenus(true);
     sNet.SetupCountAtWait = SimState_GetRaceSetupCount();

@@ -5,6 +5,7 @@
 #include <random>
 
 #include "NetplayIdentity.h"
+#include "NetLog.h"
 #include "RelayClient.h"
 
 using namespace RelayProtocol;
@@ -158,6 +159,8 @@ void HandleRaceAnnouncement(u32 raceId, ByteReader& reader) {
         return;
     }
     start.LocalPlayer = (s32) (own - start.Slots.begin());
+    NetLog("Race %u announced: %s, player %d of %zu", raceId, start.Config.TrackName.c_str(), start.LocalPlayer + 1,
+           start.Slots.size());
     sLobby.PendingStart = start;
     sLobby.Ready = false;
     sLobby.Changed = true;
@@ -188,8 +191,12 @@ void HandleRaceEnded(u8 source, ByteReader& reader) {
     if (reader.Failed() || (raceId == 0) || (source >= kMaxMembers)) {
         return;
     }
-    if ((raceId == sLobby.RunningRaceId) || (sLobby.PendingStart.has_value() && (sLobby.PendingStart->Id == raceId))) {
+    const bool repeated = sLobby.EndedElsewhere.has_value() && (sLobby.EndedElsewhere->Id == raceId);
+    const bool ours =
+        (raceId == sLobby.RunningRaceId) || (sLobby.PendingStart.has_value() && (sLobby.PendingStart->Id == raceId));
+    if (ours && !repeated) {
         const std::string& name = sLobby.Members[source].Name;
+        NetLog("Race %u ended by %s: %s", raceId, name.c_str(), message.c_str());
         sLobby.EndedElsewhere = RaceEnd{ raceId, IsSuccess(result) ? result : SessionResult::PeerLeft,
                                          IsSuccess(result) ? message : name + ": " + message };
         sLobby.PendingStart.reset();
@@ -284,6 +291,7 @@ void Update() {
         case RelayClient::Status::Failed:
         case RelayClient::Status::Idle:
             sLobby.Error = sLobby.Relay.GetError();
+            NetLog("Left the room: %s", sLobby.Error.c_str());
             if (sLobby.RunningRaceId != 0) {
                 sLobby.EndedElsewhere = RaceEnd{ sLobby.RunningRaceId, SessionResult::PeerLeft, sLobby.Error };
             }
@@ -293,6 +301,7 @@ void Update() {
         case RelayClient::Status::InRoom:
             if (sLobby.Status == State::Connecting) {
                 sLobby.Status = State::InRoom;
+                NetLog("Joined room %s as slot %d", sLobby.Relay.GetRoomCode().c_str(), sLobby.Relay.GetSlot());
                 if (IsLocalHost()) {
                     sLobby.SeenRaceId = 0;
                 }
@@ -463,6 +472,7 @@ void StartRace() {
     sLobby.Race = config;
     sLobby.RaceSlots = slots;
     sLobby.PendingStart = RaceStart{ sLobby.RaceId, config, 0, slots };
+    NetLog("Starting race %u: %s with %zu players", sLobby.RaceId, config.TrackName.c_str(), slots.size());
     sLobby.Changed = true;
 }
 

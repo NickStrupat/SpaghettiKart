@@ -44,17 +44,17 @@ def demangle(names):
 
 
 def read_snapshot(path):
-    """Returns the header fields and the data, bss, arena and world bytes of a snapshot file."""
+    """Returns the sections as (name, link address, bytes), and the arena and world bytes, of a snapshot file."""
     with open(path, "rb") as file:
         header = file.readline().split()
-        data_address, data_size = int(header[1], 16), int(header[2])
-        bss_address, bss_size = int(header[3], 16), int(header[4])
-        arena_size, world_size = int(header[5]), int(header[6])
-        data = file.read(data_size)
-        bss = file.read(bss_size)
+        count = int(header[1])
+        layout = [(header[2 + 3 * i].decode(), int(header[3 + 3 * i], 16), int(header[4 + 3 * i]))
+                  for i in range(count)]
+        arena_size, world_size = int(header[2 + 3 * count]), int(header[3 + 3 * count])
+        sections = [(name, address, file.read(size)) for name, address, size in layout]
         arena = file.read(arena_size)
         world = file.read(world_size)
-    return (data_address, data, bss_address, bss, arena, world)
+    return sections, arena, world
 
 
 def is_pointer(value):
@@ -90,18 +90,17 @@ def differing_runs(a, b, base):
 
 def snapshot_lines(path_a, path_b):
     """Compares two snapshot files and returns the differences in the trace file's line format."""
-    a = read_snapshot(path_a)
-    b = read_snapshot(path_b)
+    sections_a, arena_a, world_a = read_snapshot(path_a)
+    sections_b, arena_b, world_b = read_snapshot(path_b)
     lines = ["rollback differences between " + path_a + " and " + path_b]
-    for address, length in differing_runs(a[1], b[1], a[0]):
-        lines.append(f"sim_data {address:x} {length}")
-    for address, length in differing_runs(a[3], b[3], a[2]):
-        lines.append(f"sim_bss {address:x} {length}")
-    if len(a[4]) != len(b[4]):
-        lines.append(f"arena size {len(a[4])} vs {len(b[4])}")
-    for address, length in differing_runs(a[4], b[4], 0):
+    for (name, address, a), (_, _, b) in zip(sections_a, sections_b):
+        for run_address, length in differing_runs(a, b, address):
+            lines.append(f"{name} {run_address:x} {length}")
+    if len(arena_a) != len(arena_b):
+        lines.append(f"arena size {len(arena_a)} vs {len(arena_b)}")
+    for address, length in differing_runs(arena_a, arena_b, 0):
         lines.append(f"arena {address:x} {length}")
-    for address, length in differing_runs(a[5], b[5], 0):
+    for address, length in differing_runs(world_a, world_b, 0):
         lines.append(f"world {address:x} {length}")
     return lines
 
@@ -128,7 +127,7 @@ def main():
         parts = line.split()
         if not inside or len(parts) != 3:
             continue
-        if parts[0] not in ("sim_data", "sim_bss"):
+        if parts[0] not in ("sim_data", "sim_bss", "sim_cxx_data", "sim_cxx_bss"):
             print(f"  {line.strip()}")
             continue
         address, length = int(parts[1], 16), int(parts[2])

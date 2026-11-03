@@ -11,6 +11,7 @@
 #include <gekkonet.h>
 
 #include "Lobby.h"
+#include "NetLog.h"
 #include "NetSession.h"
 #include "RaceConfig.h"
 #include "port/Game.h"
@@ -28,6 +29,7 @@ constexpr u32 kBootFrames = 30;
 constexpr u32 kMenuSettleFrames = 3;
 // Lobby tests watch this much of the podium after a Grand Prix: 15 s.
 constexpr u32 kTestPodiumFrames = 450;
+constexpr u32 kTestLingerFrames = 60;
 
 enum class TestMode {
     None,   // Races come from the lobby window
@@ -39,6 +41,8 @@ struct NetplayState {
     TestMode Test = TestMode::None;
     u32 BootFramesLeft = kBootFrames;
     bool Finished = false;
+    // A lobby test stays in the room this long after it finishes, so peers still at the end of the race hear of it.
+    u32 LingerFrames = 0;
     s32 ExitCode = EXIT_SUCCESS;
 
     // Options for both test modes
@@ -71,6 +75,8 @@ struct NetplayState {
     Lobby::Settings TestSettings;
 
     u32 PodiumFrames = 0;
+    bool TestResetBeforeRace = false;
+    u32 TestStartDelay = 0; // Host: frames to idle in the room before starting
 
     // Lobby races
     std::optional<Lobby::RaceStart> PendingRace;
@@ -94,11 +100,12 @@ u32 GetEnvU32(const char* name, u32 fallback) {
 
 void FinishTest(bool success, const std::string& message) {
     if (!message.empty()) {
-        printf("[Netplay] %s: %s\n", success ? "PASS" : "FAIL", message.c_str());
+        NetLog("%s: %s", success ? "PASS" : "FAIL", message.c_str());
     }
     fflush(stdout);
     sNetplay.ExitCode = success ? EXIT_SUCCESS : EXIT_FAILURE;
     sNetplay.Finished = true;
+    sNetplay.LingerFrames = (success && (sNetplay.Test == TestMode::Lobby)) ? kTestLingerFrames : 0;
 }
 
 bool IsInMenus() {
@@ -253,8 +260,10 @@ void UpdatePendingRace() {
     if (!sNetplay.PendingRace.has_value()) {
         return;
     }
-    if (!IsInMenus()) {
+    const bool testReset = sNetplay.TestResetBeforeRace && !sNetplay.ResetRequested;
+    if (!IsInMenus() || testReset) {
         if (!sNetplay.ResetRequested) {
+            NetLog("Returning to the menus to start race %u", sNetplay.PendingRace->Id);
             CM_RequestReset();
             sNetplay.ResetRequested = true;
         }
@@ -304,7 +313,7 @@ void UpdateLobbyTest() {
     if (!sNetplay.JoinedRoom) {
         if (state == Lobby::State::InRoom) {
             sNetplay.JoinedRoom = true;
-            printf("[Netplay] In room %s as slot %d\n", Lobby::GetRoomCode().c_str(), Lobby::GetLocalSlot());
+            NetLog("In room %s as slot %d", Lobby::GetRoomCode().c_str(), Lobby::GetLocalSlot());
             fflush(stdout);
             if (Lobby::IsHost()) {
                 Lobby::SetSettings(sNetplay.TestSettings);
@@ -334,7 +343,7 @@ void UpdateLobbyTest() {
     // The podium waits for a button press, which bots do not make.
     if (gGamestate == ENDING) {
         if (++sNetplay.PodiumFrames == kTestPodiumFrames) {
-            printf("[Netplay] Leaving the podium\n");
+            NetLog("Leaving the podium");
             CM_RequestReset();
         }
     } else {
@@ -345,10 +354,14 @@ void UpdateLobbyTest() {
     if (!Lobby::IsHost() && !self.Ready && !racing && IsInMenus()) {
         Lobby::SetReady(true);
     }
+    if (sNetplay.TestStartDelay > 0) {
+        sNetplay.TestStartDelay--;
+        return;
+    }
     if (Lobby::IsHost() && !racing && (sNetplay.RacesStarted < sNetplay.Races) &&
         (CountMembers() >= sNetplay.Players) && Lobby::GetStartBlocker().empty()) {
         sNetplay.RacesStarted++;
-        printf("[Netplay] Starting race %u of %u\n", sNetplay.RacesStarted, sNetplay.Races);
+        NetLog("Starting race %u of %u", sNetplay.RacesStarted, sNetplay.Races);
         Lobby::StartRace();
     }
 }
@@ -414,6 +427,8 @@ extern "C" void Netplay_Init(void) {
     if (const char* logPath = GetEnv("SK_NETPLAY_LOG")) {
         sNetplay.LogPath = logPath;
     }
+    sNetplay.TestResetBeforeRace = GetEnvU32("SK_NETPLAY_TEST_RESET", 0) != 0;
+    sNetplay.TestStartDelay = GetEnvU32("SK_NETPLAY_TEST_START_DELAY", 0);
     if (const char* controls = GetEnv("SK_NETPLAY_TEST_CONTROLS")) {
         sNetplay.TestControls = ParseTestControls(controls);
     }
@@ -457,13 +472,17 @@ extern "C" void Netplay_EndFrame(void) {
         }
     }
     if (sNetplay.Finished) {
-        Lobby::Leave();
+        if (sNetplay.LingerFrames > 0) {
+            sNetplay.LingerFrames--;
+        } else {
+            Lobby::Leave();
+        }
     }
     sNetplay.SessionWasActive = NetSession::IsActive();
 }
 
 extern "C" bool Netplay_IsFinished(void) {
-    return sNetplay.Finished;
+    return sNetplay.Finished && (sNetplay.LingerFrames == 0);
 }
 
 extern "C" s32 Netplay_GetExitCode(void) {

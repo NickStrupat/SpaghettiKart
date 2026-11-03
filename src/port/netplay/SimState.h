@@ -7,7 +7,7 @@
  * Netplay rollback savestates.
  *
  * The simulation's state is:
- *   - the globals and static locals of the simulation's source files, grouped into one section (SimSection.h),
+ *   - the globals and static locals of the simulation's source files, grouped into sections (SimSection.h),
  *   - the C++ objects in the sim arena (SimArena.h),
  *   - the headers of the World containers that own those objects.
  * A snapshot copies all three; loading it copies them back.
@@ -41,6 +41,14 @@ u32 SimState_GetRaceSetupCount(void);
 void SimState_SetHostControlsMenus(bool enabled);
 /** Clears every controller's held and pressed buttons, so each peer starts a session from the same state. */
 void SimState_ResetControllers(void);
+
+/**
+ * Puts the simulation's globals back to how they were before this run's first race was set up, keeping the state
+ * that outlives races: the gamestate, save data, controller paks and the sound mode.
+ * A race leaves values behind that the next race's setup never resets, and each peer has its own history of
+ * attract demos and offline races, so netplay starts every race series from this baseline.
+ */
+void SimState_RestoreBaseline(void);
 
 /** Bracket the simulation half of a race frame. In rollback mode, routes its allocations into the sim arena. */
 void SimState_BeginSimFrame(void);
@@ -87,7 +95,7 @@ void WriteDifferences(const SimSnapshot& a, const SimSnapshot& b, FILE* out);
 
 /**
  * Writes a snapshot to a file, to compare the states of two peers with tools/netplay-diff.py: a text header
- * "SKSNAP <data address> <data size> <bss address> <bss size> <arena size> <world size>", then the raw bytes.
+ * "SKSNAP <section count> (<name> <link address> <size>)... <arena size> <world size>", then the raw bytes.
  */
 void WriteSnapshotFile(const SimSnapshot& snapshot, FILE* out);
 

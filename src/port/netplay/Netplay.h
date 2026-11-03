@@ -32,6 +32,9 @@
  *   SK_NETPLAY_TEST_CONTROLS=restart@300,next@200,leave@500
  *                                       Send these requests on that frame of every race (see PadControl).
  *   SK_NETPLAY_DUMP=1                   Write the state each segment starts from, for tools/netplay-diff.py.
+ *   SK_NETPLAY_TEST_RESET=1             Return to the menus before each lobby race, as a peer outside them does.
+ *   SK_NETPLAY_TEST_START_DELAY=900     Host: idle this many frames in the room before starting (the title screen
+ *                                       starts its attract demo race after 10 s).
  */
 
 #ifdef __cplusplus

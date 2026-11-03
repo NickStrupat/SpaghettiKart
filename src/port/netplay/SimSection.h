@@ -14,9 +14,15 @@
 
 #if defined(__clang__)
 #define NETPLAY_SIM_SECTION_SUPPORTED 1
-#if defined(__APPLE__)
+// C files and C++ files use separate sections: C++ statics can own heap memory, so only the C globals can be put
+// back to an old copy on their own (SimState_RestoreBaseline()).
+#if defined(__APPLE__) && defined(__cplusplus)
 // "zerofill" keeps zero-initialized state out of the executable file, as with __bss.
+#define SIM_STATE_BEGIN _Pragma("clang section bss=\"__DATA,__sim_cxx_bss,zerofill\" data=\"__DATA,__sim_cxx_data\"")
+#elif defined(__APPLE__)
 #define SIM_STATE_BEGIN _Pragma("clang section bss=\"__DATA,__sim_bss,zerofill\" data=\"__DATA,__sim_data\"")
+#elif defined(__cplusplus)
+#define SIM_STATE_BEGIN _Pragma("clang section bss=\"sim_cxx_bss\" data=\"sim_cxx_data\"")
 #else
 #define SIM_STATE_BEGIN _Pragma("clang section bss=\"sim_bss\" data=\"sim_data\"")
 #endif
