@@ -16,11 +16,20 @@ extern "C" {
 
 namespace {
 
-// Steers toward the track point this far ahead of the nearest one.
-constexpr u16 kPathLookAhead = 8;
-// Full lock for this much heading error: about 30 degrees.
-constexpr s32 kFullLockAngle = 0x1555;
+// Full lock for this much heading error: about 15 degrees. Gentler steering never catches up in long bends, so the
+// kart drifts wide, and off the unwalled edges of tracks like Choco Mountain.
+constexpr s32 kFullLockAngle = 0xAAA;
 constexpr s32 kMaxStick = 80;
+// A racer aims at the track point this far ahead of its nearest one: further on straights, for a smooth line, and
+// closer in curves, to follow them. How sharp a curve is comes from the turn over the next kCurveWindow points.
+constexpr f32 kLookAheadStraight = 12.0f;
+constexpr f32 kLookAheadCurve = 8.0f;
+constexpr u16 kCurveWindow = 20;
+// A racer brakes when the track point this far ahead lies more than kBrakeAngle (about 44 degrees) off its heading
+// and it is faster than kBrakeSpeed: it could not make that bend.
+constexpr u16 kBrakeLookAhead = 24;
+constexpr s32 kBrakeAngle = 8000;
+constexpr f32 kBrakeSpeed = 4.0f;
 // Below this speed for kStuckFrames, a racer backs out: it is against a wall.
 constexpr f32 kStuckSpeed = 1.0f;
 constexpr u32 kStuckFrames = 45;
@@ -40,21 +49,45 @@ constexpr s16 kItemBoxReady = 2;
 // is often behind the wall.
 constexpr u32 kDetourFrames = 300;
 
-s8 SteerToward(Player* player, Vec3f target) {
+/** @returns how far the kart must turn to face the target: an s16 angle, positive one way and negative the other. */
+s32 GetHeadingError(Player* player, Vec3f target) {
     const s16 heading = (s16) -get_angle_between_two_vectors(player->pos, target);
-    const s32 error = (s16) (heading - player->rotation[1]);
-    const s32 stick = std::clamp(error * kMaxStick / kFullLockAngle, -kMaxStick, kMaxStick);
-    return (s8) stick;
+    return (s16) (heading - player->rotation[1]);
 }
 
-/** @returns the point kPathLookAhead points ahead of the player on its path. */
-void GetPathTarget(s32 playerIndex, Vec3f target) {
+s8 SteerToward(Player* player, Vec3f target) {
+    return (s8) std::clamp(GetHeadingError(player, target) * kMaxStick / kFullLockAngle, -kMaxStick, kMaxStick);
+}
+
+void GetPathPoint(u16 path, u16 index, Vec3f point) {
+    const TrackPathPoint& pathPoint = gTrackPaths[path][index % gPathCountByPathIndex[path]];
+    point[0] = pathPoint.x;
+    point[1] = pathPoint.y;
+    point[2] = pathPoint.z;
+}
+
+/** Follows the CPU drivers' path along the track, braking for bends that are too sharp for the kart's speed. */
+void DriveTrack(s32 playerIndex, PadInput* pad) {
+    Player* player = &gPlayers[playerIndex];
     const u16 path = gPathIndexByPlayerId[playerIndex];
     const u16 count = gPathCountByPathIndex[path];
-    const TrackPathPoint* point = &gTrackPaths[path][(gNearestPathPointByPlayerId[playerIndex] + kPathLookAhead) % count];
-    target[0] = point->x;
-    target[1] = point->y;
-    target[2] = point->z;
+    const u16 nearest = gNearestPathPointByPlayerId[playerIndex];
+
+    // 0 on a straight, 1 for a right angle or more
+    const s16 curve = (s16) (gPathExpectedRotation[path][(nearest + kCurveWindow) % count] -
+                             gPathExpectedRotation[path][nearest]);
+    const f32 sharpness = std::min(std::abs((s32) curve) / (f32) 0x4000, 1.0f);
+    const f32 lookAhead = kLookAheadStraight + ((kLookAheadCurve - kLookAheadStraight) * sharpness);
+
+    Vec3f target;
+    GetPathPoint(path, (u16) (nearest + (u16) lookAhead), target);
+    pad->StickX = SteerToward(player, target);
+
+    Vec3f ahead;
+    GetPathPoint(path, (u16) (nearest + kBrakeLookAhead), ahead);
+    if ((std::abs(GetHeadingError(player, ahead)) > kBrakeAngle) && (player->speed > kBrakeSpeed)) {
+        pad->Buttons = B_BUTTON;
+    }
 }
 
 f32 GetDistanceSquared(const Player* a, const Player* b) {
@@ -175,13 +208,13 @@ PadInput SyntheticDriver::NextRacer(s32 playerIndex) {
         return pad;
     }
 
-    Vec3f target;
     if (gModeSelection != BATTLE) {
-        GetPathTarget(playerIndex, target);
-        pad.StickX = SteerToward(player, target);
+        DriveTrack(playerIndex, &pad);
         UseItems(playerIndex, &pad);
         return pad;
     }
+
+    Vec3f target;
 
     // Battle: collect an item, then hunt the nearest opponent with it.
     if (mDetourFramesLeft > 0) {
@@ -202,7 +235,7 @@ PadInput SyntheticDriver::NextRacer(s32 playerIndex) {
         target[1] = gPlayers[opponent].pos[1];
         target[2] = gPlayers[opponent].pos[2];
         pad.StickX = SteerToward(player, target);
-        const bool ahead = std::abs((s32) pad.StickX) * kFullLockAngle / kMaxStick < kFireAngle;
+        const bool ahead = std::abs(GetHeadingError(player, target)) < kFireAngle;
         if (ahead && (GetDistanceSquared(player, &gPlayers[opponent]) < kFireDistance * kFireDistance)) {
             mItemDelay = 1;
         }
