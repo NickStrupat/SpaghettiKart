@@ -61,6 +61,7 @@ class Scenario:
     lag: tuple = (0, 0, 0)  # Relay delay ms, jitter ms, loss percent
     peer_env: dict = dataclasses.field(default_factory=dict)  # Extra environment, by peer index
     cvars: dict = dataclasses.field(default_factory=dict)  # Extra settings for every peer
+    peer_cvars: dict = dataclasses.field(default_factory=dict)  # Extra settings, by peer index
     expect: dict = dataclasses.field(default_factory=dict)  # Minimum count of each event, on every peer
     expect_none: tuple = ()  # Events no peer may log
     timeout: int = 300  # Seconds
@@ -104,6 +105,9 @@ SCENARIOS = [
              expect={"races_over": 2}),
     Scenario("two-series", "2 players, two lobby races in one room", 2, "vs", track="mk:wario_stadium", races=2,
              series_races=1, expect={"races_over": 2}),
+    Scenario("mixed-settings", "2 players whose games took different ways through the menus (one starts at the title "
+             "screen, one skips it), as two computers do", 2, "battle", track="mk:block_fort", series_races=1,
+             peer_cvars={0: {"gSkipIntro": 1}}, expect={"races_over": 1}),
     Scenario("sounds", "3 random drivers among traffic, each peer hearing every camera; their sounds must agree "
              "however rollbacks changed them", 3, "vs", track="mk:toads_turnpike", frames=4000,
              peer_env={-1: {"SK_NETPLAY_BOT": "2"}}, cvars={"gNetplay.OwnAudio": 0}, expect={"segments": 1}),
@@ -236,7 +240,7 @@ def run_scenario(scenario: Scenario, args, run_dir: Path):
     outputs = []
     for i in range(scenario.players):
         home = directory / f"home{i}"
-        write_home(home, args.o2r, i, scenario.cvars)
+        write_home(home, args.o2r, i, {**scenario.cvars, **scenario.peer_cvars.get(i, {})})
         env = dict(os.environ)
         env.update({
             "SHIP_HOME": str(home),

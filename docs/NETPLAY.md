@@ -168,7 +168,7 @@ A lobby race is a series of segments, one GekkoNet session per loaded race (each
 
 | Tool | What it does |
 |---|---|
-| `tools/netplay-sim.py` | Plays whole races, cups and battles between bot-driven copies of the game through a relay, fast-forwarded (about 70× real time), and checks that every peer stayed in sync and the races ended as expected. 13 scenarios, about 4 minutes. **Run it after any change to netplay or simulation code.** |
+| `tools/netplay-sim.py` | Plays whole races, cups and battles between bot-driven copies of the game through a relay, fast-forwarded (about 70× real time), and checks that every peer stayed in sync and the races ended as expected. 14 scenarios, about 4 minutes. **Run it after any change to netplay or simulation code.** |
 | Determinism harness | `SK_DETERMINISM_RECORD` / `_VERIFY` / `_ROLLBACK=8`: records a race's inputs and per-frame checksums, replays them, or rolls back 8 frames after every frame. See `DeterminismHarness.h`. |
 | `tools/netplay-relay/test_relay.py` | Protocol tests for the relay. |
 | `tools/netplay-diff.py` | Names the variables that differ between two peers' start states (`SK_NETPLAY_DUMP=1`) or in a rollback trace. |
@@ -177,9 +177,11 @@ The test environment variables (direct peers, lobby bots, simulated lag and loss
 drivers) are listed in `src/port/netplay/Netplay.h`. `SK_FAST=n` runs any of them without frame pacing or sound
 output, drawing one frame in n.
 
-When a session fails, each peer writes `<log>.seg<N>.kept.txt`, the checksum breakdown of every frame it still kept;
-diffing the peers' files shows the first component that differs. A peer that detects a desync also writes
-`<log>.desync-p<player>-s<segment>-f<frame>.txt`.
+When a session fails, each peer writes `<prefix>.seg<N>.kept.txt`, the checksum breakdown of every frame it still
+kept; diffing the peers' files shows the first component that differs. A peer that detects a desync also writes
+`<prefix>.desync-p<player>-s<segment>-f<frame>.txt`. The prefix is the test log path (`SK_NETPLAY_LOG`), or else
+`netplay/<date-time>` in the game's folder (`~/Library/Application Support/SpaghettiKart/` on macOS), so a desync
+between two computers leaves a report on each.
 
 ## Pitfalls found so far
 
@@ -198,6 +200,10 @@ Each of these cost a debugging round.
   demo's setup; the race start clears them. The demo only starts from the title screen (`gSkipIntro` 1), so tests need
   that setting to reach it.
 - **Pointers in raw-byte hashes**: `RailroadCrossing` overlays a pointer on other fields; the checksum skips it.
+- **Leftovers from each peer's own history in hashed data**: menu items keep a texture slot and fields that
+  `add_menu_item()` never sets, and a cleared item keeps all of them. Hashing the whole `gMenuItems` array made two
+  computers with different settings (one starting at the title screen, one playing the intro) desync on frame 0. The
+  checksum hashes only active items' state.
 - **C++ statics that own heap memory** dangle after a section restore; the baseline restores C sections only.
 - **The audio thread must not read CVars** (it raced the main thread's CVar map).
 - Not yet seen but possible: music sequence scripts write a simulation global (`func_8001AAAC`).

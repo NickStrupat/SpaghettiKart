@@ -5,7 +5,9 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <ctime>
 #include <deque>
+#include <filesystem>
 #include <vector>
 
 #include "Checksum.h"
@@ -116,6 +118,9 @@ struct NetSessionState {
     // Last checksum saved for each frame of the segment. After a rollback it is the corrected one.
     std::vector<u32> FrameChecksums;
     GameplayCVarOverride CVars;
+    // Failure reports are written to <ReportPrefix>.<what>: the test log path, or a file per series in the game's
+    // folder, where they can be fetched from both computers.
+    std::string ReportPrefix;
     u32 ShownFrames = 0;
     u32 SegmentFrames = 0;
     u8 InputDelay = 0;
@@ -232,10 +237,8 @@ void WriteDesyncReport(s32 frame) {
         NetLog("Frame %d is no longer kept; no desync report", frame);
         return;
     }
-    const std::string& logPath = sNet.Settings.LogPath;
-    const std::string path = (logPath.empty() ? std::string("netplay") : logPath) + ".desync-p" +
-                             std::to_string(sNet.Settings.LocalPlayer) + "-s" + std::to_string(sNet.Segment) +
-                             "-f" + std::to_string(frame) + ".txt";
+    const std::string path = sNet.ReportPrefix + ".desync-p" + std::to_string(sNet.Settings.LocalPlayer) + "-s" +
+                             std::to_string(sNet.Segment) + "-f" + std::to_string(frame) + ".txt";
     FILE* report = fopen(path.c_str(), "w");
     if (report == nullptr) {
         return;
@@ -255,10 +258,10 @@ void WriteDesyncReport(s32 frame) {
  * detect a desync never learns its frame.
  */
 void WriteKeptFramesReport() {
-    if (sNet.Settings.LogPath.empty() || (sNet.Gekko == nullptr)) {
+    if (sNet.Gekko == nullptr) {
         return;
     }
-    const std::string path = sNet.Settings.LogPath + ".seg" + std::to_string(sNet.Segment) + ".kept.txt";
+    const std::string path = sNet.ReportPrefix + ".seg" + std::to_string(sNet.Segment) + ".kept.txt";
     FILE* report = fopen(path.c_str(), "w");
     if (report == nullptr) {
         return;
@@ -597,6 +600,20 @@ PadControl GetLocalControl() {
     return sNet.LeaveRequested ? PadControl::Leave : sNet.PendingControl;
 }
 
+/** @returns where this series' failure reports go: the test log, or netplay/<date-time> in the game's folder. */
+std::string MakeReportPrefix(const SessionSettings& settings) {
+    if (!settings.LogPath.empty()) {
+        return settings.LogPath;
+    }
+    const std::string directory = Ship::Context::GetPathRelativeToAppDirectory("netplay");
+    std::error_code error;
+    std::filesystem::create_directories(directory, error);
+    char name[32];
+    const std::time_t now = std::time(nullptr);
+    std::strftime(name, sizeof(name), "%Y%m%d-%H%M%S", std::localtime(&now));
+    return directory + "/" + name;
+}
+
 s32 GetViewPlayer() {
     return (CVarGetInteger(NetSession::kOwnViewCVar, 1) != 0) ? sNet.Settings.LocalPlayer : -1;
 }
@@ -610,6 +627,7 @@ void Start(const SessionSettings& settings) {
         Stop(SessionResult::Failed, "A new race started");
     }
     sNet.Settings = settings;
+    sNet.ReportPrefix = MakeReportPrefix(settings);
     sNet.Result = SessionResult::Running;
     sNet.ResultMessage.clear();
     sNet.ExitGamestate = RACING;
@@ -848,6 +866,10 @@ void RunRaceFrame() {
                 SoundRollback::BeginFrame(event->data.adv.frame);
                 SimState_AdvanceFrame(pads.data(), i == shownAdvance);
                 SoundRollback::EndFrame();
+                // Every time the frame is simulated, re-simulations included, or a rollback would undo it.
+                if ((sNet.Settings.DesyncAtFrame > 0) && (event->data.adv.frame == (s32) sNet.Settings.DesyncAtFrame)) {
+                    gRandomSeed16 ^= 1;
+                }
                 ApplyControls(controls.data());
                 break;
             }
@@ -873,9 +895,6 @@ void RunRaceFrame() {
     const s32 shownFrame = (shownAdvance >= 0) ? events[shownAdvance]->data.adv.frame : -1;
     if (shownAdvance >= 0) {
         const SessionSettings& settings = sNet.Settings;
-        if ((settings.DesyncAtFrame > 0) && (sNet.ShownFrames + 1 == settings.DesyncAtFrame)) {
-            gRandomSeed16 ^= 1;
-        }
         sNet.SegmentFrames++;
         sNet.ShownFrames++;
         RaceEvents::Update(sNet.SegmentFrames);
