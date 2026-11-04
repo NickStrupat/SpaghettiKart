@@ -7,6 +7,11 @@ Official Website: https://www.harbourmasters.org/
 
 If you're having any trouble after reading through this `README`, feel free ask for help in the SpaghettiKart Support text channels. Please keep in mind that we do not condone piracy.
 
+## Netplay (this fork)
+
+The `netplay` branch adds online races with rollback netcode, room codes and a relay server. See
+[docs/NETPLAY.md](docs/NETPLAY.md) for how to play, how it works and what is still open.
+
 # Quick Start
 
 SpaghettiKart does not include any copyrighted assets.  You are required to provide a supported copy of the game.
