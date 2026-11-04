@@ -56,7 +56,12 @@ struct Options {
 
 struct Client {
     uint64_t Token = 0;
+    uint64_t Key = 0; // Shown to the other members, which recognize this client's direct packets by it
     udp::endpoint Endpoint;
+    // From KeepAlive: whether the other members may have this client's addresses, and its own on its network
+    bool SharesAddresses = false;
+    uint32_t LocalAddress = 0;
+    uint16_t LocalPort = 0;
     std::string RoomKey;
     uint8_t Slot = 0;
     uint32_t Request = 0; // The Create or Join that made this client, to answer repeats
@@ -312,10 +317,16 @@ class RelayServer {
     void HandleKeepAlive(ByteReader& reader, const udp::endpoint& from, Clock::time_point now) {
         const uint64_t token = reader.Read64();
         const uint32_t echo = reader.Read32();
+        const uint8_t flags = reader.Read8();
+        const uint32_t localAddress = reader.Read32();
+        const uint16_t localPort = reader.Read16();
         if (reader.Failed()) {
             return;
         }
         if (Client* client = FindClient(token, from, now)) {
+            client->SharesAddresses = (flags & kShareAddresses) != 0;
+            client->LocalAddress = localAddress;
+            client->LocalPort = localPort;
             SendRoomState(mRooms.at(client->RoomKey), *client, echo);
         }
     }
@@ -345,6 +356,7 @@ class RelayServer {
 
         Client& client = mClients[token];
         client.Token = token;
+        client.Key = mRandom();
         client.Endpoint = from;
         client.RoomKey = ToString(room.Code);
         client.Slot = slot;
@@ -417,12 +429,24 @@ class RelayServer {
                 occupied |= (uint8_t) (1 << slot);
             }
         }
-        uint8_t packet[kHeaderSize + 4 + 1 + 1];
+        uint8_t packet[kHeaderSize + 4 + 1 + 1 + kMaxSlots * (8 + 4 + 2 + 4 + 2)];
         ByteWriter writer(packet, sizeof(packet));
         writer.WriteHeader(MessageType::RoomState);
         writer.Write32(echo);
         writer.Write8(client.Slot);
         writer.Write8(occupied);
+        for (uint64_t token : room.Members) {
+            if (token == 0) {
+                continue;
+            }
+            const Client& member = mClients.at(token);
+            const bool shared = member.SharesAddresses && member.Endpoint.address().is_v4();
+            writer.Write64(member.Key);
+            writer.Write32(shared ? member.Endpoint.address().to_v4().to_uint() : 0);
+            writer.Write16(shared ? member.Endpoint.port() : 0);
+            writer.Write32(shared ? member.LocalAddress : 0);
+            writer.Write16(shared ? member.LocalPort : 0);
+        }
         Send(client.Endpoint, packet, writer.GetSize());
     }
 

@@ -14,6 +14,9 @@
 /**
  * The game's connection to the netplay relay: creates or joins a room, keeps the membership alive, and carries
  * two channels of packets between room members: lobby messages and GekkoNet's rollback traffic.
+ *
+ * Packets to one member go to it directly once a punch through both routers got an answer (see RelayProtocol.h), and
+ * through the relay otherwise, or again once the direct way goes quiet. Broadcasts always go through the relay.
  * Single-threaded: call Update() once per frame from the game thread. Only host name lookup runs on a worker thread.
  */
 class RelayClient {
@@ -46,6 +49,18 @@ class RelayClient {
     u8 GetOccupiedSlots() const;
     /** Round trip to the relay, or -1 before it is measured. */
     s32 GetPingMs() const;
+
+    /**
+     * Whether to connect to the other members directly when their routers allow it, which is faster than through the
+     * relay. It shares this client's addresses with them. Set before Create() or Join(); on by default.
+     */
+    void SetDirectEnabled(bool enabled);
+    /** Testing: direct connections stop working this long after joining, as if a router closed them. */
+    void BlockDirectAfter(u32 milliseconds);
+    /** @returns true while packets to this slot go to it directly rather than through the relay. */
+    bool IsDirect(u8 slot) const;
+    /** Round trip straight to this slot, or -1 while not connected directly or not measured yet. */
+    s32 GetDirectPingMs(u8 slot) const;
 
     /** Sends a lobby message to one slot, or to every other member with RelayProtocol::kBroadcast. */
     void SendLobby(u8 destination, const void* data, size_t size);

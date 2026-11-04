@@ -9,12 +9,16 @@
 
 #include "RelayClient.h"
 
+#include <array>
 #include <cctype>
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <future>
+#include <optional>
 #include <random>
+
+#include "NetLog.h"
 
 using namespace RelayProtocol;
 using asio::ip::udp;
@@ -30,6 +34,31 @@ constexpr auto kRequestTimeout = std::chrono::seconds(10);
 constexpr auto kConnectionTimeout = std::chrono::seconds(10);
 constexpr int kLeaveRepeats = 3; // Leave is never answered, so send it a few times in case of loss
 constexpr s32 kPingSmoothing = 4;  // Each round trip moves the ping a quarter of the way
+// Punches go out this often until a member answers directly, then less often, to keep the routers' mappings open.
+constexpr auto kPunchInterval = std::chrono::milliseconds(250);
+constexpr auto kPunchKeepAliveInterval = std::chrono::milliseconds(500);
+// A direct connection silent for this long is given up for the relay, well before GekkoNet's 5 s disconnect.
+constexpr auto kDirectTimeout = std::chrono::milliseconds(1500);
+
+/** Another member, as far as connecting to it directly goes. */
+struct Peer {
+    u64 Key = 0; // 0 while the slot is free or the relay has not described it yet
+    // Where it may be reached: where the relay sees it, and its own address on its network. Port 0 when unknown.
+    std::array<udp::endpoint, 2> Candidates;
+    bool HasDirect = false;
+    udp::endpoint Direct; // Where its direct packets come from
+    Clock::time_point LastHeard;
+    Clock::time_point LastPunch;
+    s32 PingMs = -1;
+};
+
+std::string ToString(const udp::endpoint& endpoint) {
+    return endpoint.address().to_string() + ":" + std::to_string(endpoint.port());
+}
+
+udp::endpoint MakeEndpoint(u32 address, u16 port) {
+    return (port == 0) ? udp::endpoint() : udp::endpoint(asio::ip::address_v4(address), port);
+}
 
 struct ResolveResult {
     udp::endpoint Endpoint;
@@ -78,6 +107,14 @@ struct RelayClient::Impl {
     s32 Slot = -1;
     u8 Occupied = 0;
     s32 PingMs = -1;
+
+    // Direct connections to the other members
+    bool DirectEnabled = true;
+    u64 Key = 0;                  // This client's, which its direct packets carry
+    udp::endpoint LocalEndpoint;  // This client's own address on its network
+    std::array<Peer, kMaxSlots> Peers;
+    std::optional<std::chrono::milliseconds> BlockDirectAfter; // Testing: direct connections fail after this
+    Clock::time_point JoinedAt;
     Clock::time_point LastKeepAliveSent;
     Clock::time_point LastHeardFromRelay;
     Clock::time_point Epoch = Clock::now();
@@ -126,6 +163,8 @@ struct RelayClient::Impl {
         Slot = -1;
         Occupied = 0;
         PingMs = -1;
+        Key = 0;
+        Peers = {};
         LobbyPackets.clear();
         FreeGekkoPackets();
         State = Status::Idle;
@@ -174,10 +213,23 @@ struct RelayClient::Impl {
             return;
         }
         Relay = relay;
+        LocalEndpoint = FindLocalEndpoint();
         Request = Random() | 1;
         RequestStarted = now;
         State = Status::Joining;
         SendRequest(now);
+    }
+
+    /** @returns this computer's address on its network, the one packets to the relay leave from, and the port. */
+    udp::endpoint FindLocalEndpoint() {
+        asio::error_code error;
+        udp::socket probe(Io);
+        probe.open(udp::v4(), error);
+        // Connecting a UDP socket sends nothing; it only picks the route.
+        probe.connect(Relay, error);
+        const udp::endpoint local = probe.local_endpoint(error);
+        const unsigned short port = Socket->local_endpoint(error).port();
+        return error ? udp::endpoint() : udp::endpoint(local.address(), port);
     }
 
     void Update() {
@@ -198,7 +250,7 @@ struct RelayClient::Impl {
 
         if (State == Status::Joining) {
             if (now - RequestStarted > kRequestTimeout) {
-                Fail("No answer from the relay server at " + Address);
+                Fail("No answer from the relay server at " + Address + " (is it running, and as new as the game?)");
             } else if (now - LastRequestSent > kRequestRetryInterval) {
                 SendRequest(now);
             }
@@ -206,15 +258,112 @@ struct RelayClient::Impl {
             if (now - LastHeardFromRelay > kConnectionTimeout) {
                 Fail("Lost the connection to the relay server");
             } else if (now - LastKeepAliveSent > std::chrono::milliseconds(kKeepAliveIntervalMs)) {
-                u8 packet[kHeaderSize + 8 + 4];
+                u8 packet[kHeaderSize + 8 + 4 + 1 + 4 + 2];
                 ByteWriter writer(packet, sizeof(packet));
                 writer.WriteHeader(MessageType::KeepAlive);
                 writer.Write64(Token);
                 // 0 means "not an answer to a keep-alive" in RoomState, so never send it.
                 writer.Write32(GetMilliseconds(now) | 1);
+                writer.Write8(DirectEnabled ? kShareAddresses : 0);
+                const bool hasLocal = LocalEndpoint.address().is_v4();
+                writer.Write32(hasLocal ? LocalEndpoint.address().to_v4().to_uint() : 0);
+                writer.Write16(hasLocal ? LocalEndpoint.port() : 0);
                 SendToRelay(packet, writer.GetSize());
                 LastKeepAliveSent = now;
             }
+            if (State == Status::InRoom) {
+                UpdateDirect(now);
+            }
+        }
+    }
+
+    bool IsDirectBlocked(Clock::time_point now) const {
+        return !DirectEnabled || (BlockDirectAfter.has_value() && (now - JoinedAt >= *BlockDirectAfter));
+    }
+
+    /** Punches towards every member not reached directly yet, keeps the reached ones open, and notices lost ones. */
+    void UpdateDirect(Clock::time_point now) {
+        if (IsDirectBlocked(now)) {
+            for (s32 slot = 0; slot < (s32) kMaxSlots; slot++) {
+                LoseDirect(slot);
+            }
+            return;
+        }
+        for (s32 slot = 0; slot < (s32) kMaxSlots; slot++) {
+            Peer& peer = Peers[slot];
+            if ((slot == Slot) || (peer.Key == 0)) {
+                continue;
+            }
+            if (peer.HasDirect && (now - peer.LastHeard > kDirectTimeout)) {
+                LoseDirect(slot);
+            }
+            if (now - peer.LastPunch < (peer.HasDirect ? kPunchKeepAliveInterval : kPunchInterval)) {
+                continue;
+            }
+            peer.LastPunch = now;
+            u8 packet[kHeaderSize + 1 + 8 + 4];
+            ByteWriter writer(packet, sizeof(packet));
+            writer.WriteHeader(MessageType::Punch);
+            writer.Write8((u8) Slot);
+            writer.Write64(Key);
+            writer.Write32(GetMilliseconds(now));
+            for (size_t i = 0; i < peer.Candidates.size(); i++) {
+                const udp::endpoint& candidate = peer.Candidates[i];
+                if ((candidate.port() != 0) && ((i == 0) || (candidate != peer.Candidates[0]))) {
+                    SendTo(candidate, packet, writer.GetSize());
+                }
+            }
+            if (peer.HasDirect && (peer.Direct != peer.Candidates[0]) && (peer.Direct != peer.Candidates[1])) {
+                SendTo(peer.Direct, packet, writer.GetSize());
+            }
+        }
+    }
+
+    void LoseDirect(s32 slot) {
+        Peer& peer = Peers[slot];
+        if (peer.HasDirect) {
+            peer.HasDirect = false;
+            NetLog("Direct connection to slot %d lost; using the relay", slot);
+        }
+    }
+
+    bool HasDirect(u8 slot, Clock::time_point now) const {
+        return (slot < kMaxSlots) && Peers[slot].HasDirect && !IsDirectBlocked(now);
+    }
+
+    /** Takes the relay's description of the room's members. */
+    void ReadMembers(ByteReader& reader, u8 occupied) {
+        for (s32 slot = 0; slot < (s32) kMaxSlots; slot++) {
+            if ((occupied & (1 << slot)) == 0) {
+                Peers[slot] = Peer();
+                continue;
+            }
+            const u64 key = reader.Read64();
+            const u32 publicAddress = reader.Read32();
+            const u16 publicPort = reader.Read16();
+            const u32 localAddress = reader.Read32();
+            const u16 localPort = reader.Read16();
+            if (reader.Failed()) {
+                return;
+            }
+            if (slot == Slot) {
+                Key = key;
+                continue;
+            }
+            Peer& peer = Peers[slot];
+            if (peer.Key != key) {
+                // Someone new in this slot
+                peer = Peer();
+                peer.Key = key;
+            }
+            peer.Candidates = { MakeEndpoint(publicAddress, publicPort), MakeEndpoint(localAddress, localPort) };
+        }
+    }
+
+    void SendTo(const udp::endpoint& to, const u8* data, size_t size) {
+        if (Socket != nullptr) {
+            asio::error_code error;
+            Socket->send_to(asio::buffer(data, size), to, 0, error);
         }
     }
 
@@ -235,8 +384,13 @@ struct RelayClient::Impl {
                 return;
             }
             // Other errors (such as ICMP "port unreachable" on Windows) concern one packet; keep reading.
-            if (!error && (sender == Relay)) {
+            if (error) {
+                continue;
+            }
+            if (sender == Relay) {
                 Handle(buffer, size, now);
+            } else {
+                HandleDirect(buffer, size, sender, now);
             }
         }
     }
@@ -262,6 +416,7 @@ struct RelayClient::Impl {
                     State = Status::InRoom;
                     LastHeardFromRelay = now;
                     LastKeepAliveSent = now - std::chrono::milliseconds(kKeepAliveIntervalMs);
+                    JoinedAt = now;
                 }
                 break;
             }
@@ -285,6 +440,7 @@ struct RelayClient::Impl {
                 if (!reader.Failed() && (State == Status::InRoom)) {
                     Slot = slot;
                     Occupied = occupied;
+                    ReadMembers(reader, occupied);
                     LastHeardFromRelay = now;
                     if (echo != 0) {
                         // Averaged, as a single round trip can be held up.
@@ -306,24 +462,90 @@ struct RelayClient::Impl {
             }
             case MessageType::Relayed: {
                 const u8 source = reader.Read8();
-                const u8 channel = reader.Read8();
                 if (reader.Failed() || (State != Status::InRoom)) {
                     break;
                 }
                 LastHeardFromRelay = now;
-                if (channel == kLobbyChannel) {
-                    const u8* payload = reader.GetRemaining();
-                    LobbyPackets.push_back({ source, std::vector<u8>(payload, payload + reader.GetRemainingSize()) });
-                } else if (channel == kGekkoChannel) {
-                    const u16 tag = reader.Read16();
-                    if (!reader.Failed() && (tag == GekkoTag)) {
-                        QueueGekkoPacket(source, reader.GetRemaining(), reader.GetRemainingSize());
-                    }
-                }
+                HandlePayload(source, reader);
                 break;
             }
             default:
                 break;
+        }
+    }
+
+    /** A packet from another member, not through the relay. */
+    void HandleDirect(const u8* data, size_t size, const udp::endpoint& sender, Clock::time_point now) {
+        ByteReader reader(data, size);
+        MessageType type;
+        if (!reader.ReadHeader(&type) || (State != Status::InRoom) || IsDirectBlocked(now)) {
+            return;
+        }
+        const u8 source = reader.Read8();
+        const u64 key = reader.Read64();
+        if (reader.Failed() || (source >= kMaxSlots) || ((s32) source == Slot) || (Peers[source].Key == 0) ||
+            (Peers[source].Key != key)) {
+            return;
+        }
+        Peer& peer = Peers[source];
+        switch (type) {
+            case MessageType::Punch: {
+                const u32 time = reader.Read32();
+                if (reader.Failed()) {
+                    return;
+                }
+                u8 packet[kHeaderSize + 1 + 8 + 4];
+                ByteWriter writer(packet, sizeof(packet));
+                writer.WriteHeader(MessageType::PunchReply);
+                writer.Write8((u8) Slot);
+                writer.Write64(Key);
+                writer.Write32(time);
+                SendTo(sender, packet, writer.GetSize());
+                break;
+            }
+            case MessageType::PunchReply: {
+                const u32 echo = reader.Read32();
+                if (reader.Failed()) {
+                    return;
+                }
+                const s32 sample = (s32) (GetMilliseconds(now) - echo);
+                peer.PingMs = (peer.PingMs < 0) ? sample : (peer.PingMs * (kPingSmoothing - 1) + sample) / kPingSmoothing;
+                break;
+            }
+            case MessageType::Direct:
+                HandlePayload(source, reader);
+                break;
+            default:
+                return;
+        }
+        // Any of these shows the way between the two works both ways: the sender's router let out what it sent here.
+        // The first address that works is kept; others that also work (both a public and a local one) are spares.
+        if (!peer.HasDirect) {
+            peer.HasDirect = true;
+            peer.Direct = sender;
+            // Punch back at once, which measures the round trip for the automatic input delay.
+            peer.LastPunch = Clock::time_point();
+            NetLog("Direct connection to slot %u at %s", source, ToString(sender).c_str());
+        }
+        if (sender == peer.Direct) {
+            peer.LastHeard = now;
+        }
+    }
+
+    /** What Relay or Direct carried: a lobby message or a GekkoNet packet. */
+    void HandlePayload(u8 source, ByteReader& reader) {
+        const u8 channel = reader.Read8();
+        if (reader.Failed()) {
+            return;
+        }
+        if (channel == kLobbyChannel) {
+            const u8* payload = reader.GetRemaining();
+            LobbyPackets.push_back({ source, std::vector<u8>(payload, payload + reader.GetRemainingSize()) });
+        } else if (channel == kGekkoChannel) {
+            const u16 tag = reader.Read16();
+            if (!reader.Failed() && (tag == GekkoTag)) {
+                QueueGekkoPacket(source, reader.GetRemaining(), reader.GetRemainingSize());
+            }
         }
     }
 
@@ -338,18 +560,30 @@ struct RelayClient::Impl {
         GekkoPackets.push_back(packet);
     }
 
+    /** Sends directly to a member reached that way, or through the relay. */
     void SendPayload(u8 destination, const u8* header, size_t headerSize, const void* data, size_t size) {
         if ((State != Status::InRoom) || (headerSize + size > kMaxPayload)) {
             return;
         }
         u8 packet[kMaxPacketSize];
         ByteWriter writer(packet, sizeof(packet));
-        writer.WriteHeader(MessageType::Relay);
-        writer.Write64(Token);
-        writer.Write8(destination);
+        const bool direct = HasDirect(destination, Clock::now());
+        if (direct) {
+            writer.WriteHeader(MessageType::Direct);
+            writer.Write8((u8) Slot);
+            writer.Write64(Key);
+        } else {
+            writer.WriteHeader(MessageType::Relay);
+            writer.Write64(Token);
+            writer.Write8(destination);
+        }
         writer.WriteBytes(header, headerSize);
         writer.WriteBytes(data, size);
-        SendToRelay(packet, writer.GetSize());
+        if (direct) {
+            SendTo(Peers[destination].Direct, packet, writer.GetSize());
+        } else {
+            SendToRelay(packet, writer.GetSize());
+        }
     }
 };
 
@@ -441,6 +675,22 @@ u8 RelayClient::GetOccupiedSlots() const {
 
 s32 RelayClient::GetPingMs() const {
     return mImpl->PingMs;
+}
+
+void RelayClient::SetDirectEnabled(bool enabled) {
+    mImpl->DirectEnabled = enabled;
+}
+
+void RelayClient::BlockDirectAfter(u32 milliseconds) {
+    mImpl->BlockDirectAfter = std::chrono::milliseconds(milliseconds);
+}
+
+bool RelayClient::IsDirect(u8 slot) const {
+    return mImpl->HasDirect(slot, Clock::now());
+}
+
+s32 RelayClient::GetDirectPingMs(u8 slot) const {
+    return IsDirect(slot) ? mImpl->Peers[slot].PingMs : -1;
 }
 
 void RelayClient::SendLobby(u8 destination, const void* data, size_t size) {

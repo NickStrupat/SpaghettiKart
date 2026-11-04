@@ -196,6 +196,7 @@ void StartLobbyRace(const Lobby::RaceStart& start) {
     settings.GetBarrierStatus = [raceId](u32 segment, s32 frame) {
         return Lobby::GetBarrierStatus(raceId, segment, frame);
     };
+    settings.IsRelayed = [slots = start.Slots](s32 player) { return !Lobby::IsDirect(slots[player]); };
     settings.GetLatencyMs = [slots = start.Slots]() {
         // Test peers add their simulated delay to every packet they receive.
         const s32 latency = Lobby::GetLatencyMs(slots);
@@ -421,6 +422,9 @@ void InitLobbyTest(const char* relay) {
     }
     sNetplay.Players = GetEnvU32("SK_NETPLAY_PLAYERS", 2);
     sNetplay.Races = GetEnvU32("SK_NETPLAY_RACES", 1);
+    if (const u32 blockDirectMs = GetEnvU32("SK_NETPLAY_TEST_BLOCK_DIRECT_MS", 0)) {
+        Lobby::BlockDirectAfter(blockDirectMs);
+    }
     const RaceConfig config = RaceConfig::FromEnvironment("SK_NETPLAY_", (s8) sNetplay.Players);
     sNetplay.TestSettings.Mode = config.ModeSelection;
     sNetplay.TestSettings.TrackName = config.TrackName;

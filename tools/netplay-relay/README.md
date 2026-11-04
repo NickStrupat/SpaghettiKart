@@ -21,7 +21,21 @@ docker run -d --name relay -p 7777:7777/udp --restart unless-stopped spaghettika
 
 Then, in the game, open **Enhancements > Netplay > Open Netplay Lobby** and enter the relay's `host:port` under **Relay server**.
 
-Open UDP port 7777 in the server's firewall. Each player needs about 10 KB/s in each direction while racing, so a small VPS can carry many rooms.
+Open UDP port 7777 in the server's firewall. Each player needs about 10 KB/s in each direction while racing, so a small VPS can carry many rooms. Most races don't go through the relay at all; see below.
+
+The game and the relay must speak the same protocol version: after updating the game, rebuild the relay too. A game that gets no answer says so.
+
+## Direct connections
+
+Once players are in a room, their games try to reach each other directly (UDP hole punching), which is faster than going through the relay:
+
+1. The relay tells each member where the others are: the address it sees them at, and the address each reports on its own network (for players behind the same router).
+2. Each game sends small "punch" packets to those addresses from the same socket it talks to the relay with, so most home routers let the replies in.
+3. Race traffic to a player goes straight to it once one of its punches gets through, and back through the relay if the direct way goes quiet for 1.5 s.
+
+Lobby messages always go through the relay. Routers that give every destination a different public port (symmetric NAT, common on mobile networks) block direct connections; those players stay on the relay.
+
+Direct connections share each player's IP address with the others in the room. A player can turn them off with **Connect directly to other players** in the netplay window; the relay then keeps that player's addresses to itself.
 
 ## Options
 
@@ -43,6 +57,7 @@ Open UDP port 7777 in the server's firewall. Each player needs about 10 KB/s in 
 - Rate limits apply per source IP: packets, room creations (10 per minute), and join attempts (20 per minute; too slow to guess codes).
 - Payloads over 1200 bytes are dropped.
 - Traffic is not encrypted. The relay sees inputs and lobby messages, nothing more.
+- Each member gets a random key that the relay shows only to its room, so a member can tell the others' direct packets from strangers'.
 
 ## Test
 

@@ -705,11 +705,13 @@ bool GetLiveStats(LiveStats* stats) {
     }
     stats->LocalPlayer = sNet.Settings.LocalPlayer;
     stats->PingMs.assign(sNet.Settings.Addresses.size(), -1);
+    stats->Relayed.assign(sNet.Settings.Addresses.size(), false);
     for (s32 player = 0; player < (s32) stats->PingMs.size(); player++) {
         if (player != sNet.Settings.LocalPlayer) {
             GekkoNetworkStats network = {};
             gekko_network_stats(sNet.Gekko, player, &network);
             stats->PingMs[player] = (s32) network.avg_ping;
+            stats->Relayed[player] = (sNet.Settings.IsRelayed != nullptr) && sNet.Settings.IsRelayed(player);
         }
     }
     stats->InputDelay = sNet.InputDelay;

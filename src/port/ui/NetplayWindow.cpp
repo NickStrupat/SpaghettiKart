@@ -117,7 +117,7 @@ void DrawMembers() {
     ImGui::TableSetupColumn("Player");
     ImGui::TableSetupColumn("Character");
     ImGui::TableSetupColumn("Status");
-    ImGui::TableSetupColumn("Relay ping");
+    ImGui::TableSetupColumn("Connection");
     ImGui::TableHeadersRow();
     for (size_t slot = 0; slot < members.size(); slot++) {
         const Lobby::Member& member = members[slot];
@@ -139,8 +139,19 @@ void DrawMembers() {
             ImGui::TextUnformatted(member.InRace ? "Racing" : (member.Ready ? "Ready" : "Not ready"));
         }
         ImGui::TableNextColumn();
-        if (member.PingMs >= 0) {
-            ImGui::Text("%d ms", member.PingMs);
+        if (self) {
+            if (member.PingMs >= 0) {
+                ImGui::Text("relay %d ms", member.PingMs);
+            }
+        } else if (Lobby::IsDirect((u8) slot)) {
+            const s32 ping = Lobby::GetDirectPingMs((u8) slot);
+            if (ping >= 0) {
+                ImGui::Text("direct %d ms", ping);
+            } else {
+                ImGui::TextUnformatted("direct");
+            }
+        } else if (member.Known) {
+            ImGui::TextColored(kDimColor, "relayed");
         }
     }
     ImGui::EndTable();
@@ -361,6 +372,13 @@ void DrawViewChoice() {
     CheckboxCVar("Show only my player", NetSession::kOwnViewCVar);
     CheckboxCVar("Hear only my player", NetSession::kOwnAudioCVar);
     CheckboxCVar("Show connection stats", NetSession::kStatsOverlayCVar);
+    ImGui::BeginDisabled(Lobby::GetState() != Lobby::State::Offline);
+    CheckboxCVar("Connect directly to other players", Lobby::kDirectConnectCVar);
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+        ImGui::SetTooltip("Faster than going through the relay server, when your routers allow it.\nThe other "
+                          "players in the room see your IP address. Applies when you next host or join.");
+    }
 }
 
 /** How long this player's own input is held back: automatic from the ping, or a fixed number of frames. */
@@ -439,7 +457,7 @@ void NetplayStatsOverlay::DrawElement() {
     for (size_t player = 0; player < stats.PingMs.size(); player++) {
         if (stats.PingMs[player] >= 0) {
             pings += (pings.empty() ? "" : ", ") + std::string("P") + std::to_string(player + 1) + " " +
-                     std::to_string(stats.PingMs[player]) + " ms";
+                     std::to_string(stats.PingMs[player]) + " ms" + (stats.Relayed[player] ? " relayed" : "");
         }
     }
     ImGui::Text("Ping %s", pings.c_str());

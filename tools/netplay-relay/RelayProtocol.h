@@ -14,18 +14,33 @@
  *     Create     u32 request, char build[32], u64 content         Open a room; the creator gets slot 0 and hosts.
  *     Join       u32 request, char code[6], char build[32], u64 content
  *     Relay      u64 token, u8 destination (slot or kBroadcast), payload
- *     KeepAlive  u64 token, u32 echo                              Sent every second; the relay answers with RoomState.
+ *     KeepAlive  u64 token, u32 echo, u8 KeepAliveFlags, u32 local IPv4, u16 local port
+ *                Sent every second; the relay answers with RoomState. The local address is the client's own on its
+ *                network, for members behind the same router.
  *     Leave      u64 token
  *
  *   Relay -> client
  *     Joined     u32 request, u64 token, char code[6], u8 slot     Answer to Create or Join.
  *     Error      u32 request, u8 ErrorCode                         request is 0 for errors about a token.
  *     Relayed    u8 source slot, payload
- *     RoomState  u32 echo, u8 your slot, u8 occupied-slot mask     On KeepAlive (echo copied) and on membership changes (0).
+ *     RoomState  u32 echo, u8 your slot, u8 occupied-slot mask, then for each occupied slot in order:
+ *                u64 key, u32 public IPv4, u16 public port, u32 local IPv4, u16 local port
+ *                On KeepAlive (echo copied) and on membership changes (0). The public address is where the relay sees
+ *                the member; both addresses are 0 for members that do not share them.
  *     RoomClosed u8 CloseReason
+ *
+ *   Client -> client, directly
+ *     Punch      u8 source slot, u64 source key, u32 time          To each address a member may have, until one answers,
+ *                                                                  then as a keep-alive.
+ *     PunchReply u8 source slot, u64 source key, u32 echo          To where the Punch came from.
+ *     Direct     u8 source slot, u64 source key, payload           What Relay would carry, without the relay.
  *
  * Create and Join are resent until answered; the relay answers a repeated request with the same reply.
  * The token identifies the client in later messages, so a client whose address changes (NAT rebinding) keeps its slot.
+ * It stays between client and relay. Members recognize each other's direct packets by the key the relay hands out.
+ *
+ * Direct packets cross most home routers because each member sends from the socket it talks to the relay with: the
+ * router maps it to the same public address the relay sees, and lets in replies from where it sent punches to.
  */
 
 #include <array>
@@ -37,7 +52,7 @@
 namespace RelayProtocol {
 
 constexpr uint16_t kMagic = 0x4B53; // "SK"
-constexpr uint8_t kVersion = 1;
+constexpr uint8_t kVersion = 2;
 constexpr uint16_t kDefaultPort = 7777;
 constexpr size_t kHeaderSize = 4;
 constexpr size_t kCodeLength = 6;
@@ -60,11 +75,19 @@ enum class MessageType : uint8_t {
     KeepAlive = 4,
     Leave = 5,
 
+    Punch = 0x41,
+    PunchReply = 0x42,
+    Direct = 0x43,
+
     Joined = 0x81,
     Error = 0x82,
     Relayed = 0x83,
     RoomState = 0x84,
     RoomClosed = 0x85,
+};
+
+enum KeepAliveFlags : uint8_t {
+    kShareAddresses = 1 << 0, // Give the other members this client's addresses, so they can connect directly
 };
 
 enum class ErrorCode : uint8_t {

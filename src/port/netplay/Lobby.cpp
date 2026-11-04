@@ -265,6 +265,7 @@ void Connect(const std::string& name) {
     sLobby.LastRaceMessage.clear();
     sLobby.Name = name.substr(0, kMaxNameLength);
     sLobby.Status = State::Connecting;
+    sLobby.Relay.SetDirectEnabled(CVarGetInteger(kDirectConnectCVar, 1) != 0);
 }
 
 } // namespace
@@ -363,6 +364,18 @@ s32 GetPingMs() {
     return sLobby.Relay.GetPingMs();
 }
 
+bool IsDirect(u8 slot) {
+    return sLobby.Relay.IsDirect(slot);
+}
+
+s32 GetDirectPingMs(u8 slot) {
+    return sLobby.Relay.GetDirectPingMs(slot);
+}
+
+void BlockDirectAfter(u32 milliseconds) {
+    sLobby.Relay.BlockDirectAfter(milliseconds);
+}
+
 s32 GetLatencyMs(const std::vector<u8>& slots) {
     const s32 ownPing = sLobby.Relay.GetPingMs();
     if (ownPing < 0) {
@@ -371,6 +384,15 @@ s32 GetLatencyMs(const std::vector<u8>& slots) {
     s32 latency = 0;
     for (u8 slot : slots) {
         if ((slot >= kMaxMembers) || (slot == sLobby.Relay.GetSlot())) {
+            continue;
+        }
+        if (sLobby.Relay.IsDirect(slot)) {
+            // The relay's way would overstate it.
+            const s32 directPing = sLobby.Relay.GetDirectPingMs(slot);
+            if (directPing < 0) {
+                return -1;
+            }
+            latency = std::max(latency, directPing / 2);
             continue;
         }
         const s32 ping = sLobby.Members[slot].PingMs;

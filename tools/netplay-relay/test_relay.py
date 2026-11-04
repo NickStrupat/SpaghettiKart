@@ -10,11 +10,12 @@ import sys
 import time
 
 MAGIC = 0x4B53
-VERSION = 1
+VERSION = 2
 CREATE, JOIN, RELAY, KEEPALIVE, LEAVE = 1, 2, 3, 4, 5
 JOINED, ERROR, RELAYED, ROOM_STATE, ROOM_CLOSED = 0x81, 0x82, 0x83, 0x84, 0x85
 NO_SUCH_ROOM, ROOM_FULL, BUILD_MISMATCH, CONTENT_MISMATCH, UNKNOWN_CLIENT = 1, 2, 3, 4, 7
 HOST_LEFT = 1
+SHARE_ADDRESSES = 1
 BUILD = b"test-build".ljust(32, b"\0")
 CONTENT = 0x1234
 
@@ -73,12 +74,21 @@ class Peer:
     def relay(self, destination, payload):
         self.send(header(RELAY) + struct.pack("<QB", self.token, destination) + payload)
 
-    def room_state(self, echo=0):
-        self.send(header(KEEPALIVE) + struct.pack("<QI", self.token, echo))
+    def room_state(self, echo=0, share=False, local=(0, 0)):
+        """@returns (own slot, occupied mask, [(key, public address, local address)] per occupied slot)."""
+        flags = SHARE_ADDRESSES if share else 0
+        self.send(header(KEEPALIVE) + struct.pack("<QIBIH", self.token, echo, flags, *local))
         while True:
-            got_echo, slot, mask = struct.unpack("<IBB", self.receive(ROOM_STATE))
-            if got_echo == echo:
-                return slot, mask
+            body = self.receive(ROOM_STATE)
+            got_echo, slot, mask = struct.unpack_from("<IBB", body)
+            if got_echo != echo:
+                continue
+            members = []
+            for offset in range(6, len(body), 20):
+                key, public_ip, public_port, local_ip, local_port = struct.unpack_from("<QIHIH", body, offset)
+                members.append((key, (public_ip, public_port), (local_ip, local_port)))
+            assert len(members) == bin(mask).count("1"), "one entry per member"
+            return slot, mask, members
 
 
 def main():
@@ -105,7 +115,16 @@ def main():
         guest.join(host.code, request=4)
         guest.joined(guest.receive(JOINED))
         assert guest.slot == 1
-        assert host.room_state(echo=7) == (0, 0b11), "keepalive echoes and reports members"
+        slot, mask, members = host.room_state(echo=7)
+        assert (slot, mask) == (0, 0b11), "keepalive echoes and reports members"
+        assert members[0][0] != members[1][0], "each member has its own key"
+        assert members[1][1:] == ((0, 0), (0, 0)), "addresses stay hidden until shared"
+        guest.room_state(echo=5, share=True, local=(0x0A000002, 4000))
+        members = host.room_state(echo=6)[2]
+        loopback = (127 << 24) | 1
+        assert members[1][1] == (loopback, guest.sock.getsockname()[1]), "the public address is where the relay sees it"
+        assert members[1][2] == (0x0A000002, 4000), "the local address is the one reported"
+        assert members[0][1:] == ((0, 0), (0, 0)), "a member that does not share stays hidden"
 
         guest.relay(0, b"hello")
         assert host.receive(RELAYED) == b"\x01hello", "relayed payload carries the source slot"
@@ -124,7 +143,7 @@ def main():
 
         others[0].send(header(LEAVE) + struct.pack("<Q", others[0].token))
         time.sleep(0.1)
-        assert host.room_state(echo=8) == (0, 0b1011), "a guest leaving frees its slot"
+        assert host.room_state(echo=8)[:2] == (0, 0b1011), "a guest leaving frees its slot"
         others[0].relay(0, b"x")
         assert others[0].error() == UNKNOWN_CLIENT
 

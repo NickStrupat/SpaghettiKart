@@ -62,6 +62,7 @@ class Scenario:
     peer_env: dict = dataclasses.field(default_factory=dict)  # Extra environment, by peer index
     cvars: dict = dataclasses.field(default_factory=dict)  # Extra settings for every peer
     expect: dict = dataclasses.field(default_factory=dict)  # Minimum count of each event, on every peer
+    expect_none: tuple = ()  # Events no peer may log
     timeout: int = 300  # Seconds
     quiet_limit: int = 90  # Seconds without a new log line from any game before the scenario counts as stuck
 
@@ -75,13 +76,15 @@ EVENTS = {
     "races_over": r"Race: the race is over",
     "podiums": r"Leaving the podium",
     "cups": r"PASS: The Grand Prix is over",
+    "direct": r"Direct connection to slot \d+ at",
+    "direct_lost": r"Direct connection to slot \d+ lost",
 }
 # The game prints each line to stdout, then again through its log; count the plain copy only.
 EVENTS = {event: re.compile(r"^\[Netplay\] " + pattern, re.MULTILINE) for event, pattern in EVENTS.items()}
 
 SCENARIOS = [
-    Scenario("vs-2p", "2 players, versus, two full races", 2, "vs", track="mk:luigi_raceway", series_races=2,
-             expect={"races_over": 2, "finishes": 2}),
+    Scenario("vs-2p", "2 players, versus, two full races, connected directly", 2, "vs", track="mk:luigi_raceway",
+             series_races=2, expect={"races_over": 2, "finishes": 2, "direct": 1}, expect_none=("direct_lost",)),
     Scenario("vs-4p", "4 players, versus, one full race", 4, "vs", track="mk:mario_raceway", series_races=1,
              expect={"races_over": 1, "finishes": 3}),
     Scenario("gp-2p", "2 players and 6 CPUs, the Mushroom Cup twice, with the podium in between", 2, "gp", cup=0,
@@ -103,8 +106,17 @@ SCENARIOS = [
     Scenario("sounds", "3 random drivers among traffic, each peer hearing every camera; their sounds must agree "
              "however rollbacks changed them", 3, "vs", track="mk:toads_turnpike", frames=4000,
              peer_env={-1: {"SK_NETPLAY_BOT": "2"}}, cvars={"gNetplay.OwnAudio": 0}, expect={"segments": 1}),
+    Scenario("relay-only", "2 players, versus, with direct connections turned off: all through the relay", 2, "vs",
+             track="mk:moo_moo_farm", series_races=1, cvars={"gNetplay.DirectConnect": 0},
+             expect={"races_over": 1}, expect_none=("direct",)),
+    Scenario("direct-lost", "2 players, versus; the guest's direct connection dies mid-race and both fall back to "
+             "the relay", 2, "vs", track="mk:kalimari_desert", series_races=1,
+             peer_env={1: {"SK_NETPLAY_TEST_BLOCK_DIRECT_MS": "5000"}},
+             expect={"races_over": 1, "direct": 1, "direct_lost": 1}),
     Scenario("lag", "2 players, versus at 60 ms +-20 ms and 5% loss, in real time", 2, "vs",
-             track="mk:frappe_snowland", frames=1800, lag=(60, 20, 5), peer_env={-1: {"SK_FAST": "0"}},
+             track="mk:frappe_snowland", frames=1800,
+             peer_env={-1: {"SK_FAST": "0", "SK_NETPLAY_DELAY_MS": "60", "SK_NETPLAY_JITTER_MS": "20",
+                            "SK_NETPLAY_LOSS": "5"}},
              expect={"laps": 2}),
 ]
 
@@ -277,6 +289,10 @@ def run_scenario(scenario: Scenario, args, run_dir: Path):
             count = len(EVENTS[event].findall(text))
             if count < minimum:
                 problems.append(f"p{i}: {count} {event}, expected at least {minimum}")
+        for event in scenario.expect_none:
+            count = len(EVENTS[event].findall(text))
+            if count:
+                problems.append(f"p{i}: {count} {event}, expected none")
 
     segments, mismatches = compare_checksum_logs(directory, scenario.players)
     problems += mismatches
@@ -308,8 +324,8 @@ def run_scenario(scenario: Scenario, args, run_dir: Path):
 
 def summarize_events(counts):
     parts = []
-    for event in ("segments", "laps", "finishes", "eliminations", "races_over", "cups", "podiums",
-                  "sounds_compared", "sounds_played_late", "sounds_stopped"):
+    for event in ("segments", "laps", "finishes", "eliminations", "races_over", "cups", "podiums", "direct",
+                  "direct_lost", "sounds_compared", "sounds_played_late", "sounds_stopped"):
         if counts.get(event):
             parts.append(f"{counts[event]} {event.replace('_', ' ')}")
     return ", ".join(parts)

@@ -28,6 +28,11 @@ namespace Lobby {
 
 constexpr size_t kMaxMembers = RelayProtocol::kMaxSlots;
 constexpr size_t kMaxNameLength = 16;
+/**
+ * 1 (the default): connect to the other players directly when their routers allow it, which shares this player's
+ * address with them. 0: everything goes through the relay. Read when connecting to a room.
+ */
+constexpr const char* kDirectConnectCVar = "gNetplay.DirectConnect";
 
 enum class State { Offline, Connecting, InRoom };
 
@@ -73,6 +78,12 @@ std::string GetRoomCode();
 s32 GetLocalSlot();
 bool IsHost();
 s32 GetPingMs();
+/** @returns true while packets to this slot go to it directly, not through the relay. */
+bool IsDirect(u8 slot);
+/** Round trip straight to this slot, or -1 while not connected directly. */
+s32 GetDirectPingMs(u8 slot);
+/** Testing: direct connections stop working this long after joining a room, as if a router closed them. */
+void BlockDirectAfter(u32 milliseconds);
 /**
  * @returns the one-way latency in ms from this peer to the slowest other player of a race, through the relay, or -1
  *          while a ping is not known yet.

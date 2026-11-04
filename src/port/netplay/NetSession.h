@@ -53,6 +53,8 @@ struct SessionSettings {
     std::function<BarrierStatus(u32 segment, s32 frame)> GetBarrierStatus;
     /** One-way latency to the slowest other player in ms, or -1 while unknown. Picks the automatic input delay. */
     std::function<s32()> GetLatencyMs;
+    /** @returns true while packets to this player go through the relay, not straight to it. */
+    std::function<bool(s32 player)> IsRelayed;
     RaceConfig Config;
 
     // Testing aids
@@ -110,6 +112,8 @@ struct LiveStats {
     s32 LocalPlayer = 0;
     /** Average round trip to each player in ms, in player order; -1 for the local player. */
     std::vector<s32> PingMs;
+    /** Per player: its packets go through the relay. */
+    std::vector<bool> Relayed;
     u8 InputDelay = 0;
     // Over the last couple of seconds
     f32 RollbackShare = 0.0f; // Of updates that re-simulated frames
