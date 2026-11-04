@@ -98,9 +98,10 @@ SCENARIOS = [
     Scenario("guest-leaves", "3 players, versus; player 3 leaves mid-race and everyone returns to the room", 3, "vs",
              track="mk:koopa_troopa_beach", peer_env={2: {"SK_NETPLAY_TEST_CONTROLS": "leave@600"}},
              expect={"segments": 1}),
-    Scenario("demo-first", "2 players; the host idles into the title screen's demo race first", 2, "vs",
-             track="mk:luigi_raceway", series_races=1,
-             peer_env={0: {"SK_NETPLAY_TEST_START_DELAY": "900"}}, expect={"races_over": 1}),
+    Scenario("demo-first", "2 players, two lobby races; the host idles into the title screen's demo first, which "
+             "only the title screen (gSkipIntro 1) starts", 2, "vs", track="mk:luigi_raceway", races=2,
+             series_races=1, cvars={"gSkipIntro": 1}, peer_env={0: {"SK_NETPLAY_TEST_START_DELAY": "1500"}},
+             expect={"races_over": 2}),
     Scenario("two-series", "2 players, two lobby races in one room", 2, "vs", track="mk:wario_stadium", races=2,
              series_races=1, expect={"races_over": 2}),
     Scenario("sounds", "3 random drivers among traffic, each peer hearing every camera; their sounds must agree "

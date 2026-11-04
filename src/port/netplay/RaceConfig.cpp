@@ -267,6 +267,9 @@ void RaceConfig_StartRace(const RaceConfig& config) {
     }
 
     gDemoMode = 0;
+    // An attract demo sets this too, and the baseline can come from a demo's setup. Left set, the race quits to the
+    // title screen like a demo at the first button press.
+    gDemoUseController = 0;
     // A reset to the menus can interrupt the fade out of the last race, leaving its flags set.
     gIsInQuitToMenuTransition = 0;
     gQuitToMenuTransitionCounter = 0;

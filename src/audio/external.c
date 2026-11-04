@@ -12,11 +12,13 @@
 #include "audio/port_eu.h"
 #include "code_800029B0.h"
 #include "code_80005FD0.h"
+#include "buffers/random.h"
 #include "menu_items.h"
 #include <stdbool.h>
 #include "port/Game.h"
 #include "port/audio/HMAS.h"
 #include "engine/TrackBrowser.h"
+#include "port/netplay/SimState.h"
 #include "port/netplay/SoundRollback.h"
 
 s8 D_8018EF10;
@@ -3048,8 +3050,10 @@ void func_800C90F4(u8 playerId, u32 soundBits) {
 }
 
 void func_800C9250(u8 arg0) {
-    func_800C90F4(arg0,
-                  (gPlayers[arg0].characterId * 0x10) + (gAudioRandom & 1) + SOUND_ARG_LOAD(0x29, 0x00, 0x80, 0x01));
+    // @port: netplay picks the voice from the simulation's random number instead, so that every peer, and every
+    // re-simulation after a rollback, picks the same one.
+    const u32 random = SimState_IsRollbackMode() ? gRandomSeed16 : gAudioRandom;
+    func_800C90F4(arg0, (gPlayers[arg0].characterId * 0x10) + (random & 1) + SOUND_ARG_LOAD(0x29, 0x00, 0x80, 0x01));
 }
 
 void func_800C92CC(u8 playerId, u32 soundBits) {
