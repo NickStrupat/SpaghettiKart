@@ -28,6 +28,7 @@ import platform
 import random
 import re
 import signal
+import socket
 import subprocess
 import sys
 import time
@@ -79,6 +80,7 @@ EVENTS = {
     "cups": r"PASS: The Grand Prix is over",
     "direct": r"Direct connection to slot \d+ at",
     "direct_lost": r"Direct connection to slot \d+ lost",
+    "network_address": r"Slot \d+ can be reached at (?!127\.)",
 }
 # The game prints each line to stdout, then again through its log; count the plain copy only.
 EVENTS = {event: re.compile(r"^\[Netplay\] " + pattern, re.MULTILINE) for event, pattern in EVENTS.items()}
@@ -122,12 +124,24 @@ SCENARIOS = [
              # The connection dies 5 s after joining, by the clock: run slower, so that the race is still on then.
              peer_env={-1: {"SK_FAST": "3"}, 1: {"SK_NETPLAY_TEST_BLOCK_DIRECT_MS": "5000"}},
              expect={"races_over": 1, "direct": 1, "direct_lost": 1}),
+    Scenario("relay-host", "2 players, versus; the host reaches the relay on its own computer, the guest by that "
+             "computer's network address, as a second computer would", 2, "vs", track="mk:yoshi_valley",
+             series_races=1, peer_env={1: {"SK_NETPLAY_RELAY": "{lan}:{port}"}},
+             # The host's addresses are loopback ones as the relay sees them; the guest must get its network address.
+             expect={"races_over": 1, "direct": 1, "network_address": 1}),
     Scenario("lag", "2 players, versus at 60 ms +-20 ms and 5% loss, in real time", 2, "vs",
              track="mk:frappe_snowland", frames=1800,
              peer_env={-1: {"SK_FAST": "0", "SK_NETPLAY_DELAY_MS": "60", "SK_NETPLAY_JITTER_MS": "20",
                             "SK_NETPLAY_LOSS": "5"}},
              expect={"laps": 2}),
 ]
+
+
+def lan_address() -> str:
+    """This computer's address on its network, where a second computer would reach it."""
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+        probe.connect(("192.0.2.1", 9))  # Connecting a UDP socket sends nothing; it only picks the route
+        return probe.getsockname()[0]
 
 
 def write_home(home: Path, o2r: Path, index: int, cvars: dict):
@@ -262,8 +276,8 @@ def run_scenario(scenario: Scenario, args, run_dir: Path):
         })
         if scenario.track:
             env["SK_NETPLAY_TRACK"] = scenario.track
-        env.update(scenario.peer_env.get(-1, {}))
-        env.update(scenario.peer_env.get(i, {}))
+        for name, value in {**scenario.peer_env.get(-1, {}), **scenario.peer_env.get(i, {})}.items():
+            env[name] = value.format(port=port, lan=lan_address() if "{lan}" in value else "")
         output_path = directory / f"p{i}.out"
         outputs.append(output_path)
         with open(output_path, "w") as output:

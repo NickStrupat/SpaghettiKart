@@ -139,11 +139,12 @@ void DrawMembers() {
             ImGui::TextUnformatted(member.InRace ? "Racing" : (member.Ready ? "Ready" : "Not ready"));
         }
         ImGui::TableNextColumn();
+        // Your own row stays empty: your ping to the relay server is shown above the table, and on this row it read
+        // as if you were connected through the relay.
         if (self) {
-            if (member.PingMs >= 0) {
-                ImGui::Text("relay %d ms", member.PingMs);
-            }
-        } else if (Lobby::IsDirect((u8) slot)) {
+            continue;
+        }
+        if (Lobby::IsDirect((u8) slot)) {
             const s32 ping = Lobby::GetDirectPingMs((u8) slot);
             if (ping >= 0) {
                 ImGui::Text("direct %d ms", ping);
@@ -252,7 +253,7 @@ void DrawRoom() {
     }
     if (Lobby::GetPingMs() >= 0) {
         ImGui::SameLine();
-        ImGui::TextColored(kDimColor, "  relay ping %d ms", Lobby::GetPingMs());
+        ImGui::TextColored(kDimColor, "  relay server ping %d ms", Lobby::GetPingMs());
     }
     ImGui::Separator();
     DrawMembers();

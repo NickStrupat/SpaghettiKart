@@ -356,8 +356,26 @@ struct RelayClient::Impl {
                 peer = Peer();
                 peer.Key = key;
             }
-            peer.Candidates = { MakeEndpoint(publicAddress, publicPort), MakeEndpoint(localAddress, localPort) };
+            const std::array<udp::endpoint, 2> candidates = { Reachable(MakeEndpoint(publicAddress, publicPort)),
+                                                              Reachable(MakeEndpoint(localAddress, localPort)) };
+            if ((candidates != peer.Candidates) && (candidates[0].port() != 0)) {
+                const bool same = (candidates[1].port() == 0) || (candidates[1] == candidates[0]);
+                NetLog("Slot %d can be reached at %s%s%s", slot, ToString(candidates[0]).c_str(), same ? "" : " or ",
+                       same ? "" : ToString(candidates[1]).c_str());
+            }
+            peer.Candidates = candidates;
         }
+    }
+
+    /**
+     * Where this client can send to one of a member's addresses. A member on the relay's own computer has only
+     * loopback addresses (the relay sees it there, and its packets to the relay never leave the computer), which mean
+     * this client's own computer. It is reached at the relay's address instead, the way this client reaches the relay:
+     * on the same network, that computer's address there; across the internet, its router's, on the member's own port,
+     * which most home routers keep for the packets the member sends out.
+     */
+    udp::endpoint Reachable(const udp::endpoint& candidate) const {
+        return candidate.address().is_loopback() ? udp::endpoint(Relay.address(), candidate.port()) : candidate;
     }
 
     void SendTo(const udp::endpoint& to, const u8* data, size_t size) {

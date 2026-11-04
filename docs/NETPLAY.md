@@ -13,7 +13,7 @@ details live in the headers under `src/port/netplay/`, which each start with a d
 | Versus 2–4 players, Battle 2–4, Grand Prix 1–2 players + CPUs (whole cups, podium) | Works, tested by the simulator and by hand |
 | Rollback, desync detection | Works; an 8-frame rollback every frame stays in sync on every track and mode |
 | Room codes, lobby, relay server | Works |
-| Direct connections (UDP hole punching), relay fallback | Works on one machine; not yet tried across two home networks |
+| Direct connections (UDP hole punching), relay fallback | Works on one machine and between two Macs on one wifi; not yet tried across two home networks |
 | Own view (each player sees and hears only their own player) | Works |
 | Automatic input delay, connection stats overlay | Works |
 | Sound effects across rollbacks | Works |
@@ -150,7 +150,9 @@ A lobby race is a series of segments, one GekkoNet session per loaded race (each
 - **Direct connections.** The relay tells each member where the others are (the address it sees, and the address each
   reports on its own network) and a random per-member key. Each game punches those addresses from its relay socket;
   the first authenticated answer opens the direct way, and race traffic goes there. After 1.5 s of silence it falls
-  back to the relay. Lobby messages stay on the relay.
+  back to the relay. Lobby messages stay on the relay. A member on the relay's own computer (whoever hosts the relay
+  and connects to it at 127.0.0.1) has only loopback addresses; the others send to the relay's address instead, with
+  that member's port.
 
 ### Own view and sound
 
@@ -168,7 +170,7 @@ A lobby race is a series of segments, one GekkoNet session per loaded race (each
 
 | Tool | What it does |
 |---|---|
-| `tools/netplay-sim.py` | Plays whole races, cups and battles between bot-driven copies of the game through a relay, fast-forwarded (about 70× real time), and checks that every peer stayed in sync and the races ended as expected. 15 scenarios, about 4 minutes. **Run it after any change to netplay or simulation code.** |
+| `tools/netplay-sim.py` | Plays whole races, cups and battles between bot-driven copies of the game through a relay, fast-forwarded (about 70× real time), and checks that every peer stayed in sync and the races ended as expected. 16 scenarios, about 4 minutes. **Run it after any change to netplay or simulation code.** |
 | Determinism harness | `SK_DETERMINISM_RECORD` / `_VERIFY` / `_ROLLBACK=8`: records a race's inputs and per-frame checksums, replays them, or rolls back 8 frames after every frame. See `DeterminismHarness.h`. |
 | `tools/netplay-relay/test_relay.py` | Protocol tests for the relay. |
 | `tools/netplay-diff.py` | Names the variables that differ between two peers' start states (`SK_NETPLAY_DUMP=1`) or in a rollback trace. |
