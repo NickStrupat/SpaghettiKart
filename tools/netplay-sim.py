@@ -60,6 +60,7 @@ class Scenario:
     frames: int = 0  # End the series after this many shown frames; 0 lets it end by itself
     lag: tuple = (0, 0, 0)  # Relay delay ms, jitter ms, loss percent
     peer_env: dict = dataclasses.field(default_factory=dict)  # Extra environment, by peer index
+    cvars: dict = dataclasses.field(default_factory=dict)  # Extra settings for every peer
     expect: dict = dataclasses.field(default_factory=dict)  # Minimum count of each event, on every peer
     timeout: int = 300  # Seconds
     quiet_limit: int = 90  # Seconds without a new log line from any game before the scenario counts as stuck
@@ -99,18 +100,21 @@ SCENARIOS = [
              peer_env={0: {"SK_NETPLAY_TEST_START_DELAY": "900"}}, expect={"races_over": 1}),
     Scenario("two-series", "2 players, two lobby races in one room", 2, "vs", track="mk:wario_stadium", races=2,
              series_races=1, expect={"races_over": 2}),
+    Scenario("sounds", "3 random drivers among traffic, each peer hearing every camera; their sounds must agree "
+             "however rollbacks changed them", 3, "vs", track="mk:toads_turnpike", frames=4000,
+             peer_env={-1: {"SK_NETPLAY_BOT": "2"}}, cvars={"gNetplay.OwnAudio": 0}, expect={"segments": 1}),
     Scenario("lag", "2 players, versus at 60 ms +-20 ms and 5% loss, in real time", 2, "vs",
              track="mk:frappe_snowland", frames=1800, lag=(60, 20, 5), peer_env={-1: {"SK_FAST": "0"}},
              expect={"laps": 2}),
 ]
 
 
-def write_home(home: Path, o2r: Path, index: int):
+def write_home(home: Path, o2r: Path, index: int, cvars: dict):
     """Creates a settings folder: windows small and tiled, no intro, no vsync."""
     home.mkdir(parents=True, exist_ok=True)
     width, height = 400, 300
     config = {
-        "CVars": {"gSkipIntro": 3, "gVsyncEnabled": 0, "gInterpolationFPS": 30},
+        "CVars": {"gSkipIntro": 3, "gVsyncEnabled": 0, "gInterpolationFPS": 30, **cvars},
         "Window": {
             "Width": width,
             "Height": height,
@@ -147,6 +151,32 @@ def compare_checksum_logs(directory: Path, players: int):
                 mismatches.append(f"{suffix}: p0 vs p{i}: {differing} of {compared} frames differ, first at line "
                                   f"{first + 1}")
     return len(host_logs), mismatches
+
+
+def compare_sound_logs(directory: Path, players: int):
+    """Peers that hear every camera must end up with the same sounds for each frame, whatever their rollbacks.
+    @returns (sounds compared, list of mismatch descriptions)."""
+    mismatches = []
+    total = 0
+    for host_log in sorted(directory.glob("p0.log.race*.seg*.sounds")):
+        suffix = host_log.name[len("p0.log"):-len(".sounds")]
+        logs = [directory / f"p{i}.log{suffix}.sounds" for i in range(players)]
+        checksums = [directory / f"p{i}.log{suffix}" for i in range(players)]
+        if not all(log.exists() for log in logs + checksums):
+            mismatches.append(f"{suffix}: a peer wrote no sound log")
+            continue
+        # Like the checksums, the last frames can still be predictions on the peer that ended first.
+        last_frame = min(len(log.read_text().splitlines()) for log in checksums) - 10
+        sounds = [[line for line in log.read_text().splitlines() if int(line.split()[0]) < last_frame]
+                  for log in logs]
+        total += len(sounds[0])
+        for i in range(1, players):
+            if sounds[i] != sounds[0]:
+                first = next((n for n, (a, b) in enumerate(zip(sounds[0], sounds[i])) if a != b),
+                             min(len(sounds[0]), len(sounds[i])))
+                mismatches.append(f"{suffix} sounds: p0 has {len(sounds[0])}, p{i} has {len(sounds[i])}, first "
+                                  f"difference at entry {first + 1}")
+    return total, mismatches
 
 
 def wait_for_games(games, outputs, deadline, quiet_limit):
@@ -192,7 +222,7 @@ def run_scenario(scenario: Scenario, args, run_dir: Path):
     outputs = []
     for i in range(scenario.players):
         home = directory / f"home{i}"
-        write_home(home, args.o2r, i)
+        write_home(home, args.o2r, i, scenario.cvars)
         env = dict(os.environ)
         env.update({
             "SHIP_HOME": str(home),
@@ -252,9 +282,19 @@ def run_scenario(scenario: Scenario, args, run_dir: Path):
     problems += mismatches
     if segments == 0:
         problems.append("no race segment was logged")
+    sounds = 0
+    if scenario.cvars.get("gNetplay.OwnAudio") == 0:
+        sounds, mismatches = compare_sound_logs(directory, scenario.players)
+        problems += mismatches
+        if sounds == 0:
+            problems.append("no sound was logged")
 
     host = texts[0] if texts else ""
     counts = {event: len(pattern.findall(host)) for event, pattern in EVENTS.items()}
+    counts["sounds_compared"] = sounds
+    for kind in ("played late", "stopped"):
+        counts["sounds_" + kind.replace(" ", "_")] = sum(
+            int(n) for n in re.findall(r"^\[Netplay\] .*, (\d+) " + kind, host, re.MULTILINE))
     return {
         "name": scenario.name,
         "passed": not problems,
@@ -268,7 +308,8 @@ def run_scenario(scenario: Scenario, args, run_dir: Path):
 
 def summarize_events(counts):
     parts = []
-    for event in ("segments", "laps", "finishes", "eliminations", "races_over", "cups", "podiums"):
+    for event in ("segments", "laps", "finishes", "eliminations", "races_over", "cups", "podiums",
+                  "sounds_compared", "sounds_played_late", "sounds_stopped"):
         if counts.get(event):
             parts.append(f"{counts[event]} {event.replace('_', ' ')}")
     return ", ".join(parts)

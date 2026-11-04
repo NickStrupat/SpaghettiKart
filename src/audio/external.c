@@ -17,7 +17,7 @@
 #include "port/Game.h"
 #include "port/audio/HMAS.h"
 #include "engine/TrackBrowser.h"
-#include "port/netplay/SimState.h"
+#include "port/netplay/SoundRollback.h"
 
 s8 D_8018EF10;
 UnkStruct8018EF18 D_8018EF18[16];
@@ -1295,13 +1295,30 @@ void func_800C40F0(u8 arg0) {
 }
 
 void play_sound(u32 soundBits, Vec3f* position, u8 cameraId, f32* arg3, f32* arg4, s8* arg5) {
-    u8 bank;
-    struct Sound* temp_v0;
-
-    // Netplay rollback re-simulates frames whose sounds already played.
-    if (SimState_IsResimulating() || is_other_camera(cameraId)) {
+    if (is_other_camera(cameraId)) {
+        release_sound_slot(position);
         return;
     }
+    // Netplay rollbacks re-simulate frames whose sounds already played; it compares their sounds instead.
+    if (SoundRollback_Capture(soundBits, position, cameraId, arg3, arg4, arg5)) {
+        return;
+    }
+    queue_sound(soundBits, position, cameraId, arg3, arg4, arg5);
+}
+
+void release_sound_slot(Vec3f* position) {
+    for (size_t i = 0; i < ARRAY_COUNT(D_8018EFD8); i++) {
+        if (position == &D_8018EFD8[i].unk18) {
+            // What the sound bank does when it drops a request: func_800C1F8C() frees the slot next.
+            D_8018EFD8[i].unk18[1] = 100000.0f;
+            return;
+        }
+    }
+}
+
+void queue_sound(u32 soundBits, Vec3f* position, u8 cameraId, f32* arg3, f32* arg4, s8* arg5) {
+    u8 bank;
+    struct Sound* temp_v0;
 
     bank = soundBits >> 0x1C;
     if (sSoundBankDisabled[bank] == false) {

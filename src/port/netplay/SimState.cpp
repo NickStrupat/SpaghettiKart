@@ -35,6 +35,7 @@ struct Range {
 
 bool sRollbackMode = false;
 bool sResimulating = false;
+bool sDrawingShownFrame = false;
 bool sSimFrameScopeOpen = false;
 bool sHostControlsMenus = false;
 u32 sRaceSetupCount = 0;
@@ -318,14 +319,13 @@ extern "C" void SimState_DrawFrame(s32 viewPlayer) {
         SimState::Save(sBeforeDisplay);
         sDisplayPending = true;
     }
-    // The frame's sounds played when it was simulated.
-    sResimulating = true;
+    sDrawingShownFrame = true;
     if (viewPlayer >= 0) {
         race_render_own_view(viewPlayer);
     } else {
         race_render_frame();
     }
-    sResimulating = false;
+    sDrawingShownFrame = false;
 }
 
 extern "C" void SimState_EndDisplay(void) {
@@ -337,6 +337,10 @@ extern "C" void SimState_EndDisplay(void) {
 
 extern "C" bool SimState_IsResimulating(void) {
     return sResimulating;
+}
+
+extern "C" bool SimState_IsDrawingShownFrame(void) {
+    return sDrawingShownFrame;
 }
 
 namespace SimState {

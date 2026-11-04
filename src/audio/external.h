@@ -234,6 +234,13 @@ void func_800C400C(void);
 void func_800C4084(u16);
 void func_800C40F0(u8);
 void play_sound(u32, Vec3f*, u8, f32*, f32*, s8*);
+/** @port: play_sound() without netplay's filtering: queues the sound now. */
+void queue_sound(u32 soundBits, Vec3f* position, u8 cameraId, f32* freqScale, f32* volume, s8* reverb);
+/**
+ * @port: lets go of a sound request that will not be queued. A positional sound holds one of the slots
+ * func_800C1C88() hands out until the sound bank is done with it, which for a request it never gets is never.
+ */
+void release_sound_slot(Vec3f* position);
 /**
  * @port: plays only the sounds of one split-screen camera, with one-player stereo, as netplay shows one player's view.
  * Split screen otherwise mixes every camera's sounds, each panned hard to one side. -1 mixes them all again.

@@ -12,6 +12,7 @@
 #include "NetLog.h"
 #include "RaceEvents.h"
 #include "SimState.h"
+#include "SoundRollback.h"
 #include "SyntheticDriver.h"
 
 extern "C" {
@@ -30,8 +31,13 @@ namespace {
 // GekkoNet predicts at most this many frames past the last input it received, so once a peer has advanced a frame,
 // every input more than this many frames back is final.
 constexpr unsigned char kPredictionWindow = 8;
-// Frames the local input is held back, trading a little latency for fewer rollbacks.
-constexpr unsigned char kLocalInputDelay = 1;
+// A race frame lasts 1/30 s.
+constexpr f32 kFrameMs = 1000.0f / 30.0f;
+// The automatic input delay covers the whole frames of the latency, favoring responsive controls: rollbacks hide the
+// rest, under a frame. Beyond this many frames rollbacks hide all of it, since more delay would feel sluggish.
+constexpr s32 kMaxAutoInputDelay = 3;
+// Before any latency is measured
+constexpr u8 kUnknownLatencyInputDelay = 1;
 // Rollback needs the last prediction window + 2 states. A desync is only detected once the peers have exchanged
 // that frame's checksum, so keep about a second of snapshots to still have the desynced frame for its report.
 constexpr size_t kNumSnapshots = 32;
@@ -39,6 +45,8 @@ static_assert(kNumSnapshots >= kPredictionWindow + 2);
 constexpr size_t kMaxPlayers = 4;
 // GekkoNet averages frame advantage over 26 frames; re-check only once the average reflects earlier waits.
 constexpr u32 kTimeSyncInterval = 26;
+// The stats overlay sums up the last two seconds.
+constexpr size_t kLiveStatsUpdates = 60;
 // Peers load the race at different speeds; give up if they have not all connected after this long.
 constexpr auto kConnectTimeout = std::chrono::seconds(30);
 // Give up on peers that never confirm the end of a segment.
@@ -76,6 +84,12 @@ struct Barrier {
     std::chrono::steady_clock::time_point Since;
 };
 
+/** What one session update did, for the stats overlay. */
+struct UpdateStats {
+    u8 RollbackFrames = 0;
+    bool Stalled = false;
+};
+
 struct NetSessionState {
     SessionState State = SessionState::Off;
     SessionSettings Settings;
@@ -104,6 +118,7 @@ struct NetSessionState {
     GameplayCVarOverride CVars;
     u32 ShownFrames = 0;
     u32 SegmentFrames = 0;
+    u8 InputDelay = 0;
 
     // Requests the local player sends with its inputs
     PadControl PendingControl = PadControl::None;
@@ -116,6 +131,9 @@ struct NetSessionState {
     u32 WaitsLeft = 0;
     u32 FramesUntilTimeSync = kTimeSyncInterval;
     u32 WaitedFrames = 0;
+
+    std::array<UpdateStats, kLiveStatsUpdates> RecentUpdates;
+    size_t NumRecentUpdates = 0;
 
     // Simulated network conditions
     std::deque<DelayedPacket> DelayedPackets;
@@ -276,9 +294,10 @@ void EndGekkoSession(const char* verdict, const std::string& message) {
     GekkoNetworkStats network = {};
     gekko_network_stats(sNet.Gekko, (sNet.Settings.LocalPlayer == 0) ? 1 : 0, &network);
     NetLog("%s: %s. Segment %u: %u frames shown, %u rollbacks (avg %.1f, max %u frames), %u stalls, "
-           "%u time-sync waits, ping %.0f ms",
+           "%u time-sync waits, ping %.0f ms, %s",
            verdict, message.c_str(), sNet.Segment, sNet.SegmentFrames, rollbacks.total_count, rollbacks.avg_frames,
-           rollbacks.max_frames, rollbacks.total_stalls, sNet.WaitedFrames, network.avg_ping);
+           rollbacks.max_frames, rollbacks.total_stalls, sNet.WaitedFrames, network.avg_ping,
+           SoundRollback::GetSummary().c_str());
     gekko_destroy(&sNet.Gekko);
     for (DelayedPacket& packet : sNet.DelayedPackets) {
         FreePacket(packet.Result);
@@ -286,8 +305,23 @@ void EndGekkoSession(const char* verdict, const std::string& message) {
     sNet.DelayedPackets.clear();
     if (!sNet.Settings.LogPath.empty()) {
         WriteChecksumLog();
+        SoundRollback::WriteLog(sNet.Settings.LogPath + ".seg" + std::to_string(sNet.Segment) + ".sounds");
     }
+    SoundRollback::Stop();
     fflush(stdout);
+}
+
+/** The player's choice, or for automatic delay, the latency to the slowest other player in frames. */
+u8 ChooseInputDelay(s32* latencyMs) {
+    *latencyMs = (sNet.Settings.GetLatencyMs != nullptr) ? sNet.Settings.GetLatencyMs() : -1;
+    const s32 chosen = CVarGetInteger(NetSession::kInputDelayCVar, NetSession::kAutoInputDelay);
+    if (chosen != NetSession::kAutoInputDelay) {
+        return (u8) std::clamp(chosen, 0, NetSession::kMaxInputDelay);
+    }
+    if (*latencyMs < 0) {
+        return kUnknownLatencyInputDelay;
+    }
+    return (u8) std::min((s32) (*latencyMs / kFrameMs), kMaxAutoInputDelay);
 }
 
 void StartGekkoSession() {
@@ -307,11 +341,13 @@ void StartGekkoSession() {
     const bool simulateNetwork = (settings.DelayMs > 0) || (settings.JitterMs > 0) || (settings.LossPercent > 0);
     gekko_net_adapter_set(sNet.Gekko, simulateNetwork ? &sLagAdapter : sNet.Socket);
 
+    s32 latencyMs;
+    sNet.InputDelay = ChooseInputDelay(&latencyMs);
     // Actor handles follow the order they are added in, so handle == player index.
     for (s32 player = 0; player < (s32) settings.Addresses.size(); player++) {
         if (player == settings.LocalPlayer) {
             gekko_add_actor(sNet.Gekko, GekkoLocalPlayer, nullptr);
-            gekko_set_local_delay(sNet.Gekko, player, kLocalInputDelay);
+            gekko_set_local_delay(sNet.Gekko, player, sNet.InputDelay);
         } else {
             std::vector<u8> address = settings.Addresses[player];
             GekkoNetAddress gekkoAddress = { address.data(), (unsigned int) address.size() };
@@ -342,11 +378,13 @@ void StartGekkoSession() {
     sNet.WaitsLeft = 0;
     sNet.FramesUntilTimeSync = kTimeSyncInterval;
     sNet.WaitedFrames = 0;
+    sNet.NumRecentUpdates = 0;
     sNet.ConnectStarted = std::chrono::steady_clock::now();
     sNet.State = SessionState::Connecting;
-    NetLog("Segment %u started: player %d of %zu", sNet.Segment, settings.LocalPlayer,
-           settings.Addresses.size());
+    NetLog("Segment %u started: player %d of %zu, input delay %u (latency %d ms)", sNet.Segment,
+           settings.LocalPlayer, settings.Addresses.size(), sNet.InputDelay, latencyMs);
     RaceEvents::Reset();
+    SoundRollback::Start(!settings.LogPath.empty());
     fflush(stdout);
 }
 
@@ -657,6 +695,42 @@ u32 GetShownFrames() {
     return sNet.ShownFrames;
 }
 
+u8 GetInputDelay() {
+    return sNet.InputDelay;
+}
+
+bool GetLiveStats(LiveStats* stats) {
+    if ((sNet.State != SessionState::Running) || (sNet.Gekko == nullptr)) {
+        return false;
+    }
+    stats->LocalPlayer = sNet.Settings.LocalPlayer;
+    stats->PingMs.assign(sNet.Settings.Addresses.size(), -1);
+    for (s32 player = 0; player < (s32) stats->PingMs.size(); player++) {
+        if (player != sNet.Settings.LocalPlayer) {
+            GekkoNetworkStats network = {};
+            gekko_network_stats(sNet.Gekko, player, &network);
+            stats->PingMs[player] = (s32) network.avg_ping;
+        }
+    }
+    stats->InputDelay = sNet.InputDelay;
+
+    const size_t numUpdates = std::min(sNet.NumRecentUpdates, kLiveStatsUpdates);
+    u32 rollbacks = 0;
+    u32 rolledBackFrames = 0;
+    stats->MaxRollbackFrames = 0;
+    stats->Stalls = 0;
+    for (size_t i = 0; i < numUpdates; i++) {
+        const UpdateStats& update = sNet.RecentUpdates[i];
+        rollbacks += (update.RollbackFrames > 0) ? 1 : 0;
+        rolledBackFrames += update.RollbackFrames;
+        stats->MaxRollbackFrames = std::max(stats->MaxRollbackFrames, (u32) update.RollbackFrames);
+        stats->Stalls += update.Stalled ? 1 : 0;
+    }
+    stats->RollbackShare = (numUpdates > 0) ? (f32) rollbacks / numUpdates : 0.0f;
+    stats->AvgRollbackFrames = (rollbacks > 0) ? (f32) rolledBackFrames / rollbacks : 0.0f;
+    return true;
+}
+
 bool IsNearPlannedEnd() {
     return (sNet.Settings.TotalFrames > 0) && (sNet.ShownFrames + kPredictionWindow >= sNet.Settings.TotalFrames);
 }
@@ -745,11 +819,18 @@ void RunRaceFrame() {
 
     // The last advance that is not a rollback is this update's new frame; earlier ones are drawn off-screen.
     int shownAdvance = -1;
+    UpdateStats update;
     for (int i = 0; i < count; i++) {
-        if ((events[i]->type == GekkoAdvanceEvent) && !events[i]->data.adv.rolling_back) {
-            shownAdvance = i;
+        if (events[i]->type == GekkoAdvanceEvent) {
+            if (events[i]->data.adv.rolling_back) {
+                update.RollbackFrames++;
+            } else {
+                shownAdvance = i;
+            }
         }
     }
+    update.Stalled = (shownAdvance < 0);
+    sNet.RecentUpdates[sNet.NumRecentUpdates++ % kLiveStatsUpdates] = update;
 
     for (int i = 0; i < count; i++) {
         const GekkoGameEvent* event = events[i];
@@ -762,7 +843,9 @@ void RunRaceFrame() {
                 std::array<OSContPad, kMaxPlayers> pads;
                 std::array<PadControl, kMaxPlayers> controls;
                 UnpackInputs(event->data.adv, pads.data(), controls.data());
+                SoundRollback::BeginFrame(event->data.adv.frame);
                 SimState_AdvanceFrame(pads.data(), i == shownAdvance);
+                SoundRollback::EndFrame();
                 ApplyControls(controls.data());
                 break;
             }
@@ -771,11 +854,13 @@ void RunRaceFrame() {
                 break;
             case GekkoLoadEvent:
                 LoadFrame(event->data.load);
+                SoundRollback::Rollback();
                 break;
             default:
                 break;
         }
     }
+    SoundRollback::Settle((shownAdvance >= 0) ? events[shownAdvance]->data.adv.frame : -1);
 
     // The new frame, or while waiting for remote input or frozen, the current one again.
     SimState_DrawFrame(GetViewPlayer());

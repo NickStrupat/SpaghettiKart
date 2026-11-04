@@ -51,6 +51,8 @@ struct SessionSettings {
      */
     std::function<void(u32 segment, s32 frame)> ReachBarrier;
     std::function<BarrierStatus(u32 segment, s32 frame)> GetBarrierStatus;
+    /** One-way latency to the slowest other player in ms, or -1 while unknown. Picks the automatic input delay. */
+    std::function<s32()> GetLatencyMs;
     RaceConfig Config;
 
     // Testing aids
@@ -93,6 +95,28 @@ namespace NetSession {
 constexpr const char* kOwnViewCVar = "gNetplay.OwnView";
 /** 1 (the default): each peer plays only its own player's camera's sounds. 0: every camera's, as split screen does. */
 constexpr const char* kOwnAudioCVar = "gNetplay.OwnAudio";
+/**
+ * Frames this peer holds its own input back, so that it reaches the others before they need it. -1 (the default)
+ * picks it from the latency when each race starts; 0 to kMaxInputDelay always uses that many.
+ */
+constexpr const char* kInputDelayCVar = "gNetplay.InputDelay";
+constexpr s32 kAutoInputDelay = -1;
+constexpr s32 kMaxInputDelay = 3;
+/** 1 (the default): show the connection's ping, input delay and rollbacks in a corner during races. */
+constexpr const char* kStatsOverlayCVar = "gNetplay.StatsOverlay";
+
+/** How the connection is doing, for the stats overlay. */
+struct LiveStats {
+    s32 LocalPlayer = 0;
+    /** Average round trip to each player in ms, in player order; -1 for the local player. */
+    std::vector<s32> PingMs;
+    u8 InputDelay = 0;
+    // Over the last couple of seconds
+    f32 RollbackShare = 0.0f; // Of updates that re-simulated frames
+    f32 AvgRollbackFrames = 0.0f;
+    u32 MaxRollbackFrames = 0;
+    u32 Stalls = 0; // Updates that waited for a remote input
+};
 
 /**
  * Applies the race settings and starts loading the race; the GekkoNet session starts once it has loaded.
@@ -117,6 +141,10 @@ bool IsAtBarrier();
 bool IsHeadingToPodium();
 s32 GetLocalPlayer();
 u32 GetShownFrames();
+/** The local input delay of the race running now, in frames. */
+u8 GetInputDelay();
+/** @returns false unless a race is running. */
+bool GetLiveStats(LiveStats* stats);
 /** @returns true when the series is within a prediction window of TotalFrames, so a peer ending is expected. */
 bool IsNearPlannedEnd();
 /** How the last session ended, and why. Running while one is active. */

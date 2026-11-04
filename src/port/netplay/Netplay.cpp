@@ -174,6 +174,8 @@ void StartDirectRace() {
         settings.Addresses.emplace_back(address.begin(), address.end());
     }
     settings.GetAdapter = [](u32) { return sNetplay.DirectSocket; };
+    // Direct peers run on one machine; their only latency is the simulated one.
+    settings.GetLatencyMs = []() { return (s32) (sNetplay.DelayMs + sNetplay.JitterMs / 2); };
     settings.Config = sNetplay.Config;
     ApplyTestOptions(&settings, (sNetplay.Config.RandomSeed + 1) * 0x9E3779B9u * (u32) (sNetplay.LocalPlayer + 1));
     NetSession::Start(settings);
@@ -193,6 +195,11 @@ void StartLobbyRace(const Lobby::RaceStart& start) {
     settings.ReachBarrier = [raceId](u32 segment, s32 frame) { Lobby::ReachBarrier(raceId, segment, frame); };
     settings.GetBarrierStatus = [raceId](u32 segment, s32 frame) {
         return Lobby::GetBarrierStatus(raceId, segment, frame);
+    };
+    settings.GetLatencyMs = [slots = start.Slots]() {
+        // Test peers add their simulated delay to every packet they receive.
+        const s32 latency = Lobby::GetLatencyMs(slots);
+        return (latency < 0) ? latency : latency + (s32) (sNetplay.DelayMs + sNetplay.JitterMs / 2);
     };
     settings.Config = start.Config;
     if (sNetplay.Test == TestMode::Lobby) {
@@ -308,6 +315,16 @@ size_t CountMembers() {
     return count;
 }
 
+/** @returns true once every member's relay ping has arrived, which the automatic input delay needs. */
+bool AreAllPingsKnown() {
+    for (const Lobby::Member& member : Lobby::GetMembers()) {
+        if (member.Present && (member.PingMs < 0)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 /** Drives the lobby like players would: the host opens a room and starts races, guests join and get ready. */
 void UpdateLobbyTest() {
     if (sNetplay.Finished) {
@@ -363,7 +380,7 @@ void UpdateLobbyTest() {
         return;
     }
     if (Lobby::IsHost() && !racing && (sNetplay.RacesStarted < sNetplay.Races) &&
-        (CountMembers() >= sNetplay.Players) && Lobby::GetStartBlocker().empty()) {
+        (CountMembers() >= sNetplay.Players) && AreAllPingsKnown() && Lobby::GetStartBlocker().empty()) {
         sNetplay.RacesStarted++;
         NetLog("Starting race %u of %u", sNetplay.RacesStarted, sNetplay.Races);
         Lobby::StartRace();

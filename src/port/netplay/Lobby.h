@@ -41,6 +41,7 @@ struct Member {
     u32 RaceId = 0;          // The race it runs, or ran last
     u32 BarrierSegment = 0;  // The last segment of that race it confirmed the end of
     s32 BarrierFrame = 0;    // The frame it confirmed that segment ended on
+    s32 PingMs = -1;         // Round trip to the relay; -1 until measured
 };
 
 /** What the host picks. Guests see the host's choice. */
@@ -72,6 +73,12 @@ std::string GetRoomCode();
 s32 GetLocalSlot();
 bool IsHost();
 s32 GetPingMs();
+/**
+ * @returns the one-way latency in ms from this peer to the slowest other player of a race, through the relay, or -1
+ *          while a ping is not known yet.
+ * @param slots The relay slot of each player.
+ */
+s32 GetLatencyMs(const std::vector<u8>& slots);
 const std::array<Member, kMaxMembers>& GetMembers();
 
 const Settings& GetSettings();

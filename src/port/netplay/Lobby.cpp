@@ -20,10 +20,13 @@ constexpr auto kBroadcastInterval = std::chrono::milliseconds(250);
 constexpr int kRaceEndedRepeats = 3;
 constexpr s8 kNumCharacters = BOWSER + 1;
 constexpr size_t kMaxMessageSize = 512;
+// Sent for a ping not measured yet
+constexpr u16 kUnknownPing = 0xFFFF;
 
 enum class MessageType : u8 {
     MemberState = 1,  // u8 character, u8 ready, u32 race running or run last, u8 in race,
-                      // u32 last confirmed segment end and s32 its frame, u8 name length, name
+                      // u32 last confirmed segment end and s32 its frame, u16 relay ping (kUnknownPing),
+                      // u8 name length, name
     RoomSettings = 2, // Host only: u8 mode, u8 cc, u8 cup, u8 track length, track, u32 race (0 for none),
                       // then for a race: u8 player count, the slot of each player, RaceConfig
     RaceEnded = 3,    // u32 race, u8 SessionResult, u8 message length, message
@@ -96,6 +99,8 @@ void BroadcastMemberState() {
     writer.Write8(sLobby.RunningRaceId != 0 ? 1 : 0);
     writer.Write32(sLobby.BarrierSegment);
     writer.Write32((u32) sLobby.BarrierFrame);
+    const s32 ping = sLobby.Relay.GetPingMs();
+    writer.Write16((ping < 0) ? kUnknownPing : (u16) std::min(ping, (s32) kUnknownPing - 1));
     WriteString(writer, sLobby.Name, kMaxNameLength);
     sLobby.Relay.SendLobby(kBroadcast, message, writer.GetSize());
 }
@@ -125,6 +130,8 @@ void HandleMemberState(u8 source, ByteReader& reader) {
     member.InRace = reader.Read8() != 0;
     member.BarrierSegment = reader.Read32();
     member.BarrierFrame = (s32) reader.Read32();
+    const u16 ping = reader.Read16();
+    member.PingMs = (ping == kUnknownPing) ? -1 : ping;
     member.Name = ReadString(reader);
     if (reader.Failed() || (source >= kMaxMembers) || (member.Character < 0) || (member.Character >= kNumCharacters)) {
         return;
@@ -238,6 +245,7 @@ void UpdateMembers() {
     self.RaceId = sLobby.LastRaceId;
     self.BarrierSegment = sLobby.BarrierSegment;
     self.BarrierFrame = sLobby.BarrierFrame;
+    self.PingMs = sLobby.Relay.GetPingMs();
 }
 
 void ResetRoom() {
@@ -353,6 +361,26 @@ bool IsHost() {
 
 s32 GetPingMs() {
     return sLobby.Relay.GetPingMs();
+}
+
+s32 GetLatencyMs(const std::vector<u8>& slots) {
+    const s32 ownPing = sLobby.Relay.GetPingMs();
+    if (ownPing < 0) {
+        return -1;
+    }
+    s32 latency = 0;
+    for (u8 slot : slots) {
+        if ((slot >= kMaxMembers) || (slot == sLobby.Relay.GetSlot())) {
+            continue;
+        }
+        const s32 ping = sLobby.Members[slot].PingMs;
+        if (ping < 0) {
+            return -1;
+        }
+        // Half of each one's round trip: to the relay, then on to the other player.
+        latency = std::max(latency, (ownPing + ping) / 2);
+    }
+    return latency;
 }
 
 const std::array<Member, kMaxMembers>& GetMembers() {

@@ -29,6 +29,7 @@ constexpr auto kRequestRetryInterval = std::chrono::milliseconds(500);
 constexpr auto kRequestTimeout = std::chrono::seconds(10);
 constexpr auto kConnectionTimeout = std::chrono::seconds(10);
 constexpr int kLeaveRepeats = 3; // Leave is never answered, so send it a few times in case of loss
+constexpr s32 kPingSmoothing = 4;  // Each round trip moves the ping a quarter of the way
 
 struct ResolveResult {
     udp::endpoint Endpoint;
@@ -286,7 +287,9 @@ struct RelayClient::Impl {
                     Occupied = occupied;
                     LastHeardFromRelay = now;
                     if (echo != 0) {
-                        PingMs = (s32) (GetMilliseconds(now) - echo);
+                        // Averaged, as a single round trip can be held up.
+                        const s32 sample = (s32) (GetMilliseconds(now) - echo);
+                        PingMs = (PingMs < 0) ? sample : (PingMs * (kPingSmoothing - 1) + sample) / kPingSmoothing;
                     }
                 }
                 break;

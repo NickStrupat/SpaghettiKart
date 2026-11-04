@@ -74,8 +74,10 @@ void SimState_DrawFrame(s32 viewPlayer);
 /** Undoes SimState_DrawFrame(). Call every frame once its display list has run. */
 void SimState_EndDisplay(void);
 
-/** @returns true while netplay re-runs a frame or a draw whose sounds already played, so audio can skip them. */
+/** @returns true while a frame is simulated again, after a rollback. */
 bool SimState_IsResimulating(void);
+/** @returns true inside SimState_DrawFrame(): the frame's sounds played when it was simulated. */
+bool SimState_IsDrawingShownFrame(void);
 
 #ifdef __cplusplus
 }

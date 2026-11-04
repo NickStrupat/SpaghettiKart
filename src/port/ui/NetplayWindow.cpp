@@ -111,12 +111,13 @@ void DrawConnect() {
 
 void DrawMembers() {
     const auto& members = Lobby::GetMembers();
-    if (!ImGui::BeginTable("members", 3, ImGuiTableFlags_BordersInnerH)) {
+    if (!ImGui::BeginTable("members", 4, ImGuiTableFlags_BordersInnerH)) {
         return;
     }
     ImGui::TableSetupColumn("Player");
     ImGui::TableSetupColumn("Character");
     ImGui::TableSetupColumn("Status");
+    ImGui::TableSetupColumn("Relay ping");
     ImGui::TableHeadersRow();
     for (size_t slot = 0; slot < members.size(); slot++) {
         const Lobby::Member& member = members[slot];
@@ -136,6 +137,10 @@ void DrawMembers() {
             ImGui::TextColored(kDimColor, "Connecting");
         } else {
             ImGui::TextUnformatted(member.InRace ? "Racing" : (member.Ready ? "Ready" : "Not ready"));
+        }
+        ImGui::TableNextColumn();
+        if (member.PingMs >= 0) {
+            ImGui::Text("%d ms", member.PingMs);
         }
     }
     ImGui::EndTable();
@@ -355,6 +360,38 @@ void CheckboxCVar(const char* label, const char* cvar) {
 void DrawViewChoice() {
     CheckboxCVar("Show only my player", NetSession::kOwnViewCVar);
     CheckboxCVar("Hear only my player", NetSession::kOwnAudioCVar);
+    CheckboxCVar("Show connection stats", NetSession::kStatsOverlayCVar);
+}
+
+/** How long this player's own input is held back: automatic from the ping, or a fixed number of frames. */
+void DrawInputDelayChoice() {
+    const s32 delay = CVarGetInteger(NetSession::kInputDelayCVar, NetSession::kAutoInputDelay);
+    const auto getLabel = [](s32 frames) {
+        if (frames == NetSession::kAutoInputDelay) {
+            return std::string("Automatic");
+        }
+        return std::to_string(frames) + ((frames == 1) ? " frame" : " frames") + " (" +
+               std::to_string(frames * 100 / 3) + " ms)";
+    };
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10);
+    if (ImGui::BeginCombo("Input delay", getLabel(delay).c_str())) {
+        for (s32 frames = NetSession::kAutoInputDelay; frames <= NetSession::kMaxInputDelay; frames++) {
+            if (ImGui::Selectable(getLabel(frames).c_str(), frames == delay)) {
+                CVarSetInteger(NetSession::kInputDelayCVar, frames);
+                Ship::Context::GetRawInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+            }
+        }
+        ImGui::EndCombo();
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Holding your input back gives it time to reach the others, so their screens correct your "
+                          "kart less often.\nAutomatic picks it from the ping when each race starts: 0 on the same "
+                          "network, up to 3 far away.");
+    }
+    if (NetSession::IsActive()) {
+        ImGui::SameLine();
+        ImGui::TextColored(kDimColor, "this race: %u", NetSession::GetInputDelay());
+    }
 }
 
 void RegisterNetplayWidgets() {
@@ -370,9 +407,59 @@ RegisterMenuInitFunc sInitFunc(RegisterNetplayWidgets);
 
 } // namespace
 
+void NetplayStatsOverlay::Draw() {
+    if ((CVarGetInteger(NetSession::kStatsOverlayCVar, 1) == 0) || !NetSession::IsInRace()) {
+        return;
+    }
+    constexpr f32 kMargin = 8.0f;
+    constexpr f32 kBackgroundAlpha = 0.55f;
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + viewport->WorkSize.x - kMargin,
+                                   viewport->WorkPos.y + kMargin),
+                            ImGuiCond_Always, ImVec2(1.0f, 0.0f));
+    ImGui::SetNextWindowViewport(viewport->ID);
+    ImGui::SetNextWindowBgAlpha(kBackgroundAlpha);
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs |
+                                   ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
+                                   ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav |
+                                   ImGuiWindowFlags_NoDocking;
+    if (ImGui::Begin(GetName().c_str(), nullptr, flags)) {
+        DrawElement();
+    }
+    ImGui::End();
+}
+
+void NetplayStatsOverlay::DrawElement() {
+    NetSession::LiveStats stats;
+    if (!NetSession::GetLiveStats(&stats)) {
+        ImGui::TextUnformatted("Connecting...");
+        return;
+    }
+    std::string pings;
+    for (size_t player = 0; player < stats.PingMs.size(); player++) {
+        if (stats.PingMs[player] >= 0) {
+            pings += (pings.empty() ? "" : ", ") + std::string("P") + std::to_string(player + 1) + " " +
+                     std::to_string(stats.PingMs[player]) + " ms";
+        }
+    }
+    ImGui::Text("Ping %s", pings.c_str());
+    ImGui::Text("Input delay %u (%u ms)", stats.InputDelay, stats.InputDelay * 100u / 3u);
+    if (stats.RollbackShare > 0.0f) {
+        ImGui::Text("Rollback %.0f%% of frames, %.1f avg, %u max", stats.RollbackShare * 100.0f,
+                    stats.AvgRollbackFrames, stats.MaxRollbackFrames);
+    } else {
+        ImGui::TextUnformatted("Rollback none");
+    }
+    if (stats.Stalls > 0) {
+        ImGui::TextColored(UIWidgets::ColorValues.at(UIWidgets::Colors::Yellow), "Waited for input %u times",
+                           stats.Stalls);
+    }
+}
+
 void NetplayWindow::DrawElement() {
     DrawControllerChoice();
     DrawViewChoice();
+    DrawInputDelayChoice();
     ImGui::Separator();
     switch (Lobby::GetState()) {
         case Lobby::State::Offline:
