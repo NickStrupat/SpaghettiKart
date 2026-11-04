@@ -198,9 +198,14 @@ cd SpaghettiKart
 # Clone the submodule libultraship
 git submodule update --init
 
+# Build SDL2 and libzip for macOS 15 (once): Homebrew's only run on the newest macOS,
+# so an app bundling them would not start on older Macs. See tools/macos-build-deps.sh.
+tools/macos-build-deps.sh
+
 # Generate Ninja project
 # Add `-DCMAKE_BUILD_TYPE:STRING=Release` if you're packaging
-cmake -H. -Bbuild-cmake -GNinja
+cmake -H. -Bbuild-cmake -GNinja -DSDL2_DIR="$PWD/build-deps/prefix/lib/cmake/SDL2" \
+    -Dlibzip_DIR="$PWD/build-deps/prefix/lib/cmake/libzip"
 
 # Generate mk64.o2r and spaghetti.o2r
 cmake --build build-cmake --target ExtractAssets

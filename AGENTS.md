@@ -14,6 +14,11 @@ cmake build-cmake                            # after adding a source file (sourc
 
 The game needs the extracted `mk64.o2r` (on macOS in `~/Library/Application Support/SpaghettiKart/`).
 
+The app targets macOS 15 (`CMAKE_OSX_DEPLOYMENT_TARGET` in `CMakeLists.txt`) and bundles its libraries, so it can be
+copied to another Mac. Homebrew's SDL2 and libzip only run on the newest macOS; `build-cmake` is configured against
+copies built by `tools/macos-build-deps.sh` instead (see `docs/BUILDING.md`). Check a build with
+`vtool -show-build` on the executable and on `Contents/Frameworks/*.dylib`: no `minos` above 15.0.
+
 ## Before calling a change done
 
 Any change to simulation code (anything under `src/` that runs during a race) or to `src/port/netplay/` can break

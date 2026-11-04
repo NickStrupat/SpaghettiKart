@@ -204,7 +204,8 @@ Each of these cost a debugging round.
 
 ## Platforms
 
-- **macOS, Apple Silicon**: the only platform built and tested.
+- **macOS, Apple Silicon**: the only platform built and tested. The app runs on macOS 15 and later; building it so
+  needs `tools/macos-build-deps.sh` (see `docs/BUILDING.md`).
 - **Linux**: needs a clang build (GCC cannot place globals in sections); untested.
 - **Windows**: MSVC cannot place globals in sections, so its builds refuse to start netplay ("build it with clang").
   A clang-cl build would be needed; untested.

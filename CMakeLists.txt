@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 3.16.0 FATAL_ERROR)
 
+# The oldest macOS the app runs on. It must be set before project(), which reads it. The app bundles Homebrew
+# libraries built for macOS 15; tools/macos-build-deps.sh builds SDL2 and libzip, which Homebrew only ships for the
+# newest macOS, for the same version.
+set(CMAKE_OSX_DEPLOYMENT_TARGET "15.0" CACHE STRING "Minimum macOS version")
+
 # Set the project version and language
 project(
   Spaghettify

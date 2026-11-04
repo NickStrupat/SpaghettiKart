@@ -150,10 +150,10 @@ if (SPAGHETTI_BUNDLE_DEPS)
         COMMAND bash -c "install_name_tool -add_rpath '@executable_path/../Frameworks/' '$<TARGET_BUNDLE_DIR:${PROJECT_NAME}>/Contents/MacOS/SpaghettiKart' 2>/dev/null || true"
         # Homebrew's "sdl2" is sdl2-compat, a shim that dlopen()s libSDL3.dylib
         # from @loader_path at runtime. fixup_bundle can't follow a dlopen, so if
-        # a dynamic libSDL2 was bundled, copy SDL3 in next to it (= @loader_path)
+        # the bundled libSDL2 is that shim (it names libSDL3), copy SDL3 in next to it (= @loader_path)
         # or the app aborts with "Failed loading SDL3 library." SDL3 itself only
         # links system frameworks. Static SDL2 builds (vcpkg) skip this entirely.
-        COMMAND bash -c "FRAMEWORKS='$<TARGET_BUNDLE_DIR:${PROJECT_NAME}>/Contents/Frameworks'; if ls \"$FRAMEWORKS\"/libSDL2*.dylib >/dev/null 2>&1; then SDL3_LIB=$(brew --prefix sdl3 2>/dev/null)/lib/libSDL3.0.dylib; if [ -f \"$SDL3_LIB\" ]; then cp \"$SDL3_LIB\" \"$FRAMEWORKS/libSDL3.dylib\" && chmod u+w \"$FRAMEWORKS/libSDL3.dylib\"; else echo 'warning: bundled libSDL2 is sdl2-compat but Homebrew sdl3 was not found'; fi; fi"
+        COMMAND bash -c "FRAMEWORKS='$<TARGET_BUNDLE_DIR:${PROJECT_NAME}>/Contents/Frameworks'; if grep -q libSDL3 \"$FRAMEWORKS\"/libSDL2*.dylib 2>/dev/null; then SDL3_LIB=$(brew --prefix sdl3 2>/dev/null)/lib/libSDL3.0.dylib; if [ -f \"$SDL3_LIB\" ]; then cp \"$SDL3_LIB\" \"$FRAMEWORKS/libSDL3.dylib\" && chmod u+w \"$FRAMEWORKS/libSDL3.dylib\"; else echo 'warning: bundled libSDL2 is sdl2-compat but Homebrew sdl3 was not found'; fi; fi"
         COMMENT "Relinking dylibs into the .app bundle"
         VERBATIM
     )
