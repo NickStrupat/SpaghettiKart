@@ -39,6 +39,9 @@
  *   SK_NETPLAY_TEST_RESET=1             Return to the menus before each lobby race, as a peer outside them does.
  *   SK_NETPLAY_TEST_START_DELAY=900     Host: idle this many frames in the room before starting (the title screen
  *                                       starts its attract demo race after 10 s).
+ *   SK_NETPLAY_TEST_MENU_AT=300         Open the settings menu, as Escape does, on this shown frame of the first race.
+ *   SK_NETPLAY_TEST_HANG_AT=300         Freeze the game thread for 10 s on this shown frame, to test HangWatchdog.h.
+ *   SK_NETPLAY_TEST_PRESS_L_AT=400      Press L (it sets the music volume setting) on this frame of every race.
  */
 
 #ifdef __cplusplus

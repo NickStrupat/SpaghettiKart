@@ -105,6 +105,9 @@ SCENARIOS = [
              expect={"races_over": 2}),
     Scenario("two-series", "2 players, two lobby races in one room", 2, "vs", track="mk:wario_stadium", races=2,
              series_races=1, expect={"races_over": 2}),
+    Scenario("music-volume", "2 players, versus; a player presses L, which sets the music volume setting from inside "
+             "the simulation", 2, "vs", track="mk:moo_moo_farm", series_races=1,
+             peer_env={1: {"SK_NETPLAY_TEST_PRESS_L_AT": "400"}}, expect={"races_over": 1}),
     Scenario("mixed-settings", "2 players whose games took different ways through the menus (one starts at the title "
              "screen, one skips it), as two computers do", 2, "battle", track="mk:block_fort", series_races=1,
              peer_cvars={0: {"gSkipIntro": 1}}, expect={"races_over": 1}),

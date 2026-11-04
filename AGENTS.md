@@ -24,7 +24,7 @@ copies built by `tools/macos-build-deps.sh` instead (see `docs/BUILDING.md`). Ch
 Any change to simulation code (anything under `src/` that runs during a race) or to `src/port/netplay/` can break
 determinism, which only shows up between two running games.
 
-1. `python3 tools/netplay-sim.py`: 14 scenarios, about 4 minutes; every one must pass.
+1. `python3 tools/netplay-sim.py`: 15 scenarios, about 4 minutes; every one must pass.
 2. For relay or protocol changes: `python3 tools/netplay-relay/test_relay.py build-relay/netplay-relay`.
 3. For a new kind of race state: a rollback stress run with the determinism harness (`SK_DETERMINISM_ROLLBACK=8`, see
    `src/port/netplay/DeterminismHarness.h`).
@@ -36,7 +36,7 @@ compare the start states with `tools/netplay-diff.py`.
 
 - Check the pitfalls in `docs/NETPLAY.md` before touching simulation code. The usual ones: draw code writes simulation
   state; memory-pool buffers are not in snapshots; allocations inside a simulated frame go to the sim arena (use
-  `SimHeapPause` for anything else); nothing machine-local (time, audio randomness, frame-buffer indices) may feed
+  `SimHeapPause` for anything else: settings, the music player, logs that keep memory); nothing machine-local (time, audio randomness, frame-buffer indices) may feed
   back into the simulation.
 - Mutable globals in simulation files are snapshotted automatically (`SimSection.h`). Wrap anything that is not
   simulation state in `NOT_SIM_STATE_BEGIN` / `NOT_SIM_STATE_END`.

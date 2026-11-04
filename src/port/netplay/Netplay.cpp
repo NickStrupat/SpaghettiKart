@@ -1,16 +1,20 @@
 #include "Netplay.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <optional>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <gekkonet.h>
 
+#include "HangWatchdog.h"
 #include "Lobby.h"
+#include "SimArena.h"
 #include "NetLog.h"
 #include "NetSession.h"
 #include "RaceConfig.h"
@@ -79,6 +83,8 @@ struct NetplayState {
     u32 PodiumFrames = 0;
     bool TestResetBeforeRace = false;
     u32 TestStartDelay = 0; // Host: frames to idle in the room before starting
+    u32 TestMenuAtFrame = 0; // Open the settings menu, as Escape does, on this shown frame of the first race
+    u32 TestHangAtFrame = 0; // Freeze the game thread for a while on this shown frame of the first race
 
     // Lobby races
     std::optional<Lobby::RaceStart> PendingRace;
@@ -131,6 +137,7 @@ void ApplyTestOptions(SessionSettings* settings, u32 botSeed) {
     settings->TestControls = sNetplay.TestControls;
     settings->LeaveAfterRaces = sNetplay.TestSeriesRaces;
     settings->DumpSegmentStarts = GetEnvU32("SK_NETPLAY_DUMP", 0) != 0;
+    settings->PressLAtFrame = GetEnvU32("SK_NETPLAY_TEST_PRESS_L_AT", 0);
 }
 
 /** Parses "restart@300,next@200,leave@500": a control and the frame of each segment to send it on. */
@@ -435,6 +442,7 @@ void InitLobbyTest(const char* relay) {
 } // namespace
 
 extern "C" void Netplay_Init(void) {
+    HangWatchdog::Start();
     if (const char* peers = GetEnv("SK_NETPLAY_PEERS")) {
         InitDirectTest(peers);
     } else if (const char* relay = GetEnv("SK_NETPLAY_RELAY")) {
@@ -456,6 +464,8 @@ extern "C" void Netplay_Init(void) {
     }
     sNetplay.TestResetBeforeRace = GetEnvU32("SK_NETPLAY_TEST_RESET", 0) != 0;
     sNetplay.TestStartDelay = GetEnvU32("SK_NETPLAY_TEST_START_DELAY", 0);
+    sNetplay.TestMenuAtFrame = GetEnvU32("SK_NETPLAY_TEST_MENU_AT", 0);
+    sNetplay.TestHangAtFrame = GetEnvU32("SK_NETPLAY_TEST_HANG_AT", 0);
     sNetplay.TestSeriesRaces = GetEnvU32("SK_NETPLAY_TEST_SERIES_RACES", 0);
     if (const char* controls = GetEnv("SK_NETPLAY_TEST_CONTROLS")) {
         sNetplay.TestControls = ParseTestControls(controls);
@@ -466,6 +476,25 @@ extern "C" void Netplay_BeginFrame(void) {
     Lobby::Update();
     HandleRaceEndedElsewhere();
     NetSession::BeginFrame();
+    HangWatchdog::Beat((Lobby::GetState() != Lobby::State::Offline) || NetSession::IsActive());
+    if ((sNetplay.TestHangAtFrame > 0) && (NetSession::GetShownFrames() == sNetplay.TestHangAtFrame)) {
+        sNetplay.TestHangAtFrame = 0;
+        NetLog("Test: freezing the game thread");
+        std::this_thread::sleep_for(std::chrono::seconds(10));
+    }
+    // Settings are not simulation state: one created by the simulation (pressing L sets the music volume) must not
+    // live in the sim arena, where a rollback frees it from under the settings table.
+    if (sNetplay.Test != TestMode::None) {
+        auto musicVolume = Ship::Context::GetRawInstance()->GetConsoleVariables()->Get("gMainMusicVolume");
+        if ((musicVolume != nullptr) && SimArena::Contains(musicVolume.get())) {
+            FinishTest(false, "A setting was allocated in the sim arena");
+        }
+    }
+    if ((sNetplay.TestMenuAtFrame > 0) && (NetSession::GetShownFrames() == sNetplay.TestMenuAtFrame)) {
+        sNetplay.TestMenuAtFrame = 0;
+        NetLog("Test: opening the settings menu");
+        Ship::Context::GetRawInstance()->GetWindow()->GetGui()->GetMenu()->ToggleVisibility();
+    }
 }
 
 extern "C" bool Netplay_IsInRace(void) {
@@ -520,6 +549,7 @@ extern "C" s32 Netplay_GetExitCode(void) {
 extern "C" void Netplay_Shutdown(void) {
     NetSession::Stop(SessionResult::PeerLeft, "The game closed");
     Lobby::Leave();
+    HangWatchdog::Stop();
 }
 
 namespace Netplay {

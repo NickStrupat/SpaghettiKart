@@ -30,6 +30,7 @@
 #include <assets/models/tracks/mario_raceway/mario_raceway_data.h>
 #include <assets/models/tracks/moo_moo_farm/moo_moo_farm_data.h>
 #include "port/Game.h"
+#include "port/netplay/SimArena.h"
 #include "engine/CoreMath.h"
 
 extern s32 D_802BA038;
@@ -169,7 +170,11 @@ f32 D_801625FC;
 
 void update_music_volume(s32 target){
     float volume = (float) target / 127.0f;
+    // @port: settings are not simulation state. Created inside a netplay frame, the setting would live in the sim
+    // arena, and a rollback would free it from under the settings table.
+    const int pause = SimHeap_Pause();
     CVarSetFloat("gMainMusicVolume", volume);
+    SimHeap_Resume(pause);
     audio_set_player_volume(SEQ_PLAYER_LEVEL, volume);
 }
 

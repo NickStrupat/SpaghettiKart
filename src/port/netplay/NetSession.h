@@ -69,6 +69,7 @@ struct SessionSettings {
     std::vector<TestControl> TestControls; // Requests the local player makes in every segment
     bool DumpSegmentStarts = false;        // Write the state each segment starts from to <LogPath>.seg<N>.start
     u32 LeaveAfterRaces = 0;               // Leave the series early in the race after this many; 0 never does
+    u32 PressLAtFrame = 0;                 // Press L (music volume) on this shown frame of every segment
 };
 
 enum class SessionResult {

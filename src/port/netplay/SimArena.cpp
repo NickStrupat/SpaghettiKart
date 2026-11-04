@@ -158,6 +158,16 @@ extern "C" void SimHeap_EndScope(void) {
     tScopeDepth--;
 }
 
+extern "C" int SimHeap_Pause(void) {
+    const int depth = tScopeDepth;
+    tScopeDepth = 0;
+    return depth;
+}
+
+extern "C" void SimHeap_Resume(int pause) {
+    tScopeDepth = pause;
+}
+
 SimHeapPause::SimHeapPause() : mSavedDepth(tScopeDepth) {
     tScopeDepth = 0;
 }

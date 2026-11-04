@@ -812,6 +812,9 @@ bool ConsumeLocalPads(OSContPad* pads) {
         // Pausing would only pause this peer.
         input.Buttons = pads[0].button & ~START_BUTTON;
     }
+    if ((sNet.Settings.PressLAtFrame > 0) && (sNet.SegmentFrames + 1 == sNet.Settings.PressLAtFrame)) {
+        input.Buttons |= L_TRIG;
+    }
     input.Buttons = (input.Buttons & ~kControlMask) | (u16) ((u16) GetLocalControl() << kControlShift);
     gekko_add_local_input(sNet.Gekko, sNet.Settings.LocalPlayer, &input);
     return true;

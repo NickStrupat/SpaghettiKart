@@ -168,7 +168,7 @@ A lobby race is a series of segments, one GekkoNet session per loaded race (each
 
 | Tool | What it does |
 |---|---|
-| `tools/netplay-sim.py` | Plays whole races, cups and battles between bot-driven copies of the game through a relay, fast-forwarded (about 70× real time), and checks that every peer stayed in sync and the races ended as expected. 14 scenarios, about 4 minutes. **Run it after any change to netplay or simulation code.** |
+| `tools/netplay-sim.py` | Plays whole races, cups and battles between bot-driven copies of the game through a relay, fast-forwarded (about 70× real time), and checks that every peer stayed in sync and the races ended as expected. 15 scenarios, about 4 minutes. **Run it after any change to netplay or simulation code.** |
 | Determinism harness | `SK_DETERMINISM_RECORD` / `_VERIFY` / `_ROLLBACK=8`: records a race's inputs and per-frame checksums, replays them, or rolls back 8 frames after every frame. See `DeterminismHarness.h`. |
 | `tools/netplay-relay/test_relay.py` | Protocol tests for the relay. |
 | `tools/netplay-diff.py` | Names the variables that differ between two peers' start states (`SK_NETPLAY_DUMP=1`) or in a rollback trace. |
@@ -183,6 +183,10 @@ kept; diffing the peers' files shows the first component that differs. A peer th
 `netplay/<date-time>` in the game's folder (`~/Library/Application Support/SpaghettiKart/` on macOS), so a desync
 between two computers leaves a report on each.
 
+If the game stops responding for 5 s while in a netplay room or race, `HangWatchdog` runs macOS's `sample` tool on it
+and writes every thread's call stack to `netplay/<date-time>.hang.txt` in the same folder (wait about 10 s before
+force-quitting).
+
 ## Pitfalls found so far
 
 Each of these cost a debugging round.
@@ -191,8 +195,11 @@ Each of these cost a debugging round.
   Never skip drawing a simulated frame.
 - **Memory-pool allocations are not in snapshots.** A pool buffer that changes during a race must move to a global
   (`sGPPointsCopy` did).
-- **Allocating from inside a simulated frame lands in the sim arena.** Non-simulation code reached from there (for
-  example a `play_sound` hook) must use `SimHeapPause`, or a rollback corrupts it.
+- **Allocating from inside a simulated frame lands in the sim arena.** Non-simulation code reached from there must
+  use `SimHeapPause` (C: `SimHeap_Pause` / `SimHeap_Resume`), or a rollback frees its memory from under it. Found so
+  far: the sound log (`play_sound`), the music player (`HMAS_*`), and the music volume setting the race writes at its
+  start and when L is pressed. That last one corrupted the settings table on every race with fresh settings; the next
+  settings save (opening the menu) then never finished.
 - **Machine-local values fed back into the simulation**: the kart animation once read the frame-buffer index; a voice
   clip variant came from the audio engine's random number. Use simulation state instead.
 - **The course-select menu rewrites the track every frame**: apply race settings after the frame's game logic.

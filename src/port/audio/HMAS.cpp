@@ -5,6 +5,7 @@
 #include <spdlog/spdlog.h>
 #include "port/Engine.h"
 #include "sounds.h"
+#include "port/netplay/SimArena.h"
 
 HMAS::HMAS() {
     ma_result result;
@@ -234,12 +235,16 @@ HMAS::~HMAS() {
 }
 
 // Expose C API for HMAS
+// Simulation code calls these during netplay frames, while the sim arena takes this thread's allocations. The music
+// player is not simulation state: what it allocates (effects, above all) must not be freed by a rollback.
 
 extern "C" void HMAS_Play(HMAS_ChannelId channelId, HMAS_AudioId id, bool loop) {
+    SimHeapPause heapPause;
     GameEngine::Instance->gHMAS->Play(channelId, id, loop);
 }
 
 extern "C" void HMAS_Stop(HMAS_ChannelId channelId) {
+    SimHeapPause heapPause;
     GameEngine::Instance->gHMAS->Stop(channelId);
 }
 
@@ -248,18 +253,22 @@ extern "C" bool HMAS_IsPlaying(HMAS_ChannelId channelId) {
 }
 
 extern "C" void HMAS_SetPitch(HMAS_ChannelId channelId, float pitch) {
+    SimHeapPause heapPause;
     GameEngine::Instance->gHMAS->SetPitch(channelId, pitch);
 }
 
 extern "C" void HMAS_SetVolume(HMAS_ChannelId channelId, float volume) {
+    SimHeapPause heapPause;
     GameEngine::Instance->gHMAS->SetVolume(channelId, volume);
 }
 
 extern "C" void HMAS_SetPause(HMAS_ChannelId channelId, bool pause) {
+    SimHeapPause heapPause;
     GameEngine::Instance->gHMAS->SetPause(channelId, pause);
 }
 
 extern "C" void HMAS_AddEffect(HMAS_ChannelId channelId, HMAS_EffectType type, HMAS_EffectTransition transition, uint32_t frames, float target) {
+    SimHeapPause heapPause;
     GameEngine::Instance->gHMAS->AddEffect(channelId, type, transition, frames, target);
 }
 

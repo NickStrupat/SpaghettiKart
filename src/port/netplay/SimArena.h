@@ -26,6 +26,14 @@ void SimHeap_BeginScope(void);
 /** Ends the scope started by the matching SimHeap_BeginScope(). */
 void SimHeap_EndScope(void);
 
+/**
+ * SimHeapPause for C code: until the matching SimHeap_Resume(), this thread's allocations come from the regular
+ * heap again. For simulation code that calls into the rest of the game, such as settings.
+ * @returns what SimHeap_Resume() needs.
+ */
+int SimHeap_Pause(void);
+void SimHeap_Resume(int pause);
+
 #ifdef __cplusplus
 }
 
