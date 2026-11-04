@@ -39,6 +39,9 @@ private:
     PadInput NextRacer(s32 playerIndex);
     /** Reverses out of a wall the player has been stuck against. @returns true while doing so. */
     bool Unstick(s32 playerIndex, PadInput* pad);
+    /** Turns round and drives back along the track, for a run-up at what it could not get past. @returns true while
+     *  doing so. */
+    bool Retreat(s32 playerIndex, PadInput* pad);
     /** Presses Z a short, random while after an item arrives. */
     void UseItems(s32 playerIndex, PadInput* pad);
 
@@ -69,6 +72,9 @@ private:
     u32 mDetourFramesLeft = 0;
     f32 mProgressMark = 0.0f;
     u32 mNoProgressFrames = 0;
+    u32 mBackOuts = 0;            // Back-outs in a row without progress in between
+    f32 mBackOutProgress = 0.0f;  // Where the last one started
+    u32 mRetreatFramesLeft = 0;
 };
 
 #endif // NETPLAY_SYNTHETIC_DRIVER_H

@@ -112,7 +112,8 @@ SCENARIOS = [
              expect={"races_over": 1}, expect_none=("direct",)),
     Scenario("direct-lost", "2 players, versus; the guest's direct connection dies mid-race and both fall back to "
              "the relay", 2, "vs", track="mk:kalimari_desert", series_races=1,
-             peer_env={1: {"SK_NETPLAY_TEST_BLOCK_DIRECT_MS": "5000"}},
+             # The connection dies 5 s after joining, by the clock: run slower, so that the race is still on then.
+             peer_env={-1: {"SK_FAST": "3"}, 1: {"SK_NETPLAY_TEST_BLOCK_DIRECT_MS": "5000"}},
              expect={"races_over": 1, "direct": 1, "direct_lost": 1}),
     Scenario("lag", "2 players, versus at 60 ms +-20 ms and 5% loss, in real time", 2, "vs",
              track="mk:frappe_snowland", frames=1800,

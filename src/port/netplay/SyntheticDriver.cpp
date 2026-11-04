@@ -35,9 +35,22 @@ constexpr f32 kStuckSpeed = 1.0f;
 constexpr u32 kStuckFrames = 45;
 constexpr u32 kReverseFrames = 40;
 // A racer that moved less than this share of a lap along the track in kNoProgressFrames is wedged or circling
-// without being slow: it backs out for longer.
+// without being slow: it backs out too.
 constexpr f32 kMinProgress = 0.01f;
 constexpr u32 kNoProgressFrames = 300;
+// Back-outs in a row without progress in between escalate. The first reverses away from what the kart ran into; the
+// second reverses twice as long and nearly straight, down the hill a kart stopped on (Wario Stadium's dirt hills
+// cannot be climbed from a standstill). From the third on, the kart turns round and drives back along the track for
+// kRetreatFrames times (back-outs - 2), at most kMaxRetreatSteps, then races again with a run-up: reversing can be
+// blocked too.
+constexpr s8 kStraightReverseStick = kMaxStick / 4;
+constexpr u32 kRetreatAfter = 3;
+constexpr u32 kRetreatFrames = 150;
+constexpr u32 kMaxRetreatSteps = 3;
+constexpr u16 kRetreatPoints = 30; // How far behind on the track the retreat aims
+// Back-outs count as in a row unless the kart got this share of a lap further in between. A kart boxed in on a hill
+// gets nowhere at all; one that traffic or a wall stops twice on a long track should not turn round.
+constexpr f32 kBackOutProgress = 0.002f;
 // After the race, A is pressed once in this many frames: menus react to a press, not a held button.
 constexpr u32 kConfirmInterval = 20;
 // In Battle, an item is fired at an opponent this close and about ahead.
@@ -204,7 +217,7 @@ PadInput SyntheticDriver::NextRacer(s32 playerIndex) {
     }
 
     pad.Buttons = A_BUTTON;
-    if (Unstick(playerIndex, &pad)) {
+    if (Retreat(playerIndex, &pad) || Unstick(playerIndex, &pad)) {
         return pad;
     }
 
@@ -278,15 +291,49 @@ bool SyntheticDriver::Unstick(s32 playerIndex, PadInput* pad) {
 
     if ((mSlowFrames >= kStuckFrames) || noProgress) {
         mSlowFrames = 0;
-        mNoProgressFrames = 0;
-        mReverseFramesLeft = noProgress ? (kReverseFrames * 2) : kReverseFrames;
-        mReverseStickX = (NextRandomNumber() % 2 == 0) ? kMaxStick : -kMaxStick;
+        const bool left = (NextRandomNumber() % 2) == 0;
         if (gModeSelection == BATTLE) {
+            mReverseFramesLeft = kReverseFrames;
+            mReverseStickX = left ? kMaxStick : -kMaxStick;
             mDetourBox = GetItemBox(NextRandomNumber());
             mDetourFramesLeft = (mDetourBox >= 0) ? kDetourFrames : 0;
+            return false;
         }
+        // The no-progress count keeps running through short back-outs that change nothing.
+        if (noProgress) {
+            mNoProgressFrames = 0;
+        }
+        const f32 progress = gCourseCompletionPercentByPlayerId[playerIndex];
+        const bool progressed = (mBackOuts == 0) || (progress > mBackOutProgress + kBackOutProgress);
+        mBackOuts = progressed ? 1 : (mBackOuts + 1);
+        mBackOutProgress = progress;
+        if (mBackOuts >= kRetreatAfter) {
+            mRetreatFramesLeft = kRetreatFrames * std::min(mBackOuts - kRetreatAfter + 1, kMaxRetreatSteps);
+            return false;
+        }
+        mReverseFramesLeft = kReverseFrames * mBackOuts;
+        const s8 stick = (mBackOuts == 1) ? kMaxStick : kStraightReverseStick;
+        mReverseStickX = left ? stick : (s8) -stick;
     }
     return false;
+}
+
+bool SyntheticDriver::Retreat(s32 playerIndex, PadInput* pad) {
+    if (mRetreatFramesLeft == 0) {
+        return false;
+    }
+    // Start the stuck checks afresh once it races again.
+    if (--mRetreatFramesLeft == 0) {
+        mSlowFrames = 0;
+        mNoProgressFrames = 0;
+    }
+    Player* player = &gPlayers[playerIndex];
+    const u16 path = gPathIndexByPlayerId[playerIndex];
+    const u16 count = gPathCountByPathIndex[path];
+    Vec3f target;
+    GetPathPoint(path, (u16) ((gNearestPathPointByPlayerId[playerIndex] + count - kRetreatPoints) % count), target);
+    pad->StickX = SteerToward(player, target);
+    return true;
 }
 
 void SyntheticDriver::UseItems(s32 playerIndex, PadInput* pad) {

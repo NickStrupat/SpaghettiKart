@@ -81,9 +81,9 @@ Every peer runs the same simulation from the same inputs, so the simulation must
 - The game is built with `-fno-fast-math -ffp-contract=off` (`/fp:precise` on MSVC), in `cmake/SetFlags.cmake`.
 - The port's decorative ship actors (`AShip`, `ASpaghettiShip`, `AStarship`, which are not in the original game) moved
   from the C library's trigonometry to the game's own lookup tables, which the original code uses throughout, with
-  explicit float-to-int casts (ARM and x86 convert out-of-range values differently). Other C library math remains, such as the podium trophy's,
-  which runs outside netplay sessions. Only a determinism harness run between two platforms would show what else
-  matters there; none has been done.
+  explicit float-to-int casts (ARM and x86 convert out-of-range values differently). Other C library math remains,
+  such as the podium trophy's, which runs outside netplay sessions. Only a determinism harness run between two
+  platforms would show what else matters there; none has been done.
 - `Sim_GameplayChecksum()` (`Checksum.cpp`) hashes players, actors, objects, cameras, the random seed, the race
   timer and the race's flow (results, menu items, transitions), skipping every pointer. GekkoNet compares it between
   peers to detect a desync.
@@ -219,7 +219,6 @@ Each of these cost a debugging round.
   not been checked visually.
 - With "Hear only my player", the other player's kart sounds are not heard.
 - A looping sound that a misprediction stopped is not restarted.
-- A simulator bot can get stuck at Wario Stadium on lap 3 (`two-series` then stalls); rerun before suspecting netplay.
 
 ## History
 

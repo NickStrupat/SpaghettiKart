@@ -19,8 +19,7 @@ The game needs the extracted `mk64.o2r` (on macOS in `~/Library/Application Supp
 Any change to simulation code (anything under `src/` that runs during a race) or to `src/port/netplay/` can break
 determinism, which only shows up between two running games.
 
-1. `python3 tools/netplay-sim.py`: 13 scenarios, about 4 minutes; every one must pass. `two-series` can stall on a
-   stuck bot (see `docs/NETPLAY.md`, Open); rerun it once before suspecting netplay.
+1. `python3 tools/netplay-sim.py`: 13 scenarios, about 4 minutes; every one must pass.
 2. For relay or protocol changes: `python3 tools/netplay-relay/test_relay.py build-relay/netplay-relay`.
 3. For a new kind of race state: a rollback stress run with the determinism harness (`SK_DETERMINISM_ROLLBACK=8`, see
    `src/port/netplay/DeterminismHarness.h`).
