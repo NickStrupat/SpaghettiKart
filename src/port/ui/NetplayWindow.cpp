@@ -226,7 +226,7 @@ void DrawSettings(bool editable) {
             }
             ImGui::EndCombo();
         }
-        ImGui::TextColored(kDimColor, "Netplay runs the cup's first race; full cups come later.");
+        ImGui::TextColored(kDimColor, "All four courses, then the podium.");
     } else {
         DrawTrackCombo(&settings);
     }
