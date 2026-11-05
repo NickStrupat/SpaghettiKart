@@ -55,6 +55,10 @@ if(WIN32)
   target_compile_definitions(GekkoNet PRIVATE _WIN32_WINNT=0x0A00)
   target_link_libraries(GekkoNet PRIVATE ws2_32 mswsock)
 endif()
+if(MSVC)
+  # The same C runtime as the game (see CMakeLists.txt): mixing the static and DLL runtimes fails to link.
+  set_property(TARGET GekkoNet PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
 target_link_libraries(${PROJECT_NAME} PRIVATE GekkoNet)
 # The relay client (src/port/netplay/RelayClient.cpp) uses GekkoNet's copy of standalone ASIO.
 target_include_directories(${PROJECT_NAME} PRIVATE ${gekkonet_SOURCE_DIR}/GekkoLib/thirdparty/asio)

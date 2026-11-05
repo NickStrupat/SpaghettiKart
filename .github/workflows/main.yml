@@ -456,7 +456,8 @@ jobs:
 
   build-linux-x86-docker:
     needs: generate-port-o2r
-    runs-on: ubuntu-latest
+    # On ubuntu-26.04 (Docker 29), programs in the 32-bit container can't start threads, so git clone fails.
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         config: [Release]
