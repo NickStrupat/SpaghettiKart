@@ -157,12 +157,22 @@ A lobby race is a series of segments, one GekkoNet session per loaded race (each
 ### Own view and sound
 
 - **Own view** (`race_render_own_view` in `src/main.c`): the player's screen scaled to the window with the one-player
-  HUD (`gOwnViewPlayer`), minimap and rank. The simulation keeps its split-screen mode.
+  HUD (`gOwnViewPlayer`), rank, and either the minimap or the speedometer (C-right switches, as the two-player
+  minimap toggle does; two-player races start with the minimap off). Grand Prix adds the one-player top-four column
+  (`render_own_view_ranking`). The simulation keeps its split-screen mode, so whatever only the one-player race
+  animates (speedometer needle, the column's slides) is drawn from the current state instead, without the animation.
+  `render_own_view_overlay` draws over the whole window: the screen's own HUD pass is clipped to its split-screen size.
 - **Own audio** (`audio_set_only_camera` in `src/audio/external.c`): other cameras' sounds are dropped; the kept camera
-  gets one-player stereo.
+  gets one-player stereo. Another player's engine belongs to their camera, so `func_800C94A4` also starts it as heard
+  from the kept camera, from where their kart is, the way the game plays a CPU's engine.
 - **Sounds across rollbacks** (`SoundRollback.cpp`): each played sound is logged with its frame. After a rollback, the
   re-simulated frames' sounds are compared with the log: the same sound from the same camera within 3 frames keeps
   playing; a new one plays now, slightly late; one that no longer happens is stopped.
+- **Stops across rollbacks**, the same way: each stop the simulation makes records what it silenced. A stop that a
+  rollback no longer makes starts those sounds again (a shell's hum, the star), in a new slot for a positional sound;
+  a new one is carried out late. Stops that first look up a sound's slot (`stop_slot_sounds`: vehicles, actors, the
+  star) are tracked by what the sound follows, because finding the slot depends on this computer's audio: a
+  re-simulated frame may no longer find a slot its first run already freed.
 - Positional sounds hold one of 50 audio slots until the sound bank is done with them; a request that is never queued
   frees its slot with `release_sound_slot()`, or the slots run out and positional sounds go silent.
 
@@ -172,6 +182,7 @@ A lobby race is a series of segments, one GekkoNet session per loaded race (each
 |---|---|
 | `tools/netplay-sim.py` | Plays whole races, cups and battles between bot-driven copies of the game through a relay, fast-forwarded (about 70× real time), and checks that every peer stayed in sync and the races ended as expected. 16 scenarios, about 4 minutes. **Run it after any change to netplay or simulation code.** |
 | Determinism harness | `SK_DETERMINISM_RECORD` / `_VERIFY` / `_ROLLBACK=8`: records a race's inputs and per-frame checksums, replays them, or rolls back 8 frames after every frame. See `DeterminismHarness.h`. |
+| `tools/netplay-stress.sh` | The rollback stress run on every track and arena, 4 at a time: 16 versus tracks, 4 battle arenas, 4 Grand Prix courses. Give it an AddressSanitizer build (below) to look for memory errors too. |
 | `tools/netplay-relay/test_relay.py` | Protocol tests for the relay. |
 | `tools/netplay-diff.py` | Names the variables that differ between two peers' start states (`SK_NETPLAY_DUMP=1`) or in a rollback trace. |
 
@@ -184,6 +195,22 @@ kept; diffing the peers' files shows the first component that differs. A peer th
 `<prefix>.desync-p<player>-s<segment>-f<frame>.txt`. The prefix is the test log path (`SK_NETPLAY_LOG`), or else
 `netplay/<date-time>` in the game's folder (`~/Library/Application Support/SpaghettiKart/` on macOS), so a desync
 between two computers leaves a report on each.
+
+**AddressSanitizer.** A separate build directory, so the normal one is untouched:
+
+```sh
+ASAN="-fsanitize=address -fsanitize-recover=address -fno-omit-frame-pointer -mllvm -asan-globals=0"
+cmake -S . -B build-asan -G Ninja -DCMAKE_BUILD_TYPE=Release -DSDL2_DIR="$PWD/build-deps/prefix/lib/cmake/SDL2" \
+    -Dlibzip_DIR="$PWD/build-deps/prefix/lib/cmake/libzip" -DCMAKE_C_FLAGS="$ASAN" -DCMAKE_CXX_FLAGS="$ASAN" \
+    -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address -Wl,-mllvm,-asan-globals=0" -DCMAKE_SHARED_LINKER_FLAGS="-fsanitize=address"
+cmake --build build-asan
+tools/netplay-stress.sh build-asan/SpaghettiKart.app/Contents/MacOS/SpaghettiKart
+```
+
+Global redzones are off because a snapshot copies the whole sim section, and the script turns container-overflow
+checks off at run time because a snapshot copies vector buffers in the sim arena; recovery is on because
+libultraship's renderer reports two errors on every run (see Open). Last run (2000 frames each, 8-frame rollback
+after every frame): every race in sync, no other errors.
 
 If the game stops responding for 5 s while in a netplay room or race, `HangWatchdog` runs macOS's `sample` tool on it
 and writes every thread's call stack to `netplay/<date-time>.hang.txt` in the same folder (wait about 10 s before
@@ -215,7 +242,18 @@ Each of these cost a debugging round.
   checksum hashes only active items' state.
 - **C++ statics that own heap memory** dangle after a section restore; the baseline restores C sections only.
 - **The audio thread must not read CVars** (it raced the main thread's CVar map).
-- Not yet seen but possible: music sequence scripts write a simulation global (`func_8001AAAC`).
+- **Audio state is per computer and not rolled back**, so simulation code that asks it something (is this sound's
+  slot still there?) can answer differently when a frame is simulated again. Track such calls by what the simulation
+  passed in (see stops across rollbacks).
+- **The determinism harness's re-simulations clear the matrix pool** that the frame's display list, built before them
+  and not run yet, points into (AddressSanitizer found it); they get a pool of their own. Netplay draws the shown frame
+  after its re-simulations, so it was never affected.
+- **After a game crashes, macOS asks at the next start whether to reopen its windows**, and the game waits for the
+  answer. Test scripts start the game with `-ApplePersistenceIgnoreState YES`.
+- **Music cues wrote a simulation global**: after the finish, the music's sound script picks which racer each camera
+  shows (`func_800C2274` → `func_8001AAAC` → `D_801646D0`), read by the camera code. It runs once per shown frame
+  from this computer's audio, so peers applied it on different frames; `demo-first` desynced after the race once
+  netplay played one more sound. Netplay skips those cues: after the finish, the camera stays on the player.
 
 ## Platforms
 
@@ -230,11 +268,12 @@ Each of these cost a debugging round.
 
 - Direct connections across two real home networks. Routers that use a new public port per destination (symmetric
   NAT, common on mobile networks) stay on the relay.
-- The rollback stress test under AddressSanitizer.
-- Own view: the one-player Grand Prix rank portraits and the speedometer are not drawn; the end-of-race banners have
-  not been checked visually.
-- With "Hear only my player", the other player's kart sounds are not heard.
-- A looping sound that a misprediction stopped is not restarted.
+- Own view: the end-of-race banners have not been checked visually; the one-player HUD's slide animations and the
+  progress-meter HUD mode are not there.
+- With "Hear only my player", another player's engine is heard, but their own voice and item sounds (their camera's)
+  are not.
+- libultraship's renderer reads past two texture buffers (`ImportTextureI4` at boot, `gfx_load_tlut` on some
+  courses), reported by AddressSanitizer on every run; not netplay's, not fixed.
 
 ## History
 

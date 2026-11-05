@@ -241,6 +241,15 @@ void queue_sound(u32 soundBits, Vec3f* position, u8 cameraId, f32* freqScale, f3
  * func_800C1C88() hands out until the sound bank is done with it, which for a request it never gets is never.
  */
 void release_sound_slot(Vec3f* position);
+/** @port: the slot whose position a positional sound plays from, or NULL when it is not a slot's. */
+struct Unk_8018EFD8* find_sound_slot(Vec3f* position);
+/**
+ * @port: stops up to `count` positional sounds that follow `source`, in whichever slots they play. Netplay's sound
+ * rollback tracks such a stop by the position followed: finding the slots depends on this computer's audio.
+ */
+void stop_slot_sounds(Vec3f source, u32 soundBits, u8 count);
+/** @port: whether a sound from this position is playing or waiting to start. */
+bool is_sound_active(Vec3f* position, u32 soundBits);
 /**
  * @port: plays only the sounds of one split-screen camera, with one-player stereo, as netplay shows one player's view.
  * Split screen otherwise mixes every camera's sounds, each panned hard to one side. -1 mixes them all again.

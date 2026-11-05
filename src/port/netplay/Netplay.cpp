@@ -18,11 +18,15 @@
 #include "NetLog.h"
 #include "NetSession.h"
 #include "RaceConfig.h"
+#include "SoundRollback.h"
 #include "port/Game.h"
 
 extern "C" {
 #include "main.h"
+#include "menus.h"
 #include "defines.h"
+#include "sounds.h"
+#include "audio/external.h"
 }
 
 namespace {
@@ -85,6 +89,8 @@ struct NetplayState {
     u32 TestStartDelay = 0; // Host: frames to idle in the room before starting
     u32 TestMenuAtFrame = 0; // Open the settings menu, as Escape does, on this shown frame of the first race
     u32 TestHangAtFrame = 0; // Freeze the game thread for a while on this shown frame of the first race
+    u32 TestSoundRollbackAt = 0; // Run SoundRollback::SelfTest() on this shown frame of the first race
+    u32 TestEnginesAt = 0;       // Check that every other player's engine is heard on this shown frame of the first race
 
     // Lobby races
     std::optional<Lobby::RaceStart> PendingRace;
@@ -466,11 +472,35 @@ extern "C" void Netplay_Init(void) {
     sNetplay.TestStartDelay = GetEnvU32("SK_NETPLAY_TEST_START_DELAY", 0);
     sNetplay.TestMenuAtFrame = GetEnvU32("SK_NETPLAY_TEST_MENU_AT", 0);
     sNetplay.TestHangAtFrame = GetEnvU32("SK_NETPLAY_TEST_HANG_AT", 0);
+    sNetplay.TestSoundRollbackAt = GetEnvU32("SK_NETPLAY_TEST_SOUND_ROLLBACK_AT", 0);
+    sNetplay.TestEnginesAt = GetEnvU32("SK_NETPLAY_TEST_ENGINES_AT", 0);
     sNetplay.TestSeriesRaces = GetEnvU32("SK_NETPLAY_TEST_SERIES_RACES", 0);
     if (const char* controls = GetEnv("SK_NETPLAY_TEST_CONTROLS")) {
         sNetplay.TestControls = ParseTestControls(controls);
     }
 }
+
+namespace {
+
+/**
+ * @returns the first other player whose kart engine is not playing as heard from this player's camera
+ * (func_800C94A4() starts it from where the kart is), or -1.
+ */
+s32 FindSilentEngine() {
+    for (s32 player = 0; player < gPlayerCount; player++) {
+        if (player == NetSession::GetLocalPlayer()) {
+            continue;
+        }
+        const u32 engine = gPlayers[player].characterId + SOUND_ARG_LOAD(0x31, 0x02, 0x80, 0x00);
+        Vec3f* slot = func_800C21E8(gPlayers[player].pos, engine);
+        if ((slot == nullptr) || !is_sound_active(slot, engine)) {
+            return player;
+        }
+    }
+    return -1;
+}
+
+} // namespace
 
 extern "C" void Netplay_BeginFrame(void) {
     Lobby::Update();
@@ -488,6 +518,23 @@ extern "C" void Netplay_BeginFrame(void) {
         auto musicVolume = Ship::Context::GetRawInstance()->GetConsoleVariables()->Get("gMainMusicVolume");
         if ((musicVolume != nullptr) && SimArena::Contains(musicVolume.get())) {
             FinishTest(false, "A setting was allocated in the sim arena");
+        }
+    }
+    if ((sNetplay.TestSoundRollbackAt > 0) && (NetSession::GetShownFrames() == sNetplay.TestSoundRollbackAt)) {
+        sNetplay.TestSoundRollbackAt = 0;
+        const std::string failure = SoundRollback::SelfTest();
+        NetLog("Test: sound rollback self-test %s%s", failure.empty() ? "passed" : "failed: ", failure.c_str());
+        if (!failure.empty()) {
+            FinishTest(false, "Sound rollback self-test failed: " + failure);
+        }
+    }
+    if ((sNetplay.TestEnginesAt > 0) && (NetSession::GetShownFrames() == sNetplay.TestEnginesAt)) {
+        sNetplay.TestEnginesAt = 0;
+        const s32 silent = FindSilentEngine();
+        if (silent < 0) {
+            NetLog("Test: the other players' engines are heard");
+        } else {
+            FinishTest(false, "The engine of player " + std::to_string(silent + 1) + " is not heard");
         }
     }
     if ((sNetplay.TestMenuAtFrame > 0) && (NetSession::GetShownFrames() == sNetplay.TestMenuAtFrame)) {

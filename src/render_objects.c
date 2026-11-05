@@ -2529,14 +2529,25 @@ Vtx speedometer_vtx[] = {
 
 // render the speedometer for the player
 void render_speedometer(s32 playerIdx) {
+    f32 needleX = D_8018CFEC;
+    f32 needleY = D_8018CFF4;
+    u16 needleAngle = D_8016579E;
+
+    // @port: only the one-player race animates the needle (func_8005C360()). Netplay's own view points it from this
+    // player's speed, without the wobble at a steady speed.
+    if (gOwnViewPlayer >= 0) {
+        needleX = playerHUD[playerIdx].speedometerX + 0x18;
+        needleY = playerHUD[playerIdx].speedometerY + 6;
+        needleAngle = speedometer_needle_angle((gPlayers[playerIdx].speed / 18.0f) * 216.0f) + D_800E55A0[0];
+    }
     gSPClearGeometryMode(gDisplayListHead++, G_ZBUFFER);
     func_8004A2F4(playerHUD[playerIdx].speedometerX, playerHUD[playerIdx].speedometerY, 0U, 1.0f,
                   // RGBA
                   CM_GetProps()->Minimap.Colour.r, CM_GetProps()->Minimap.Colour.g, CM_GetProps()->Minimap.Colour.b,
                   0xFF, (u8*) common_texture_speedometer, speedometer_vtx, 64, 96, 64, 48);
     // x, y, needle rot
-    func_8004A258(D_8018CFEC, D_8018CFF4, D_8016579E, 1.0f, (u8*) common_texture_speedometer_needle, D_0D005FF0, 0x40,
-                  0x20, 0x40, 0x20);
+    func_8004A258(needleX, needleY, needleAngle, 1.0f, (u8*) common_texture_speedometer_needle, D_0D005FF0, 0x40, 0x20,
+                  0x40, 0x20);
 }
 
 // player is only 0 or 1
@@ -2879,6 +2890,28 @@ void func_8004FDB4(f32 arg0, f32 arg1, s16 arg2, s16 arg3, s16 characterId, s32 
         }
         gSPDisplayList(gDisplayListHead++, D_0D006980);
     }
+}
+
+/**
+ * @port: func_80050320()'s top four for netplay's own view: where they settle after sliding in, with this player's
+ * portrait framed. Only the one-player race animates them.
+ */
+void render_own_view_ranking(s32 playerId) {
+    // What init_hud_one_player() sets for the other players' portraits (and Yoshi Valley's question marks)
+    const s32 portraitAlpha = D_8018D3E0;
+    s32 rank;
+
+    D_8018D3E0 = 0xA0;
+    for (rank = 0; rank < 4; rank++) {
+        s32 rankedPlayer = gGPCurrentRacePlayerIdByRank[rank];
+        bool own = rankedPlayer == playerId;
+
+        FrameInterpolation_RecordOpenChild("ranking_portraits", rank);
+        func_8004FDB4(40.0f, 35.0f + (32.0f * rank), rank, gLapCountByPlayerId[rankedPlayer],
+                      gPlayerOne[rankedPlayer].characterId, own ? 0xFF : D_8018D3E0, own, 0, 0);
+        FrameInterpolation_RecordCloseChild();
+    }
+    D_8018D3E0 = portraitAlpha;
 }
 
 void func_80050320(void) {

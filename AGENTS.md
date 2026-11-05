@@ -26,8 +26,9 @@ determinism, which only shows up between two running games.
 
 1. `python3 tools/netplay-sim.py`: 16 scenarios, about 4 minutes; every one must pass.
 2. For relay or protocol changes: `python3 tools/netplay-relay/test_relay.py build-relay/netplay-relay`.
-3. For a new kind of race state: a rollback stress run with the determinism harness (`SK_DETERMINISM_ROLLBACK=8`, see
-   `src/port/netplay/DeterminismHarness.h`).
+3. For a new kind of race state, or memory handling: `tools/netplay-stress.sh`, the rollback stress run on every track
+   (`SK_DETERMINISM_ROLLBACK=8`, see `src/port/netplay/DeterminismHarness.h`), ideally with the AddressSanitizer build
+   described in `docs/NETPLAY.md`.
 
 When a scenario desyncs, diff the peers' `*.kept.txt` reports in its log folder, or rerun with `SK_NETPLAY_DUMP=1` and
 compare the start states with `tools/netplay-diff.py`.

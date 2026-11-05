@@ -5,7 +5,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <fstream>
+#include <utility>
 #include <string>
 #include <vector>
 
@@ -14,6 +16,8 @@
 #include "SimState.h"
 #include "SyntheticDriver.h"
 #include "RaceEvents.h"
+#include "engine/World.h"
+#include "port/Game.h"
 
 extern "C" {
 #include "main.h"
@@ -194,6 +198,15 @@ bool RunRollbackCheck() {
     if (frame < depth) {
         return true;
     }
+
+    // This frame's display list, not run yet, points into the objects' matrix pool, which every re-simulated frame
+    // clears; those frames get a pool of their own.
+    std::deque<Mtx> shownMatrices;
+    std::swap(shownMatrices, GetWorld()->world_mtx.Objects);
+    struct RestoreMatrices {
+        std::deque<Mtx>& Shown;
+        ~RestoreMatrices() { std::swap(Shown, GetWorld()->world_mtx.Objects); }
+    } restoreMatrices{ shownMatrices };
 
     SimState::Load(ring[(frame - depth) % ring.size()]);
     for (u32 resimFrame = frame - depth + 1; resimFrame <= frame; resimFrame++) {

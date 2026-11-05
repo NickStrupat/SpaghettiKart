@@ -41,6 +41,8 @@
  *                                       starts its attract demo race after 10 s).
  *   SK_NETPLAY_TEST_MENU_AT=300         Open the settings menu, as Escape does, on this shown frame of the first race.
  *   SK_NETPLAY_TEST_HANG_AT=300         Freeze the game thread for 10 s on this shown frame, to test HangWatchdog.h.
+ *   SK_NETPLAY_TEST_SOUND_ROLLBACK_AT=300  Run SoundRollback::SelfTest() on this shown frame of the first race.
+ *   SK_NETPLAY_TEST_ENGINES_AT=300      Check on this shown frame that every other player's engine is heard.
  *   SK_NETPLAY_TEST_PRESS_L_AT=400      Press L (it sets the music volume setting) on this frame of every race.
  */
 

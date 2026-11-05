@@ -785,8 +785,8 @@ void set_one_player_hud_layout(s32 playerId) {
     hud->rankX = 52;
     hud->rankY = 0x00C8;
     hud->rankScaling = 0.5f;
-    hud->speedometerX = 0x0156;
-    hud->speedometerY = 0x0106;
+    hud->speedometerX = 0x0106;
+    hud->speedometerY = 0x00B6;
 }
 
 // Follows the minimap toggles of the race's split screen (func_8005A3C0()): with two players each has their own.
@@ -823,6 +823,19 @@ void render_own_view_overlay(s32 playerId) {
         }
         if ((D_8018D2A4 != 0) && (gModeSelection != BATTLE)) {
             func_8004E800(playerId);
+        }
+        // The speedometer when the minimap is hidden, like the one-player race's second HUD mode. Drawn here, over the
+        // whole window: the screen's own HUD pass is clipped to the size of its split screen.
+        if ((D_801657D8 == 0) && (!gDemoMode) && !own_view_shows_minimap(playerId)) {
+            if (CVarGetInteger("gEnableDigitalSpeedometer", false) == true) {
+                render_digital_speedometer(playerId);
+            }
+            render_speedometer(playerId);
+        }
+        // The one-player Grand Prix's top four, until this player finishes, as func_800591B4() does.
+        if ((D_801657D8 == 0) && (gModeSelection == GRAND_PRIX) && (D_8018D2BC != 0) &&
+            !playerHUD[playerId].raceCompleteBool) {
+            render_own_view_ranking(playerId);
         }
     }
     func_80057DD0();
@@ -2207,16 +2220,20 @@ void func_8005B914(void) {
     }
 }
 
+// @port: from func_8005C360(): where the speedometer needle points at this speed, before its wobble.
+u16 speedometer_needle_angle(f32 speed) {
+    if (speed < 10.0) {
+        return (u16) (128.0f * speed) + 0xDD00;
+    } else if (speed < 20.0) {
+        return (u16) ((speed - 10.0) * 256.0) + 0xE200;
+    } else {
+        return (u16) ((speed - 20.0) * 268.8) + 0xEC00;
+    }
+}
+
 void func_8005C360(f32 arg0) {
     if (!playerHUD[PLAYER_ONE].unk_79) {
-        u16 v;
-        if (arg0 < 10.0) {
-            v = (u16) (128.0f * arg0) + 0xDD00;
-        } else if (arg0 < 20.0) {
-            v = (u16) ((arg0 - 10.0) * 256.0) + 0xE200;
-        } else {
-            v = (u16) ((arg0 - 20.0) * 268.8) + 0xEC00;
-        }
+        u16 v = speedometer_needle_angle(arg0);
         if (arg0 == D_8018CFE4) {
             if (arg0 > 5.0f) {
                 if (++D_801657E7 == 8) {

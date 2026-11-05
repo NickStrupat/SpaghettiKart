@@ -279,6 +279,7 @@ void render_hud_timer(s32);
 void draw_lap_count(s16, s16, s8);
 void func_8004FDB4(f32, f32, s16, s16, s16, s32, s32, s32, s32);
 
+void render_own_view_ranking(s32 playerId);
 void func_80050320(void);
 s32 func_80050644(u16, s32*, s32*);
 void func_800507D8(u16, s32*, s32*);

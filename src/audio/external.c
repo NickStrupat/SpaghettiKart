@@ -172,6 +172,9 @@ static bool is_other_camera(u8 cameraId) {
     return (sOnlyCameraId >= 0) && (cameraId <= D_800EA1C0) && (cameraId != sOnlyCameraId);
 }
 
+static void set_kart_engine_pitch(u8 playerId);
+static void play_kart_engine(u8 playerId, u8 cameraId);
+
 // Requires void in the argument list to match properly.
 void func_800C13F0(void) {
 }
@@ -606,7 +609,12 @@ void func_800C2274(u8 player) {
                 D_8018FC10[sp46][1] = sp42;
                 for (var_s0 = 0; var_s0 < 4; var_s0++) {
                     if (D_8018FC10[var_s0][0] != why) {
-                        func_8001AAAC(var_s0, D_8018FC10[var_s0][0], D_8018FC10[var_s0][1]);
+                        // @port: these cues from the music pick what the cameras show after the finish
+                        // (func_8001AAAC()). They come from this computer's audio, at no particular simulated
+                        // frame, so netplay, whose computers must all simulate alike, does without them.
+                        if (!SimState_IsRollbackMode()) {
+                            func_8001AAAC(var_s0, D_8018FC10[var_s0][0], D_8018FC10[var_s0][1]);
+                        }
                         D_8018FC10[var_s0][0] = why;
                     }
                 }
@@ -1318,6 +1326,31 @@ void release_sound_slot(Vec3f* position) {
     }
 }
 
+struct Unk_8018EFD8* find_sound_slot(Vec3f* position) {
+    for (size_t i = 0; i < ARRAY_COUNT(D_8018EFD8); i++) {
+        if (position == &D_8018EFD8[i].unk18) {
+            return &D_8018EFD8[i];
+        }
+    }
+    return NULL;
+}
+
+bool is_sound_active(Vec3f* position, u32 soundBits) {
+    const u8 bankId = (soundBits & 0xF0000000) >> 0x1C;
+    for (u8 next = sSoundBanks[bankId][0].next; next != 0xFF; next = sSoundBanks[bankId][next].next) {
+        const struct SoundCharacteristics* sound = &sSoundBanks[bankId][next];
+        if ((sound->unk00 == position) && (sound->soundBits == soundBits) && (sound->soundStatus != 0)) {
+            return true;
+        }
+    }
+    for (u8 i = sNumProcessedSoundRequests; i != sSoundRequestCount; i++) {
+        if ((sSoundRequests[i].position == position) && (sSoundRequests[i].soundBits == soundBits)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void queue_sound(u32 soundBits, Vec3f* position, u8 cameraId, f32* arg3, f32* arg4, s8* arg5) {
     u8 bank;
     struct Sound* temp_v0;
@@ -1758,7 +1791,8 @@ void func_800C550C(Vec3f* arg0) {
     func_800C41CC(2, &sp3C);
 }
 
-void func_800C5578(Vec3f* arg0, u32 soundBits) {
+// @port: func_800C5578() without netplay's sound rollback.
+static void stop_sound_now(Vec3f* arg0, u32 soundBits) {
     UNUSED s32 stackPadding0;
     u8 bankId;
     u8 next;
@@ -1789,6 +1823,22 @@ void func_800C5578(Vec3f* arg0, u32 soundBits) {
     func_800C41CC(3, &sp60);
 }
 
+void func_800C5578(Vec3f* arg0, u32 soundBits) {
+    // @port: netplay compares the stops of re-simulated frames with the ones made before a rollback.
+    if (!SoundRollback_CaptureStop(arg0, soundBits, false)) {
+        stop_sound_now(arg0, soundBits);
+    }
+}
+
+void stop_slot_sounds(Vec3f source, u32 soundBits, u8 count) {
+    for (u8 i = 0; i < count; i++) {
+        Vec3f* slot = func_800C21E8(source, soundBits);
+        if (slot != NULL) {
+            stop_sound_now(slot, soundBits);
+        }
+    }
+}
+
 void func_800C56F0(u32 soundBits) {
     UNUSED s32 stackPadding0;
     u8 bankId;
@@ -1796,6 +1846,10 @@ void func_800C56F0(u32 soundBits) {
     u8 curr;
     struct SoundCharacteristics sp68;
 
+    // @port: see func_800C5578().
+    if (SoundRollback_CaptureStop(NULL, soundBits, true)) {
+        return;
+    }
     bankId = (soundBits & 0xF0000000) >> 0x1C;
     next = sSoundBanks[bankId][0].next;
     curr = 0;
@@ -3163,6 +3217,12 @@ void func_800C94A4(u8 playerId) {
                 }
                 play_sound(var_a0, &D_800E9F7C[playerId].pos, playerId, &D_800E9F7C[playerId].unk_0C,
                            &D_800E9F7C[playerId].unk_10, (s8*) &D_800E9F7C[playerId].unk_14);
+                // @port: that engine belongs to the player's own camera. When only another camera is heard (netplay's
+                // own audio), the player's kart is heard from there the way a CPU's is: from where it is.
+                if (is_other_camera(playerId)) {
+                    set_kart_engine_pitch(playerId);
+                    play_kart_engine(playerId, (u8) sOnlyCameraId);
+                }
                 break;
             default:
                 break;
@@ -3171,6 +3231,10 @@ void func_800C94A4(u8 playerId) {
 }
 
 void func_800C97C4(u8 arg0) {
+    // @port: and the engine heard from the only camera heard (see func_800C94A4()).
+    if (is_other_camera(arg0)) {
+        func_800C9D0C(arg0);
+    }
     func_800C5578(&D_800E9F7C[arg0].pos, gPlayers[arg0].characterId + SOUND_ARG_LOAD(0x01, 0x04, 0xFF, 0x00));
     func_800C5578(&D_800E9F7C[arg0].pos, gPlayers[arg0].characterId + SOUND_ARG_LOAD(0x01, 0x04, 0xFF, 0x14));
     func_800C5578(&D_800E9F7C[arg0].pos, gPlayers[arg0].characterId + SOUND_ARG_LOAD(0x01, 0x04, 0xFF, 0x2E));
@@ -3194,23 +3258,56 @@ void func_800C98B8(Vec3f position, Vec3f velocity, u32 soundBits) {
 }
 
 void func_800C99E0(Vec3f arg0, s32 soundBits) {
-    Vec3f* temp_v0;
-    u8 temp_t9;
-
     if (D_800EA108 == 0) {
-        for (temp_t9 = 0; temp_t9 < D_800EA1C0 + 1; temp_t9++) {
-            temp_v0 = func_800C21E8(arg0, soundBits);
-            if (temp_v0 != NULL) {
-                func_800C5578(temp_v0, soundBits);
-            }
+        // @port: netplay tracks this stop by the position the sounds follow (see stop_slot_sounds()).
+        if (!SoundRollback_CaptureSlotStop(arg0, soundBits, D_800EA1C0 + 1)) {
+            stop_slot_sounds(arg0, soundBits, D_800EA1C0 + 1);
         }
+    }
+}
+
+// @port: from func_800C9A88(): the pitch of a kart's engine as heard from a camera, by character.
+static void set_kart_engine_pitch(u8 playerId) {
+    switch (gPlayers[playerId].characterId) {
+        case 0:
+        case 1:
+            D_800EA06C[playerId].unk00[0] = 0.35f;
+            D_800EA06C[playerId].unk00[1] = 1568.9796f;
+            break;
+        case 2:
+        case 6:
+            D_800EA06C[playerId].unk00[0] = 0.6f;
+            D_800EA06C[playerId].unk00[1] = 1478.4615f;
+            break;
+        case 3:
+            D_800EA06C[playerId].unk00[0] = 0.6f;
+            D_800EA06C[playerId].unk00[1] = 1747.2728f;
+            break;
+        case 4:
+            D_800EA06C[playerId].unk00[0] = 0.2f;
+            D_800EA06C[playerId].unk00[1] = 2135.5557f;
+            break;
+        case 5:
+        case 7:
+            D_800EA06C[playerId].unk00[0] = 0.4f;
+            D_800EA06C[playerId].unk00[1] = 1922.0f;
+    }
+}
+
+// @port: from func_800C9A88(): a kart's engine as heard from a camera, from where the kart is.
+static void play_kart_engine(u8 playerId, u8 cameraId) {
+    u32 soundBits = gPlayers[playerId].characterId + SOUND_ARG_LOAD(0x31, 0x02, 0x80, 0x00);
+    struct Unk_8018EFD8* slot = func_800C1C88(playerId, gPlayers[playerId].pos, gPlayers[playerId].velocity,
+                                              &gPlayers[playerId].unk_098, cameraId, soundBits);
+    if (slot != NULL) {
+        slot->unk34 = 40.0f;
+        play_sound(soundBits, &slot->unk18, cameraId, &slot->unk2C, &D_800EA06C[playerId].unk00[2],
+                   (s8*) &D_800EA06C[playerId].unk0C);
     }
 }
 
 void func_800C9A88(u8 playerId) {
     u8 var_s0;
-    u32 soundBits;
-    struct Unk_8018EFD8* temp_v0_6;
 
     if (D_800EA108 == 0) {
         switch (D_800EA0F0) {
@@ -3218,40 +3315,10 @@ void func_800C9A88(u8 playerId) {
                 D_800EA0F0 = 1;
                 /* fallthrough */
             case 0:
-                switch (gPlayers[playerId].characterId) {
-                    case 0:
-                    case 1:
-                        D_800EA06C[playerId].unk00[0] = 0.35f;
-                        D_800EA06C[playerId].unk00[1] = 1568.9796f;
-                        break;
-                    case 2:
-                    case 6:
-                        D_800EA06C[playerId].unk00[0] = 0.6f;
-                        D_800EA06C[playerId].unk00[1] = 1478.4615f;
-                        break;
-                    case 3:
-                        D_800EA06C[playerId].unk00[0] = 0.6f;
-                        D_800EA06C[playerId].unk00[1] = 1747.2728f;
-                        break;
-                    case 4:
-                        D_800EA06C[playerId].unk00[0] = 0.2f;
-                        D_800EA06C[playerId].unk00[1] = 2135.5557f;
-                        break;
-                    case 5:
-                    case 7:
-                        D_800EA06C[playerId].unk00[0] = 0.4f;
-                        D_800EA06C[playerId].unk00[1] = 1922.0f;
-                }
+                set_kart_engine_pitch(playerId);
                 if (D_800EA1C0 < 2) {
                     for (var_s0 = 0; var_s0 < D_800EA1C0 + 1; var_s0++) {
-                        soundBits = gPlayers[playerId].characterId + SOUND_ARG_LOAD(0x31, 0x02, 0x80, 0x00);
-                        temp_v0_6 = func_800C1C88(playerId, gPlayers[playerId].pos, gPlayers[playerId].velocity,
-                                                  &gPlayers[playerId].unk_098, var_s0, soundBits);
-                        if (temp_v0_6 != NULL) {
-                            temp_v0_6->unk34 = 40.0f;
-                            play_sound(soundBits, &temp_v0_6->unk18, var_s0, &temp_v0_6->unk2C,
-                                       &D_800EA06C[playerId].unk00[2], (s8*) &D_800EA06C[playerId].unk0C);
-                        }
+                        play_kart_engine(playerId, var_s0);
                     }
                 }
                 break;
@@ -3286,14 +3353,9 @@ void func_800C9D80(Vec3f position, Vec3f velocity, u32 soundBits) {
 }
 
 void func_800C9EF4(Vec3f arg0, u32 soundBits) {
-    Vec3f* temp;
-    u8 i;
-
-    for (i = 0; i < D_800EA1C0 + 1; i++) {
-        temp = func_800C21E8(arg0, soundBits);
-        if (temp != NULL) {
-            func_800C5578(temp, soundBits);
-        }
+    // @port: see func_800C99E0().
+    if (!SoundRollback_CaptureSlotStop(arg0, soundBits, D_800EA1C0 + 1)) {
+        stop_slot_sounds(arg0, soundBits, D_800EA1C0 + 1);
     }
 }
 
@@ -3544,7 +3606,10 @@ void func_800CA984(u8 arg0) {
 
 void func_800CAACC(u8 playerId) {
     if ((u8) D_800EA108 == 0) {
-        func_800C5578(func_800C21E8(gPlayers[playerId].pos, SOUND_ITEM_STAR), SOUND_ITEM_STAR);
+        // @port: see func_800C99E0().
+        if (!SoundRollback_CaptureSlotStop(gPlayers[playerId].pos, SOUND_ITEM_STAR, 1)) {
+            stop_slot_sounds(gPlayers[playerId].pos, SOUND_ITEM_STAR, 1);
+        }
     }
 }
 

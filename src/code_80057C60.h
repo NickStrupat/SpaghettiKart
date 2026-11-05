@@ -52,6 +52,7 @@ void func_80059AC8(void);
 void func_80059024(void);
 void set_one_player_hud_layout(s32 playerId);
 void render_own_view_overlay(s32 playerId);
+u16 speedometer_needle_angle(f32 speed);
 void func_8005902C(void);
 void func_800590D4(void);
 void func_800591B4(void);

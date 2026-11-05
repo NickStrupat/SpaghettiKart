@@ -13,7 +13,9 @@
  *   - the same sound from the same camera, at most a few frames apart, is left playing;
  *   - a sound that is new plays now, a little late;
  *   - a sound that no longer happens is stopped.
- * Music and the continuous sounds (engines) follow the game's state and need none of this.
+ * The simulation's stops are compared the same way: a stop that no longer happens starts what it silenced again (a
+ * shell's hum, the star), and a new one is carried out late.
+ * Music and the continuous sounds (engines, tyres) follow the game's state and need none of this.
  */
 
 #ifdef __cplusplus
@@ -25,6 +27,13 @@ extern "C" {
  * @returns true when it plays later or not at all; false to queue it now.
  */
 bool SoundRollback_Capture(u32 soundBits, Vec3f* position, u8 cameraId, f32* freqScale, f32* volume, s8* reverb);
+/**
+ * Takes a stop the simulation made: func_800C5578(), or func_800C56F0() for every position.
+ * @returns true when it is carried out later or not at all; false to carry it out now.
+ */
+bool SoundRollback_CaptureStop(Vec3f* position, u32 soundBits, bool anyPosition);
+/** Takes a stop of the positional sounds that follow `source` (stop_slot_sounds()), like SoundRollback_CaptureStop(). */
+bool SoundRollback_CaptureSlotStop(const f32* source, u32 soundBits, u8 count);
 
 #ifdef __cplusplus
 }
@@ -50,11 +59,17 @@ void Rollback();
 void Settle(s32 newestFrame);
 
 /**
- * Writes the sounds of every frame as they finally were: "<frame> <sound> <camera>" lines. Peers that hear every
- * camera write the same file however their rollbacks went.
+ * Writes the sounds and stops of every frame as they finally were: "<frame> <sound> <camera>" and
+ * "<frame> stop <sound>" lines. Peers that hear every camera write the same file however their rollbacks went.
  */
 void WriteLog(const std::string& path);
-/** @returns a one-line summary: sounds played, played late and stopped. */
+/**
+ * Plays sounds and stops through a few made-up rollbacks, outside the session's own tracking, during a race (when the
+ * sound banks are on), and every camera is heard.
+ * @returns what went wrong, or an empty string.
+ */
+std::string SelfTest();
+/** @returns a one-line summary: sounds played, played late, stopped and restarted. */
 std::string GetSummary();
 
 } // namespace SoundRollback

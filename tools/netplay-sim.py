@@ -81,15 +81,19 @@ EVENTS = {
     "direct": r"Direct connection to slot \d+ at",
     "direct_lost": r"Direct connection to slot \d+ lost",
     "network_address": r"Slot \d+ can be reached at (?!127\.)",
+    "sound_self_test": r"Test: sound rollback self-test passed",
+    "engines": r"Test: the other players' engines are heard",
 }
 # The game prints each line to stdout, then again through its log; count the plain copy only.
 EVENTS = {event: re.compile(r"^\[Netplay\] " + pattern, re.MULTILINE) for event, pattern in EVENTS.items()}
 
 SCENARIOS = [
-    Scenario("vs-2p", "2 players, versus, two full races, connected directly", 2, "vs", track="mk:luigi_raceway",
-             series_races=2, expect={"races_over": 2, "finishes": 2, "direct": 1}, expect_none=("direct_lost",)),
-    Scenario("vs-4p", "4 players, versus, one full race", 4, "vs", track="mk:mario_raceway", series_races=1,
-             expect={"races_over": 1, "finishes": 3}),
+    Scenario("vs-2p", "2 players, versus, two full races, connected directly; each hears the other's engine", 2, "vs",
+             track="mk:luigi_raceway", series_races=2, peer_env={-1: {"SK_NETPLAY_TEST_ENGINES_AT": "300"}},
+             expect={"races_over": 2, "finishes": 2, "direct": 1, "engines": 1}, expect_none=("direct_lost",)),
+    Scenario("vs-4p", "4 players, versus, one full race; each hears the others' engines", 4, "vs",
+             track="mk:mario_raceway", series_races=1, peer_env={-1: {"SK_NETPLAY_TEST_ENGINES_AT": "300"}},
+             expect={"races_over": 1, "finishes": 3, "engines": 1}),
     Scenario("gp-2p", "2 players and 6 CPUs, the Mushroom Cup twice, with the podium in between", 2, "gp", cup=0,
              races=2, expect={"cups": 2, "races_over": 8, "podiums": 1}, timeout=600),
     Scenario("battle-2p", "2 players, Battle on Block Fort, until one is out", 2, "battle", track="mk:block_fort",
@@ -115,7 +119,8 @@ SCENARIOS = [
              peer_cvars={0: {"gSkipIntro": 1}}, expect={"races_over": 1}),
     Scenario("sounds", "3 random drivers among traffic, each peer hearing every camera; their sounds must agree "
              "however rollbacks changed them", 3, "vs", track="mk:toads_turnpike", frames=4000,
-             peer_env={-1: {"SK_NETPLAY_BOT": "2"}}, cvars={"gNetplay.OwnAudio": 0}, expect={"segments": 1}),
+             peer_env={-1: {"SK_NETPLAY_BOT": "2", "SK_NETPLAY_TEST_SOUND_ROLLBACK_AT": "600"}},
+             cvars={"gNetplay.OwnAudio": 0}, expect={"segments": 1, "sound_self_test": 1}),
     Scenario("relay-only", "2 players, versus, with direct connections turned off: all through the relay", 2, "vs",
              track="mk:moo_moo_farm", series_races=1, cvars={"gNetplay.DirectConnect": 0},
              expect={"races_over": 1}, expect_none=("direct",)),
@@ -281,8 +286,10 @@ def run_scenario(scenario: Scenario, args, run_dir: Path):
         output_path = directory / f"p{i}.out"
         outputs.append(output_path)
         with open(output_path, "w") as output:
-            games.append(subprocess.Popen([str(args.exe)], env=env, stdout=output, stderr=subprocess.STDOUT,
-                                          start_new_session=True))
+            # After a game crashes, macOS asks whether to reopen its windows at the next start, and the game waits
+            # for an answer; this skips that.
+            games.append(subprocess.Popen([str(args.exe), "-ApplePersistenceIgnoreState", "YES"], env=env,
+                                          stdout=output, stderr=subprocess.STDOUT, start_new_session=True))
         # The host creates the room and writes its code; guests wait for it.
         time.sleep(1.0 if i == 0 else 0.3)
 
@@ -331,7 +338,7 @@ def run_scenario(scenario: Scenario, args, run_dir: Path):
     host = texts[0] if texts else ""
     counts = {event: len(pattern.findall(host)) for event, pattern in EVENTS.items()}
     counts["sounds_compared"] = sounds
-    for kind in ("played late", "stopped"):
+    for kind in ("played late", "stopped", "restarted"):
         counts["sounds_" + kind.replace(" ", "_")] = sum(
             int(n) for n in re.findall(r"^\[Netplay\] .*, (\d+) " + kind, host, re.MULTILINE))
     return {
@@ -348,7 +355,7 @@ def run_scenario(scenario: Scenario, args, run_dir: Path):
 def summarize_events(counts):
     parts = []
     for event in ("segments", "laps", "finishes", "eliminations", "races_over", "cups", "podiums", "direct",
-                  "direct_lost", "sounds_compared", "sounds_played_late", "sounds_stopped"):
+                  "direct_lost", "sounds_compared", "sounds_played_late", "sounds_stopped", "sounds_restarted"):
         if counts.get(event):
             parts.append(f"{counts[event]} {event.replace('_', ' ')}")
     return ", ".join(parts)
