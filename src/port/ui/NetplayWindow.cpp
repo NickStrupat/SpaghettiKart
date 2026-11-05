@@ -21,9 +21,9 @@ namespace {
 
 constexpr const char* kWindowName = "Netplay";
 constexpr const char* kWindowCVar = "gNetplay.WindowOpen";
-constexpr const char* kNameCVar = "gNetplay.Name";
-constexpr const char* kRelayCVar = "gNetplay.Relay";
-constexpr const char* kDefaultRelay = "127.0.0.1:7777";
+using Lobby::kDefaultRelay;
+using Lobby::kNameCVar;
+using Lobby::kRelayCVar;
 constexpr const char* kCharacterNames[] = { "Mario", "Luigi", "Yoshi", "Toad", "Donkey Kong", "Wario", "Peach", "Bowser" };
 constexpr const char* kCCNames[] = { "50cc", "100cc", "150cc", "Extra (mirrored)" };
 const ImVec4 kErrorColor = ImVec4(1.0f, 0.45f, 0.45f, 1.0f);
@@ -91,7 +91,7 @@ void DrawConnect() {
     ImGui::Spacing();
 
     if (ImGui::Button("Host a room")) {
-        Lobby::Host(relay, GetPlayerName());
+        Lobby::Host(relay, GetPlayerName(), true);
     }
     ImGui::Spacing();
     ImGui::SetNextItemWidth(120.0f);
@@ -131,7 +131,16 @@ void DrawMembers() {
         ImGui::TableNextColumn();
         ImGui::TextUnformatted(member.Known ? kCharacterNames[member.Character] : "...");
         ImGui::TableNextColumn();
-        if (slot == 0) {
+        if (Lobby::IsSharedConsole()) {
+            const s32 player = Netplay::GetConsolePlayer((u8) slot);
+            if (!member.Known) {
+                ImGui::TextColored(kDimColor, "Connecting");
+            } else if (player < 0) {
+                ImGui::TextColored(kDimColor, "Joins after the race");
+            } else {
+                ImGui::Text("Controller %d%s", player + 1, member.Racing ? ", racing" : "");
+            }
+        } else if (slot == 0) {
             ImGui::TextUnformatted(member.InRace ? "Host, racing" : "Host");
         } else if (!member.Known) {
             ImGui::TextColored(kDimColor, "Connecting");
@@ -242,6 +251,29 @@ void DrawSettings(bool editable) {
     }
 }
 
+/** A room playing on a shared console: everything is picked in the game's own menus. */
+void DrawSharedConsole(bool racing, bool host) {
+    const s32 player = Netplay::GetConsolePlayer((u8) Lobby::GetLocalSlot());
+    if (player >= 0) {
+        ImGui::TextWrapped("Everyone plays on one console, as if your controllers were plugged into it: pick the "
+                           "mode, characters and course in the game's menus. You are controller %d.", player + 1);
+    } else {
+        ImGui::TextWrapped("You join the console when the race in progress is over.");
+    }
+    if (racing) {
+        if (ImGui::Button("Leave race")) {
+            Netplay::LeaveRace();
+        }
+        ImGui::SameLine();
+        ImGui::TextColored(kDimColor, "Everyone goes back to the menus.");
+    }
+    ImGui::Spacing();
+    ImGui::Separator();
+    if (ImGui::Button(host ? "Close room" : "Leave room")) {
+        Lobby::Leave();
+    }
+}
+
 void DrawRoom() {
     const std::string code = Lobby::GetRoomCode();
     ImGui::Text("Room code:");
@@ -261,6 +293,10 @@ void DrawRoom() {
 
     const bool racing = Netplay::IsRaceRunning();
     const bool host = Lobby::IsHost();
+    if (Lobby::IsSharedConsole()) {
+        DrawSharedConsole(racing, host);
+        return;
+    }
     const Lobby::Member& self = Lobby::GetMembers()[Lobby::GetLocalSlot()];
     DrawCharacterChoice(racing || (!host && self.Ready));
     if (!host) {

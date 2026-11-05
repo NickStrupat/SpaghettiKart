@@ -24,7 +24,8 @@ copies built by `tools/macos-build-deps.sh` instead (see `docs/BUILDING.md`). Ch
 Any change to simulation code (anything under `src/` that runs during a race) or to `src/port/netplay/` can break
 determinism, which only shows up between two running games.
 
-1. `python3 tools/netplay-sim.py`: 16 scenarios, about 4 minutes; every one must pass.
+1. `python3 tools/netplay-sim.py`: 21 scenarios, about 5 minutes; every one must pass. Changes to the menus count
+   too: a room's shared console runs them in lockstep.
 2. For relay or protocol changes: `python3 tools/netplay-relay/test_relay.py build-relay/netplay-relay`.
 3. For a new kind of race state, or memory handling: `tools/netplay-stress.sh`, the rollback stress run on every track
    (`SK_DETERMINISM_ROLLBACK=8`, see `src/port/netplay/DeterminismHarness.h`), ideally with the AddressSanitizer build
@@ -44,7 +45,8 @@ compare the start states with `tools/netplay-diff.py`.
 - Test with throwaway settings folders (`SHIP_HOME`); the simulator makes its own. Never edit the owner's own config
   or saves.
 - The owner may be playing the game while you work: stop or capture only processes you started, by their PID, never
-  by name. Capture game windows only, never the whole screen.
+  by name. Capture game windows only, never the whole screen. `SK_TEST_SCREENSHOTS` (see
+  `src/port/netplay/TestScreenshots.h`) saves the game's own frames as PNGs without any screen capture.
 - Match the surrounding code: its comment density, naming and idiom. New netplay code follows the style of the
   existing files in `src/port/netplay/` (doc comments on declarations, plain-language comments on why).
 - Commit messages start with `Netplay: ` for netplay work. Commit and push only when asked.

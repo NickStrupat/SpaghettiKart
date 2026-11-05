@@ -57,6 +57,8 @@ u8 func_800B54EC(s32, s32);
 u8 func_800B5508(s32, s32, s32);
 s32 is_cc_mode_complete(s32);
 s32 has_unlocked_extra_mode(void);
+/** @port Whether this player's own save unlocked Extra mode, whatever a netplay room says. */
+s32 has_unlocked_extra_mode_in_save(void);
 s32 has_completed_extra_mode(void);
 void func_800B559C(s32);
 u8 func_800B578C(s32);

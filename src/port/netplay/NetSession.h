@@ -55,7 +55,12 @@ struct SessionSettings {
     std::function<s32()> GetLatencyMs;
     /** @returns true while packets to this player go through the relay, not straight to it. */
     std::function<bool(s32 player)> IsRelayed;
+    /** The race, or on a shared console only its gameplay settings (IntCVars, FloatCVars). */
     RaceConfig Config;
+    /** A shared console's menus already set up the race: start its session as soon as it has loaded. */
+    bool RaceSetUpByMenus = false;
+    /** The first segment's number. A shared console numbers its menu and race sessions in one sequence. */
+    u32 FirstSegment = 1;
 
     // Testing aids
     std::optional<u32> BotSeed; // Drive the local player with seeded synthetic inputs
@@ -146,6 +151,8 @@ bool IsAtBarrier();
 bool IsHeadingToPodium();
 s32 GetLocalPlayer();
 u32 GetShownFrames();
+/** The segment running now, or the series' last one once it ended. */
+u32 GetSegment();
 /** The local input delay of the race running now, in frames. */
 u8 GetInputDelay();
 /** @returns false unless a race is running. */

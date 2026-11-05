@@ -1,5 +1,5 @@
 /**
- * Netplay relay server: matches players by room code and forwards their packets.
+ * Netplay relay server: lists rooms, matches players by room code and forwards their packets.
  *
  *   netplay-relay [--port 7777] [--delay-ms N] [--jitter-ms N] [--loss PERCENT] [--no-rate-limits]
  *
@@ -43,6 +43,9 @@ constexpr double kCreateBurst = 10.0;
 // Slow enough that guessing a room code (32^6 possibilities) is hopeless.
 constexpr double kJoinsPerSecond = 20.0 / 60.0;
 constexpr double kJoinBurst = 20.0;
+// The ONLINE screen asks again every few seconds while it is open.
+constexpr double kListsPerSecond = 1.0;
+constexpr double kListBurst = 10.0;
 constexpr auto kHousekeepingInterval = std::chrono::seconds(1);
 constexpr auto kRateLimitExpiry = std::chrono::seconds(120);
 
@@ -72,6 +75,9 @@ struct Room {
     RoomCode Code = {};
     BuildId Build = {};
     uint64_t Content = 0;
+    Name HostName = {};
+    bool Racing = false; // From the host's KeepAlive
+    Clock::time_point Created;
     std::array<uint64_t, kMaxSlots> Members = {}; // Client token per slot; 0 when free
 };
 
@@ -104,6 +110,7 @@ struct AddressLimits {
     TokenBucket Packets{ kPacketBurst };
     TokenBucket Creates{ kCreateBurst };
     TokenBucket Joins{ kJoinBurst };
+    TokenBucket Lists{ kListBurst };
 };
 
 void Log(const char* format, ...) {
@@ -194,6 +201,9 @@ class RelayServer {
                     RemoveClient(client->Token, "left");
                 }
                 break;
+            case MessageType::ListRooms:
+                HandleListRooms(reader, from, limits, now);
+                break;
             default:
                 break;
         }
@@ -214,6 +224,8 @@ class RelayServer {
         Room room;
         reader.ReadBytes(room.Build.data(), room.Build.size());
         room.Content = reader.Read64();
+        reader.ReadBytes(room.HostName.data(), room.HostName.size());
+        room.Created = now;
         if (reader.Failed() || AnswerRepeatedRequest(from, request)) {
             return;
         }
@@ -327,8 +339,49 @@ class RelayServer {
             client->SharesAddresses = (flags & kShareAddresses) != 0;
             client->LocalAddress = localAddress;
             client->LocalPort = localPort;
-            SendRoomState(mRooms.at(client->RoomKey), *client, echo);
+            Room& room = mRooms.at(client->RoomKey);
+            if (client->Slot == 0) {
+                room.Racing = (flags & kInRace) != 0;
+            }
+            SendRoomState(room, *client, echo);
         }
+    }
+
+    /** Answers with the joinable rooms of the asker's build and content, newest first. */
+    void HandleListRooms(ByteReader& reader, const udp::endpoint& from, AddressLimits& limits, Clock::time_point now) {
+        const uint32_t request = reader.Read32();
+        BuildId build;
+        reader.ReadBytes(build.data(), build.size());
+        const uint64_t content = reader.Read64();
+        if (reader.Failed()) {
+            return;
+        }
+        if (mOptions.RateLimits && !limits.Lists.Take(kListsPerSecond, kListBurst, now)) {
+            SendError(from, request, ErrorCode::RateLimited);
+            return;
+        }
+        std::vector<const Room*> rooms;
+        for (const auto& [key, room] : mRooms) {
+            const bool hasFreeSlot = std::count(room.Members.begin(), room.Members.end(), 0) > 0;
+            if ((room.Build == build) && (room.Content == content) && hasFreeSlot) {
+                rooms.push_back(&room);
+            }
+        }
+        std::sort(rooms.begin(), rooms.end(), [](const Room* a, const Room* b) { return a->Created > b->Created; });
+        rooms.resize(std::min(rooms.size(), kMaxListedRooms));
+
+        uint8_t packet[kHeaderSize + 4 + 1 + kMaxListedRooms * (kCodeLength + kNameLength + 2)];
+        ByteWriter writer(packet, sizeof(packet));
+        writer.WriteHeader(MessageType::RoomList);
+        writer.Write32(request);
+        writer.Write8((uint8_t) rooms.size());
+        for (const Room* room : rooms) {
+            writer.WriteBytes(room->Code.data(), room->Code.size());
+            writer.WriteBytes(room->HostName.data(), room->HostName.size());
+            writer.Write8((uint8_t) (kMaxSlots - std::count(room->Members.begin(), room->Members.end(), 0)));
+            writer.Write8(room->Racing ? kRoomRacing : 0);
+        }
+        Send(from, packet, writer.GetSize());
     }
 
     /** Looks up the sender of a message and notes that it is alive. Unknown tokens get an error reply. */

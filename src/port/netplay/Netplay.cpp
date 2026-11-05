@@ -14,11 +14,14 @@
 
 #include "HangWatchdog.h"
 #include "Lobby.h"
+#include "MenuSession.h"
 #include "SimArena.h"
+#include "SimState.h"
 #include "NetLog.h"
 #include "NetSession.h"
 #include "RaceConfig.h"
 #include "SoundRollback.h"
+#include "TestScreenshots.h"
 #include "port/Game.h"
 
 extern "C" {
@@ -35,9 +38,26 @@ namespace {
 constexpr u32 kBootFrames = 30;
 // After returning to the menus, let them initialize before loading a race.
 constexpr u32 kMenuSettleFrames = 3;
+// A shared console's last menu session keeps handing out input this long at most, once the race has loaded.
+constexpr auto kMenuHandoverTimeout = std::chrono::seconds(10);
+// The menus wait for every player's input each frame: their input delay covers the latency, plus a frame.
+constexpr u8 kMaxMenuInputDelay = 6;
+constexpr f32 kFrameMs = 1000.0f / 30.0f;
 // Lobby tests watch this much of the podium after a Grand Prix: 15 s.
 constexpr u32 kTestPodiumFrames = 450;
+constexpr s32 kNumControllers = 4;
+// SK_TEST_INPUT holds each button press this many frames, so the menus see it whatever frame they check on.
+constexpr u32 kTestPressFrames = 2;
 constexpr u32 kTestLingerFrames = 60;
+// A shared console test runs the menus this many frames after its races.
+constexpr u32 kTestMenuFramesAfterRaces = 150;
+
+/** A button SK_TEST_INPUT presses, and the game frame it presses it on. */
+struct TestPress {
+    u32 Frame;
+    u16 Button;
+    u32 FramesHeld = 0; // Each press happens once, even when a new console restarts the count
+};
 
 enum class TestMode {
     None,   // Races come from the lobby window
@@ -64,6 +84,9 @@ struct NetplayState {
     std::string LogPath;
 
     // Direct test
+    bool MenuTest = false; // SK_NETPLAY_MENUS: run the menus in lockstep instead of a race
+    u32 MenuTestStartFrame = kBootFrames; // SK_NETPLAY_TEST_MENUS_AT
+    bool MenuTestStarted = false;
     std::vector<std::string> PeerAddresses;
     s32 LocalPlayer = 0;
     RaceConfig Config;
@@ -75,6 +98,11 @@ struct NetplayState {
     // Lobby test
     std::string RelayAddress;
     bool HostRoom = false;
+    bool TestConsole = false; // SK_NETPLAY_CONSOLE: the room plays on a shared console
+    u32 TestJoinAt = 0;       // SK_NETPLAY_TEST_JOIN_AT: a guest joins on this game frame
+    std::vector<u32> TestConsoleSizes; // SK_NETPLAY_TEST_CONSOLE_PLAYERS: consoles to see, in order, before passing
+    size_t TestConsolesSeen = 0;
+    bool LeftOnPurpose = false; // Left the room with Z on a console's Game Select
     std::string RoomCode;
     std::string RoomFile;
     u32 Players = 2;
@@ -85,6 +113,12 @@ struct NetplayState {
     Lobby::Settings TestSettings;
 
     u32 PodiumFrames = 0;
+    std::vector<TestPress> TestInput;        // SK_TEST_INPUT
+    std::vector<TestPress> TestConsoleInput; // SK_TEST_CONSOLE_INPUT
+    bool LocalZHeld = false;          // On a console's Game Select, pressing Z leaves the room
+    bool ReturnToOnlineMenu = false;  // After leaving a room, the menus reset to the ONLINE screen
+    u32 GameFrames = 0;               // Game frames run since boot
+    u32 ConsoleStartFrame = 0;        // SK_TEST_CONSOLE_INPUT counts from the latest shared console's start
     bool TestResetBeforeRace = false;
     u32 TestStartDelay = 0; // Host: frames to idle in the room before starting
     u32 TestMenuAtFrame = 0; // Open the settings menu, as Escape does, on this shown frame of the first race
@@ -101,6 +135,24 @@ struct NetplayState {
 };
 
 NetplayState sNetplay;
+
+/** The shared console this peer plays on (Lobby::ConsoleStart): its menus, then its races, one session at a time. */
+struct ConsoleState {
+    bool Active = false;
+    Lobby::ConsoleStart Start;
+    u32 Segment = 0; // The current or last session's; menu and race sessions share the sequence
+    // Races set up before the menu session started; a menu session that follows a race starts while it fades out.
+    u32 RaceSetupsAtMenus = 0;
+    GameplayCVarOverride CVars;
+    bool AfterPodium = false; // The menus restart from Game Select once the podium is over
+    // The menus loaded a race: their session hands out input until every peer has run the same last menu frame.
+    bool HandoverPending = false;
+    u32 HandoverSegment = 0;
+    s32 HandoverFrame = 0;
+    std::chrono::steady_clock::time_point HandoverStarted;
+};
+
+ConsoleState sConsole;
 
 const char* GetEnv(const char* name) {
     const char* value = getenv(name);
@@ -169,15 +221,82 @@ std::vector<TestControl> ParseTestControls(const char* text) {
     return controls;
 }
 
-void OnSessionEnded();
+/** Parses "Z@60,A@120,R_JPAD@150": a button and the game frame to press it on. */
+std::vector<TestPress> ParseTestInput(const char* text) {
+    static const std::pair<const char*, u16> kButtons[] = {
+        { "A", A_BUTTON },   { "B", B_BUTTON },        { "Z", Z_TRIG },          { "START", START_BUTTON },
+        { "L", L_TRIG },     { "R", R_TRIG },          { "U_JPAD", U_JPAD },     { "D_JPAD", D_JPAD },
+        { "L_JPAD", L_JPAD }, { "R_JPAD", R_JPAD },    { "U_CBUTTONS", U_CBUTTONS }, { "D_CBUTTONS", D_CBUTTONS },
+        { "L_CBUTTONS", L_CBUTTONS }, { "R_CBUTTONS", R_CBUTTONS },
+    };
+    std::vector<TestPress> presses;
+    std::string list = text;
+    size_t start = 0;
+    while (start < list.size()) {
+        const size_t comma = std::min(list.find(',', start), list.size());
+        const std::string item = list.substr(start, comma - start);
+        const size_t at = item.find('@');
+        const std::string name = item.substr(0, at);
+        const u32 frame = (at == std::string::npos) ? 0 : (u32) strtoul(item.c_str() + at + 1, nullptr, 10);
+        for (const auto& [buttonName, button] : kButtons) {
+            if (name == buttonName) {
+                presses.push_back({ frame, button });
+            }
+        }
+        start = comma + 1;
+    }
+    return presses;
+}
 
-void StartDirectRace() {
+void ApplyTestPresses(std::vector<TestPress>& presses, u32 frame, OSContPad* pad) {
+    for (TestPress& press : presses) {
+        if ((frame >= press.Frame) && (press.FramesHeld < kTestPressFrames)) {
+            pad->button |= press.Button;
+            press.FramesHeld++;
+        }
+    }
+}
+
+/** Adds the buttons SK_TEST_INPUT and SK_TEST_CONSOLE_INPUT hold on this game frame to the local pad. */
+void ApplyTestInput(OSContPad* pad) {
+    ApplyTestPresses(sNetplay.TestInput, sNetplay.GameFrames, pad);
+    if (sConsole.Active) {
+        ApplyTestPresses(sNetplay.TestConsoleInput, sNetplay.GameFrames - sNetplay.ConsoleStartFrame, pad);
+    }
+}
+
+void OnSessionEnded();
+void OnConsoleRaceEnded(SessionResult result);
+
+bool OpenDirectSocket() {
     const std::string& ownAddress = sNetplay.PeerAddresses[sNetplay.LocalPlayer];
     const unsigned short port = (unsigned short) atoi(ownAddress.c_str() + ownAddress.rfind(':') + 1);
     try {
         sNetplay.DirectSocket = gekko_default_adapter(port);
     } catch (const std::exception& e) {
         FinishTest(false, "Could not open UDP port " + std::to_string(port) + ": " + e.what());
+        return false;
+    }
+    return true;
+}
+
+/** SK_NETPLAY_MENUS: the direct peers run the menus in lockstep, driven by SK_TEST_INPUT. */
+void StartDirectMenus() {
+    if (!OpenDirectSocket()) {
+        return;
+    }
+    MenuSessionSettings settings;
+    settings.LocalPlayer = sNetplay.LocalPlayer;
+    for (const std::string& address : sNetplay.PeerAddresses) {
+        settings.Addresses.emplace_back(address.begin(), address.end());
+    }
+    settings.GetAdapter = []() { return sNetplay.DirectSocket; };
+    settings.LogPath = sNetplay.LogPath;
+    MenuSession::Start(settings);
+}
+
+void StartDirectRace() {
+    if (!OpenDirectSocket()) {
         return;
     }
 
@@ -232,6 +351,17 @@ void StartLobbyRace(const Lobby::RaceStart& start) {
 void OnSessionEnded() {
     const SessionResult result = NetSession::GetResult();
     const std::string& message = NetSession::GetResultMessage();
+    if (sConsole.Active) {
+        Lobby::SetLastRaceMessage(message);
+        OnConsoleRaceEnded(result);
+        if (sNetplay.Test == TestMode::Lobby) {
+            sNetplay.RacesEnded++;
+            if (!IsSuccess(result)) {
+                FinishTest(false, "");
+            }
+        }
+        return;
+    }
     if (sNetplay.Test == TestMode::Direct) {
         gekko_default_adapter_destroy();
         FinishTest(IsSuccess(result), "");
@@ -360,8 +490,8 @@ void UpdateLobbyTest() {
             if (!Lobby::GetError().empty()) {
                 FinishTest(false, Lobby::GetError());
             } else if (sNetplay.HostRoom) {
-                Lobby::Host(sNetplay.RelayAddress, "Host");
-            } else {
+                Lobby::Host(sNetplay.RelayAddress, "Host", sNetplay.TestConsole);
+            } else if (sNetplay.GameFrames >= sNetplay.TestJoinAt) {
                 const std::string code = sNetplay.RoomCode.empty() ? ReadRoomFile() : sNetplay.RoomCode;
                 if (code.size() == RelayProtocol::kCodeLength) {
                     Lobby::Join(sNetplay.RelayAddress, code, "Guest");
@@ -372,7 +502,11 @@ void UpdateLobbyTest() {
     }
 
     if (state != Lobby::State::InRoom) {
-        FinishTest(false, "Left the room: " + Lobby::GetError());
+        if (sNetplay.LeftOnPurpose) {
+            FinishTest(true, "");
+        } else {
+            FinishTest(false, "Left the room: " + Lobby::GetError());
+        }
         return;
     }
     // The podium waits for a button press, which bots do not make.
@@ -383,6 +517,17 @@ void UpdateLobbyTest() {
         }
     } else {
         sNetplay.PodiumFrames = 0;
+    }
+    if (sNetplay.TestConsole) {
+        // The players drive the console's menus with SK_TEST_INPUT, and bots its races. Once the races are over, the
+        // menus run a little longer, to check they stayed in sync.
+        const bool consolesSeen = sNetplay.TestConsolesSeen == sNetplay.TestConsoleSizes.size();
+        if ((sNetplay.RacesEnded >= sNetplay.Races) && consolesSeen && MenuSession::IsRunning() &&
+            (MenuSession::GetFrames() >= kTestMenuFramesAfterRaces)) {
+            NetLog("Test: menus in sync for %u frames after the races", MenuSession::GetFrames());
+            FinishTest(true, "");
+        }
+        return;
     }
     const Lobby::Member& self = Lobby::GetMembers()[Lobby::GetLocalSlot()];
     const bool racing = NetSession::IsActive() || sNetplay.PendingRace.has_value();
@@ -401,6 +546,172 @@ void UpdateLobbyTest() {
     }
 }
 
+std::vector<std::vector<u8>> GetConsoleAddresses() {
+    std::vector<std::vector<u8>> addresses;
+    for (u8 slot : sConsole.Start.Slots) {
+        addresses.push_back({ slot });
+    }
+    return addresses;
+}
+
+std::string GetConsoleLogPath(u32 segment) {
+    if (sNetplay.LogPath.empty()) {
+        return "";
+    }
+    return sNetplay.LogPath + ".console" + std::to_string(sConsole.Start.Id) + ".seg" + std::to_string(segment);
+}
+
+u8 ChooseMenuInputDelay() {
+    const s32 latencyMs = Lobby::GetLatencyMs(sConsole.Start.Slots);
+    if (latencyMs < 0) {
+        return 2;
+    }
+    return (u8) std::min((s32) (latencyMs / kFrameMs) + 1, (s32) kMaxMenuInputDelay);
+}
+
+void StartConsoleMenus(u32 segment, bool resetToGameSelect) {
+    sConsole.Segment = segment;
+    MenuSessionSettings settings;
+    settings.LocalPlayer = sConsole.Start.LocalPlayer;
+    settings.Addresses = GetConsoleAddresses();
+    const u32 id = sConsole.Start.Id;
+    settings.GetAdapter = [id, segment]() { return Lobby::GetGekkoAdapter(id, segment); };
+    settings.InputDelay = ChooseMenuInputDelay();
+    settings.ResetToGameSelect = resetToGameSelect;
+    settings.LogPath = GetConsoleLogPath(segment);
+    // Races set up from these menus build in the sim arena, for rollback.
+    SimState_SetRollbackMode(true);
+    sConsole.RaceSetupsAtMenus = SimState_GetRaceSetupCount();
+    MenuSession::Start(settings);
+}
+
+/** The menus have just loaded a race: its rollback session takes over before it runs a frame. */
+void StartConsoleRace(u32 segment) {
+    SessionSettings settings;
+    settings.LocalPlayer = sConsole.Start.LocalPlayer;
+    settings.Addresses = GetConsoleAddresses();
+    const u32 id = sConsole.Start.Id;
+    settings.GetAdapter = [id](u32 raceSegment) { return Lobby::GetGekkoAdapter(id, raceSegment); };
+    settings.ReachBarrier = [id](u32 raceSegment, s32 frame) { Lobby::ReachBarrier(id, raceSegment, frame); };
+    settings.GetBarrierStatus = [id](u32 raceSegment, s32 frame) {
+        return Lobby::GetBarrierStatus(id, raceSegment, frame);
+    };
+    settings.IsRelayed = [slots = sConsole.Start.Slots](s32 player) { return !Lobby::IsDirect(slots[player]); };
+    settings.GetLatencyMs = [slots = sConsole.Start.Slots]() {
+        const s32 latency = Lobby::GetLatencyMs(slots);
+        return (latency < 0) ? latency : latency + (s32) (sNetplay.DelayMs + sNetplay.JitterMs / 2);
+    };
+    settings.Config = sConsole.Start.Rules;
+    settings.RaceSetUpByMenus = true;
+    settings.FirstSegment = segment;
+    if (sNetplay.Test == TestMode::Lobby) {
+        ApplyTestOptions(&settings, (sConsole.Start.Id + segment) * 0x9E3779B9u * (u32) (settings.LocalPlayer + 1));
+        if (!settings.LogPath.empty()) {
+            // Named like a lobby race's, for tools/netplay-sim.py; segments number on through the console.
+            settings.LogPath += ".race" + std::to_string(sConsole.Start.Id);
+        }
+    }
+    sConsole.Segment = segment;
+    NetSession::Start(settings);
+}
+
+void StartConsole(const Lobby::ConsoleStart& start) {
+    MenuSession::Stop("A new console started");
+    NetSession::Stop(SessionResult::PeerLeft, "A new console started");
+    sConsole.Start = start;
+    sConsole.Active = true;
+    sConsole.AfterPodium = false;
+    sConsole.HandoverPending = false;
+    sConsole.CVars.Apply(start.Rules);
+    const std::vector<u32>& sizes = sNetplay.TestConsoleSizes;
+    if ((sNetplay.TestConsolesSeen < sizes.size()) && (start.Slots.size() == sizes[sNetplay.TestConsolesSeen])) {
+        sNetplay.TestConsolesSeen++;
+    }
+    // Each player's console test input says what to do on any console, from its start.
+    sNetplay.ConsoleStartFrame = sNetplay.GameFrames;
+    for (TestPress& press : sNetplay.TestConsoleInput) {
+        press.FramesHeld = 0;
+    }
+    NetLog("Console %u: player %d of %zu", start.Id, start.LocalPlayer + 1, start.Slots.size());
+    StartConsoleMenus(1, true);
+}
+
+void EndConsole() {
+    if (!sConsole.Active) {
+        return;
+    }
+    NetLog("Console %u ended", sConsole.Start.Id);
+    MenuSession::Stop("Left the console");
+    NetSession::Stop(SessionResult::PeerLeft, "Left the console");
+    sConsole.CVars.Restore();
+    sConsole.Active = false;
+    SimState_SetRollbackMode(false);
+    sNetplay.ReturnToOnlineMenu = true;
+    CM_RequestReset();
+}
+
+/** A console race series ended: the menus go on from where it left them, the same on every peer. */
+void OnConsoleRaceEnded(SessionResult result) {
+    const u32 next = NetSession::GetSegment() + 1;
+    if (NetSession::IsHeadingToPodium()) {
+        sConsole.AfterPodium = true;
+        sConsole.Segment = next;
+    } else if (IsSuccess(result)) {
+        StartConsoleMenus(next, false);
+    } else {
+        // A player left or the games went out of sync: everyone starts over from Game Select. If a player left, the
+        // host starts a new console without it.
+        StartConsoleMenus(next, true);
+    }
+}
+
+bool IsMenuGamestate(s32 gamestate) {
+    return (gamestate == START_MENU_FROM_QUIT) || (gamestate == MAIN_MENU_FROM_QUIT) ||
+           (gamestate == PLAYER_SELECT_MENU_FROM_QUIT) || (gamestate == COURSE_SELECT_MENU_FROM_QUIT);
+}
+
+bool IsOnGameSelect() {
+    return IsMenuGamestate(gGamestate) && (gMenuSelection == MAIN_MENU) &&
+           (gMainMenuSelection == MAIN_MENU_PLAYER_SELECT);
+}
+
+/** Starts, hands over and ends the shared console's sessions. Runs before the sessions' own frame updates. */
+void UpdateConsole() {
+    if (std::optional<Lobby::ConsoleStart> start = Lobby::TakeConsoleStart()) {
+        StartConsole(*start);
+    }
+    if (sConsole.Active && !Lobby::IsSharedConsole()) {
+        EndConsole();
+    }
+    if (!sConsole.Active) {
+        return;
+    }
+    if (MenuSession::IsRunning() && !MenuSession::IsFrozen() && (gGamestate == RACING) &&
+        (SimState_GetRaceSetupCount() != sConsole.RaceSetupsAtMenus)) {
+        sConsole.HandoverPending = true;
+        sConsole.HandoverSegment = sConsole.Segment;
+        sConsole.HandoverFrame = (s32) MenuSession::GetFrames();
+        sConsole.HandoverStarted = std::chrono::steady_clock::now();
+        MenuSession::Freeze();
+        Lobby::ReachBarrier(sConsole.Start.Id, sConsole.HandoverSegment, sConsole.HandoverFrame);
+        StartConsoleRace(sConsole.Segment + 1);
+    }
+    if (sConsole.HandoverPending) {
+        const BarrierStatus status =
+            Lobby::GetBarrierStatus(sConsole.Start.Id, sConsole.HandoverSegment, sConsole.HandoverFrame);
+        if ((status != BarrierStatus::Waiting) ||
+            (std::chrono::steady_clock::now() - sConsole.HandoverStarted > kMenuHandoverTimeout)) {
+            sConsole.HandoverPending = false;
+            MenuSession::Stop("Every player is racing");
+        }
+    }
+    if (sConsole.AfterPodium && IsMenuGamestate(gGamestate)) {
+        sConsole.AfterPodium = false;
+        StartConsoleMenus(sConsole.Segment, true);
+    }
+    Lobby::SetRacing(NetSession::IsActive());
+}
+
 void InitDirectTest(const char* peers) {
     std::string list = peers;
     size_t start = 0;
@@ -417,6 +728,8 @@ void InitDirectTest(const char* peers) {
         return;
     }
     sNetplay.Config = RaceConfig::FromEnvironment("SK_NETPLAY_", (s8) sNetplay.PeerAddresses.size());
+    sNetplay.MenuTest = GetEnvU32("SK_NETPLAY_MENUS", 0) != 0;
+    sNetplay.MenuTestStartFrame = std::max(GetEnvU32("SK_NETPLAY_TEST_MENUS_AT", kBootFrames), kBootFrames);
     sNetplay.Test = TestMode::Direct;
 }
 
@@ -432,6 +745,15 @@ void InitLobbyTest(const char* relay) {
     if (!sNetplay.HostRoom && sNetplay.RoomCode.empty() && sNetplay.RoomFile.empty()) {
         FinishTest(false, "A guest needs SK_NETPLAY_ROOM or SK_NETPLAY_ROOM_FILE");
         return;
+    }
+    sNetplay.TestConsole = GetEnvU32("SK_NETPLAY_CONSOLE", 0) != 0;
+    sNetplay.TestJoinAt = GetEnvU32("SK_NETPLAY_TEST_JOIN_AT", 0);
+    if (const char* sizes = GetEnv("SK_NETPLAY_TEST_CONSOLE_PLAYERS")) {
+        for (const char* size = sizes; *size != 0; size++) {
+            if (isdigit((unsigned char) *size)) {
+                sNetplay.TestConsoleSizes.push_back((u32) (*size - '0'));
+            }
+        }
     }
     sNetplay.Players = GetEnvU32("SK_NETPLAY_PLAYERS", 2);
     sNetplay.Races = GetEnvU32("SK_NETPLAY_RACES", 1);
@@ -449,6 +771,17 @@ void InitLobbyTest(const char* relay) {
 
 extern "C" void Netplay_Init(void) {
     HangWatchdog::Start();
+    SimState_CaptureBootState();
+    TestScreenshots::Init();
+    if (const char* input = GetEnv("SK_TEST_INPUT")) {
+        sNetplay.TestInput = ParseTestInput(input);
+    }
+    if (const char* input = GetEnv("SK_TEST_CONSOLE_INPUT")) {
+        sNetplay.TestConsoleInput = ParseTestInput(input);
+    }
+    if (const char* logPath = GetEnv("SK_NETPLAY_LOG")) {
+        sNetplay.LogPath = logPath;
+    }
     if (const char* peers = GetEnv("SK_NETPLAY_PEERS")) {
         InitDirectTest(peers);
     } else if (const char* relay = GetEnv("SK_NETPLAY_RELAY")) {
@@ -465,9 +798,6 @@ extern "C" void Netplay_Init(void) {
     sNetplay.JitterMs = GetEnvU32("SK_NETPLAY_JITTER_MS", 0);
     sNetplay.LossPercent = GetEnvU32("SK_NETPLAY_LOSS", 0);
     sNetplay.DesyncAtFrame = GetEnvU32("SK_NETPLAY_DESYNC_AT", 0);
-    if (const char* logPath = GetEnv("SK_NETPLAY_LOG")) {
-        sNetplay.LogPath = logPath;
-    }
     sNetplay.TestResetBeforeRace = GetEnvU32("SK_NETPLAY_TEST_RESET", 0) != 0;
     sNetplay.TestStartDelay = GetEnvU32("SK_NETPLAY_TEST_START_DELAY", 0);
     sNetplay.TestMenuAtFrame = GetEnvU32("SK_NETPLAY_TEST_MENU_AT", 0);
@@ -503,9 +833,32 @@ s32 FindSilentEngine() {
 } // namespace
 
 extern "C" void Netplay_BeginFrame(void) {
+    TestScreenshots::BeginFrame();
     Lobby::Update();
     HandleRaceEndedElsewhere();
+    UpdateConsole();
     NetSession::BeginFrame();
+    if (MenuSession::IsActive()) {
+        OSContPad pads[kNumControllers];
+        osContGetReadData(pads);
+        ApplyTestInput(&pads[0]);
+        // On Game Select, Z leaves the room: this player's own choice, never sent to the others.
+        const bool zPressed = ((pads[0].button & Z_TRIG) != 0) && !sNetplay.LocalZHeld;
+        sNetplay.LocalZHeld = (pads[0].button & Z_TRIG) != 0;
+        if (sConsole.Active && IsOnGameSelect()) {
+            pads[0].button &= ~Z_TRIG;
+            if (zPressed) {
+                NetLog("Leaving the room");
+                play_sound2(SOUND_MENU_GO_BACK);
+                sNetplay.LeftOnPurpose = true;
+                Lobby::Leave();
+            }
+        }
+        MenuSession::BeginFrame(pads[0]);
+        if (!MenuSession::IsActive() && (sNetplay.Test == TestMode::Direct)) {
+            FinishTest(false, "");
+        }
+    }
     HangWatchdog::Beat((Lobby::GetState() != Lobby::State::Offline) || NetSession::IsActive());
     if ((sNetplay.TestHangAtFrame > 0) && (NetSession::GetShownFrames() == sNetplay.TestHangAtFrame)) {
         sNetplay.TestHangAtFrame = 0;
@@ -548,8 +901,50 @@ extern "C" bool Netplay_IsInRace(void) {
     return NetSession::IsInRace();
 }
 
+extern "C" bool Netplay_IsWaitingForMenuInput(void) {
+    return MenuSession::IsWaiting();
+}
+
+extern "C" s32 Netplay_GetExtraMode(s32 unlockedInSave) {
+    return sConsole.Active ? (sConsole.Start.ExtraMode ? 1 : 0) : unlockedInSave;
+}
+
+extern "C" bool Netplay_IsSharedConsole(void) {
+    return sConsole.Active;
+}
+
+extern "C" s32 Netplay_GetResetMenu(s32 menu) {
+    if (sConsole.Active || MenuSession::IsActive()) {
+        return MAIN_MENU;
+    }
+    if (sNetplay.ReturnToOnlineMenu || (Lobby::GetState() != Lobby::State::Offline)) {
+        sNetplay.ReturnToOnlineMenu = false;
+        return ONLINE_MENU;
+    }
+    return menu;
+}
+
 extern "C" bool Netplay_ConsumeLocalPads(OSContPad* pads) {
-    return NetSession::ConsumeLocalPads(pads);
+    if (NetSession::ConsumeLocalPads(pads)) {
+        return true;
+    }
+    if (MenuSession::TakePads(pads)) {
+        for (s32 i = 0; i < kNumControllers; i++) {
+            apply_pad_to_controller(&gControllers[i], &pads[i]);
+        }
+        combine_controllers();
+        return true;
+    }
+    if (!sNetplay.TestInput.empty() || !sNetplay.TestConsoleInput.empty()) {
+        // Applied here: the game skips controller 1 when no gamepad is connected, as in unattended tests.
+        ApplyTestInput(&pads[0]);
+        for (s32 i = 0; i < kNumControllers; i++) {
+            apply_pad_to_controller(&gControllers[i], &pads[i]);
+        }
+        combine_controllers();
+        return true;
+    }
+    return false;
 }
 
 extern "C" void Netplay_RunRaceFrame(void) {
@@ -558,6 +953,14 @@ extern "C" void Netplay_RunRaceFrame(void) {
 
 extern "C" void Netplay_EndFrame(void) {
     NetSession::EndFrame();
+    MenuSession::EndFrame();
+    TestScreenshots::EndFrame(sNetplay.GameFrames);
+    sNetplay.GameFrames++;
+    if (sNetplay.MenuTest && MenuSession::IsRunning() && (sNetplay.TotalFrames > 0) &&
+        (MenuSession::GetFrames() >= sNetplay.TotalFrames)) {
+        MenuSession::Stop("Test complete");
+        FinishTest(true, "");
+    }
     if (sNetplay.SessionWasActive && !NetSession::IsActive()) {
         OnSessionEnded();
     }
@@ -565,9 +968,15 @@ extern "C" void Netplay_EndFrame(void) {
     if (sNetplay.BootFramesLeft > 0) {
         // Start the direct test after this frame's menu update, which would otherwise overwrite the track selection.
         if ((--sNetplay.BootFramesLeft == 0) && (sNetplay.Test == TestMode::Direct) && !sNetplay.Finished) {
-            StartDirectRace();
+            if (!sNetplay.MenuTest) {
+                StartDirectRace();
+            }
         }
     } else {
+        if (sNetplay.MenuTest && !sNetplay.MenuTestStarted && (sNetplay.GameFrames >= sNetplay.MenuTestStartFrame)) {
+            sNetplay.MenuTestStarted = true;
+            StartDirectMenus();
+        }
         if (sNetplay.Test == TestMode::Lobby) {
             UpdateLobbyTest();
         }
@@ -595,6 +1004,8 @@ extern "C" s32 Netplay_GetExitCode(void) {
 
 extern "C" void Netplay_Shutdown(void) {
     NetSession::Stop(SessionResult::PeerLeft, "The game closed");
+    MenuSession::Stop("The game closed");
+    sConsole.CVars.Restore();
     Lobby::Leave();
     HangWatchdog::Stop();
 }
@@ -611,6 +1022,15 @@ void RestartRace() {
 
 bool CanRestartRace() {
     return NetSession::CanRestart();
+}
+
+s32 GetConsolePlayer(u8 slot) {
+    if (!sConsole.Active) {
+        return -1;
+    }
+    const std::vector<u8>& slots = sConsole.Start.Slots;
+    const auto it = std::find(slots.begin(), slots.end(), slot);
+    return (it == slots.end()) ? -1 : (s32) (it - slots.begin());
 }
 
 bool IsRaceRunning() {

@@ -29,6 +29,9 @@ namespace {
 constexpr u8 kLobbyChannel = 1;
 constexpr u8 kGekkoChannel = 2;
 constexpr size_t kGekkoHeaderSize = 3; // Channel, session tag
+// GekkoNet sessions that can run at once, each with its own tag: a shared console's last menu session finishes while
+// its race's session starts.
+constexpr size_t kNumGekkoLanes = 2;
 constexpr auto kRequestRetryInterval = std::chrono::milliseconds(500);
 constexpr auto kRequestTimeout = std::chrono::seconds(10);
 constexpr auto kConnectionTimeout = std::chrono::seconds(10);
@@ -39,6 +42,15 @@ constexpr auto kPunchInterval = std::chrono::milliseconds(250);
 constexpr auto kPunchKeepAliveInterval = std::chrono::milliseconds(500);
 // A direct connection silent for this long is given up for the relay, well before GekkoNet's 5 s disconnect.
 constexpr auto kDirectTimeout = std::chrono::milliseconds(1500);
+
+/** One GekkoNet session's packets: the tag they carry, and those received for it. */
+struct GekkoLane {
+    bool Used = false;
+    u16 Tag = 0;
+    u32 LastRequest = 0; // When GetGekkoAdapter() last handed it out; the least recent one is reused
+    std::vector<GekkoNetResult*> Packets;
+    std::vector<GekkoNetResult*> HandedOut;
+};
 
 /** Another member, as far as connecting to it directly goes. */
 struct Peer {
@@ -99,6 +111,8 @@ struct RelayClient::Impl {
     RoomCode Code = {};
     BuildId Build = {};
     u64 Content = 0;
+    Name HostName = {};
+    bool InRace = false;
     u32 Request = 0;
     Clock::time_point RequestStarted;
     Clock::time_point LastRequestSent;
@@ -120,9 +134,8 @@ struct RelayClient::Impl {
     Clock::time_point Epoch = Clock::now();
 
     std::vector<LobbyPacket> LobbyPackets;
-    u16 GekkoTag = 0;
-    std::vector<GekkoNetResult*> GekkoPackets;
-    std::vector<GekkoNetResult*> GekkoHandedOut;
+    std::array<GekkoLane, kNumGekkoLanes> GekkoLanes;
+    u32 GekkoRequests = 0;
 
     std::mt19937 Random{ std::random_device{}() };
 
@@ -130,13 +143,15 @@ struct RelayClient::Impl {
         FreeGekkoPackets();
     }
 
-    void Start(const std::string& address, bool creating, const RoomCode& code, const BuildId& build, u64 content) {
+    void Start(const std::string& address, bool creating, const RoomCode& code, const BuildId& build, u64 content,
+               const std::string& hostName) {
         Close();
         Address = address;
         Creating = creating;
         Code = code;
         Build = build;
         Content = content;
+        HostName = MakeName(hostName);
         Error.clear();
         State = Status::Resolving;
         Resolving = std::async(std::launch::async, Resolve, address);
@@ -171,10 +186,16 @@ struct RelayClient::Impl {
     }
 
     void FreeGekkoPackets() {
-        for (GekkoNetResult* packet : GekkoPackets) {
+        for (GekkoLane& lane : GekkoLanes) {
+            FreeGekkoPackets(lane);
+        }
+    }
+
+    static void FreeGekkoPackets(GekkoLane& lane) {
+        for (GekkoNetResult* packet : lane.Packets) {
             FreeGekkoPacket(packet);
         }
-        GekkoPackets.clear();
+        lane.Packets.clear();
     }
 
     static void FreeGekkoPacket(GekkoNetResult* packet) {
@@ -191,7 +212,7 @@ struct RelayClient::Impl {
     }
 
     void SendRequest(Clock::time_point now) {
-        u8 packet[kHeaderSize + 4 + kCodeLength + kBuildIdLength + 8];
+        u8 packet[kHeaderSize + 4 + kCodeLength + kBuildIdLength + 8 + kNameLength];
         ByteWriter writer(packet, sizeof(packet));
         writer.WriteHeader(Creating ? MessageType::Create : MessageType::Join);
         writer.Write32(Request);
@@ -200,6 +221,9 @@ struct RelayClient::Impl {
         }
         writer.WriteBytes(Build.data(), Build.size());
         writer.Write64(Content);
+        if (Creating) {
+            writer.WriteBytes(HostName.data(), HostName.size());
+        }
         SendToRelay(packet, writer.GetSize());
         LastRequestSent = now;
     }
@@ -264,7 +288,7 @@ struct RelayClient::Impl {
                 writer.Write64(Token);
                 // 0 means "not an answer to a keep-alive" in RoomState, so never send it.
                 writer.Write32(GetMilliseconds(now) | 1);
-                writer.Write8(DirectEnabled ? kShareAddresses : 0);
+                writer.Write8((DirectEnabled ? kShareAddresses : 0) | (InRace ? kInRace : 0));
                 const bool hasLocal = LocalEndpoint.address().is_v4();
                 writer.Write32(hasLocal ? LocalEndpoint.address().to_v4().to_uint() : 0);
                 writer.Write16(hasLocal ? LocalEndpoint.port() : 0);
@@ -561,13 +585,15 @@ struct RelayClient::Impl {
             LobbyPackets.push_back({ source, std::vector<u8>(payload, payload + reader.GetRemainingSize()) });
         } else if (channel == kGekkoChannel) {
             const u16 tag = reader.Read16();
-            if (!reader.Failed() && (tag == GekkoTag)) {
-                QueueGekkoPacket(source, reader.GetRemaining(), reader.GetRemainingSize());
+            for (GekkoLane& lane : GekkoLanes) {
+                if (!reader.Failed() && lane.Used && (tag == lane.Tag)) {
+                    QueueGekkoPacket(lane, source, reader.GetRemaining(), reader.GetRemainingSize());
+                }
             }
         }
     }
 
-    void QueueGekkoPacket(u8 source, const u8* data, size_t size) {
+    static void QueueGekkoPacket(GekkoLane& lane, u8 source, const u8* data, size_t size) {
         GekkoNetResult* packet = static_cast<GekkoNetResult*>(malloc(sizeof(GekkoNetResult)));
         packet->addr.size = 1;
         packet->addr.data = malloc(1);
@@ -575,7 +601,7 @@ struct RelayClient::Impl {
         packet->data_len = (unsigned int) size;
         packet->data = malloc(size > 0 ? size : 1);
         memcpy(packet->data, data, size);
-        GekkoPackets.push_back(packet);
+        lane.Packets.push_back(packet);
     }
 
     /** Sends directly to a member reached that way, or through the relay. */
@@ -607,36 +633,41 @@ struct RelayClient::Impl {
 
 namespace {
 
-// GekkoNet's adapter is a table of plain functions, so they reach the client through this.
+// GekkoNet's adapter is a table of plain functions, so they reach the client through this, and each lane has its own.
 RelayClient::Impl* sGekkoClient = nullptr;
 
-void GekkoSend(GekkoNetAddress* address, const char* data, int length) {
+template <size_t Lane> void GekkoSend(GekkoNetAddress* address, const char* data, int length) {
     if ((sGekkoClient == nullptr) || (address->size != 1)) {
         return;
     }
-    const u8 header[kGekkoHeaderSize] = { kGekkoChannel, (u8) sGekkoClient->GekkoTag,
-                                          (u8) (sGekkoClient->GekkoTag >> 8) };
+    const u16 tag = sGekkoClient->GekkoLanes[Lane].Tag;
+    const u8 header[kGekkoHeaderSize] = { kGekkoChannel, (u8) tag, (u8) (tag >> 8) };
     sGekkoClient->SendPayload(*static_cast<const u8*>(address->data), header, sizeof(header), data, (size_t) length);
 }
 
-GekkoNetResult** GekkoReceive(int* length) {
+template <size_t Lane> GekkoNetResult** GekkoReceive(int* length) {
     if (sGekkoClient == nullptr) {
         *length = 0;
         return nullptr;
     }
     sGekkoClient->Receive(Clock::now());
     // GekkoNet frees each packet with GekkoFree; the array stays ours until the next call.
-    sGekkoClient->GekkoHandedOut.swap(sGekkoClient->GekkoPackets);
-    sGekkoClient->GekkoPackets.clear();
-    *length = (int) sGekkoClient->GekkoHandedOut.size();
-    return sGekkoClient->GekkoHandedOut.data();
+    GekkoLane& lane = sGekkoClient->GekkoLanes[Lane];
+    lane.HandedOut.swap(lane.Packets);
+    lane.Packets.clear();
+    *length = (int) lane.HandedOut.size();
+    return lane.HandedOut.data();
 }
 
 void GekkoFree(void* data) {
     free(data);
 }
 
-GekkoNetAdapter sGekkoAdapter = { GekkoSend, GekkoReceive, GekkoFree };
+std::array<GekkoNetAdapter, kNumGekkoLanes> sGekkoAdapters = { {
+    { GekkoSend<0>, GekkoReceive<0>, GekkoFree },
+    { GekkoSend<1>, GekkoReceive<1>, GekkoFree },
+} };
+static_assert(kNumGekkoLanes == 2, "one adapter per lane");
 
 } // namespace
 
@@ -650,8 +681,9 @@ RelayClient::~RelayClient() {
     }
 }
 
-void RelayClient::Create(const std::string& relayAddress, const BuildId& build, u64 content) {
-    mImpl->Start(relayAddress, true, {}, build, content);
+void RelayClient::Create(const std::string& relayAddress, const BuildId& build, u64 content,
+                         const std::string& hostName) {
+    mImpl->Start(relayAddress, true, {}, build, content, hostName);
 }
 
 void RelayClient::Join(const std::string& relayAddress, const std::string& code, const BuildId& build, u64 content) {
@@ -659,7 +691,7 @@ void RelayClient::Join(const std::string& relayAddress, const std::string& code,
     for (size_t i = 0; (i < roomCode.size()) && (i < code.size()); i++) {
         roomCode[i] = (char) toupper((unsigned char) code[i]);
     }
-    mImpl->Start(relayAddress, false, roomCode, build, content);
+    mImpl->Start(relayAddress, false, roomCode, build, content, "");
 }
 
 void RelayClient::Leave() {
@@ -699,6 +731,10 @@ void RelayClient::SetDirectEnabled(bool enabled) {
     mImpl->DirectEnabled = enabled;
 }
 
+void RelayClient::SetInRace(bool inRace) {
+    mImpl->InRace = inRace;
+}
+
 void RelayClient::BlockDirectAfter(u32 milliseconds) {
     mImpl->BlockDirectAfter = std::chrono::milliseconds(milliseconds);
 }
@@ -723,10 +759,185 @@ std::vector<RelayClient::LobbyPacket> RelayClient::TakeLobbyPackets() {
 }
 
 GekkoNetAdapter* RelayClient::GetGekkoAdapter(u16 sessionTag) {
-    if (mImpl->GekkoTag != sessionTag) {
-        mImpl->FreeGekkoPackets();
-        mImpl->GekkoTag = sessionTag;
-    }
     sGekkoClient = mImpl.get();
-    return &sGekkoAdapter;
+    auto& lanes = mImpl->GekkoLanes;
+    size_t chosen = 0;
+    for (size_t i = 0; i < lanes.size(); i++) {
+        if (lanes[i].Used && (lanes[i].Tag == sessionTag)) {
+            chosen = i;
+            break;
+        }
+        // Otherwise the lane handed out least recently: the older of the sessions that may still run.
+        if (!lanes[i].Used || (lanes[chosen].Used && (lanes[i].LastRequest < lanes[chosen].LastRequest))) {
+            chosen = i;
+        }
+    }
+    GekkoLane& lane = lanes[chosen];
+    if (!lane.Used || (lane.Tag != sessionTag)) {
+        Impl::FreeGekkoPackets(lane);
+        lane.Used = true;
+        lane.Tag = sessionTag;
+    }
+    lane.LastRequest = ++mImpl->GekkoRequests;
+    return &sGekkoAdapters[chosen];
+}
+
+struct RelayRoomList::Impl {
+    asio::io_context Io;
+    std::unique_ptr<udp::socket> Socket;
+    std::string Address;
+    udp::endpoint Relay;
+    std::optional<std::future<ResolveResult>> Resolving;
+    BuildId Build = {};
+    u64 Content = 0;
+    u32 Request = 0;
+    bool Busy = false;
+    Clock::time_point RequestStarted;
+    Clock::time_point LastRequestSent;
+    bool HasList = false;
+    std::vector<Room> Rooms;
+    std::string Error;
+    std::mt19937 Random{ std::random_device{}() };
+
+    void SendRequest(Clock::time_point now) {
+        u8 packet[kHeaderSize + 4 + kBuildIdLength + 8];
+        ByteWriter writer(packet, sizeof(packet));
+        writer.WriteHeader(MessageType::ListRooms);
+        writer.Write32(Request);
+        writer.WriteBytes(Build.data(), Build.size());
+        writer.Write64(Content);
+        asio::error_code error;
+        Socket->send_to(asio::buffer(packet, writer.GetSize()), Relay, 0, error);
+        LastRequestSent = now;
+    }
+
+    void Fail(const std::string& error) {
+        Error = error;
+        Busy = false;
+    }
+
+    void Update() {
+        const Clock::time_point now = Clock::now();
+        if (Resolving.has_value()) {
+            if (Resolving->wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+                return;
+            }
+            const ResolveResult result = Resolving->get();
+            Resolving.reset();
+            if (!result.Error.empty()) {
+                Address.clear();
+                Fail(result.Error);
+                return;
+            }
+            try {
+                Socket = std::make_unique<udp::socket>(Io, udp::endpoint(udp::v4(), 0));
+                Socket->non_blocking(true);
+            } catch (const std::exception& e) {
+                Address.clear();
+                Fail(std::string("Could not open a network socket: ") + e.what());
+                return;
+            }
+            Relay = result.Endpoint;
+            SendRequest(now);
+        }
+        if (Socket == nullptr) {
+            return;
+        }
+        u8 buffer[2048];
+        udp::endpoint sender;
+        while (true) {
+            asio::error_code error;
+            const size_t size = Socket->receive_from(asio::buffer(buffer), sender, 0, error);
+            if (error == asio::error::would_block) {
+                break;
+            }
+            if (!error && (sender == Relay)) {
+                Handle(buffer, size);
+            }
+        }
+        if (Busy && (now - RequestStarted > kRequestTimeout)) {
+            Fail("No answer from the relay server at " + Address + " (is it running, and as new as the game?)");
+        } else if (Busy && (now - LastRequestSent > kRequestRetryInterval)) {
+            SendRequest(now);
+        }
+    }
+
+    void Handle(const u8* data, size_t size) {
+        ByteReader reader(data, size);
+        MessageType type;
+        if (!reader.ReadHeader(&type) || !Busy || (reader.Read32() != Request)) {
+            return;
+        }
+        if (type == MessageType::Error) {
+            Fail(GetErrorText((ErrorCode) reader.Read8()));
+            return;
+        }
+        if (type != MessageType::RoomList) {
+            return;
+        }
+        const u8 count = reader.Read8();
+        std::vector<Room> rooms;
+        for (u8 i = 0; i < count; i++) {
+            RoomCode code;
+            reader.ReadBytes(code.data(), code.size());
+            Name name;
+            reader.ReadBytes(name.data(), name.size());
+            Room room;
+            room.Code = std::string(code.data(), code.size());
+            room.HostName = ToString(name);
+            room.Members = reader.Read8();
+            room.Racing = (reader.Read8() & kRoomRacing) != 0;
+            rooms.push_back(room);
+        }
+        if (reader.Failed()) {
+            return;
+        }
+        Rooms = rooms;
+        HasList = true;
+        Error.clear();
+        Busy = false;
+    }
+};
+
+RelayRoomList::RelayRoomList() : mImpl(std::make_unique<Impl>()) {
+}
+
+RelayRoomList::~RelayRoomList() = default;
+
+void RelayRoomList::Refresh(const std::string& relayAddress, const BuildId& build, u64 content) {
+    Impl& impl = *mImpl;
+    impl.Build = build;
+    impl.Content = content;
+    impl.Request = impl.Random() | 1;
+    impl.RequestStarted = Clock::now();
+    impl.Busy = true;
+    impl.Error.clear();
+    // The relay's address is looked up once; later refreshes ask it straight away.
+    if ((relayAddress != impl.Address) || (impl.Socket == nullptr)) {
+        impl.Address = relayAddress;
+        impl.Socket.reset();
+        impl.Resolving = std::async(std::launch::async, Resolve, relayAddress);
+    } else if (!impl.Resolving.has_value()) {
+        impl.SendRequest(impl.RequestStarted);
+    }
+}
+
+void RelayRoomList::Update() {
+    mImpl->Update();
+}
+
+bool RelayRoomList::IsBusy() const {
+    return mImpl->Busy;
+}
+
+bool RelayRoomList::HasList() const {
+    return mImpl->HasList;
+}
+
+const std::vector<RelayRoomList::Room>& RelayRoomList::GetRooms() const {
+    return mImpl->Rooms;
+}
+
+const std::string& RelayRoomList::GetError() const {
+    return mImpl->Error;
 }

@@ -216,6 +216,7 @@ enum { TRACK_ONE, TRACK_TWO, TRACK_THREE, TRACK_FOUR };
 #define COURSE_SELECT_MENU 13
 #define RACING_DUPLICATE 14
 #define HARBOUR_MASTERS_MENU 15
+#define ONLINE_MENU 16 // @port Netplay rooms
 
 /**
  * @brief Options for gGameState gGotoMode and gGotoMenu

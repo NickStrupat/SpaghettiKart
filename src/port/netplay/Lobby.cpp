@@ -8,6 +8,10 @@
 #include "NetLog.h"
 #include "RelayClient.h"
 
+extern "C" {
+#include "save.h"
+}
+
 using namespace RelayProtocol;
 using Clock = std::chrono::steady_clock;
 
@@ -24,11 +28,13 @@ constexpr size_t kMaxMessageSize = 512;
 constexpr u16 kUnknownPing = 0xFFFF;
 
 enum class MessageType : u8 {
-    MemberState = 1,  // u8 character, u8 ready, u32 race running or run last, u8 in race,
+    MemberState = 1,  // u8 character, u8 ready, u32 race running or run last, u8 in race, u8 racing,
                       // u32 last confirmed segment end and s32 its frame, u16 relay ping (kUnknownPing),
                       // u8 name length, name
-    RoomSettings = 2, // Host only: u8 mode, u8 cc, u8 cup, u8 track length, track, u32 race (0 for none),
-                      // then for a race: u8 player count, the slot of each player, RaceConfig
+    RoomSettings = 2, // Host only: u8 mode, u8 cc, u8 cup, u8 track length, track,
+                      // u8 shared console, u32 console (0 for none), then for a console: u8 player count, the slot
+                      // of each player, RaceConfig (the rules), u8 Extra mode unlocked;
+                      // u32 race (0 for none), then for a race: u8 player count, the slot of each player, RaceConfig
     RaceEnded = 3,    // u32 race, u8 SessionResult, u8 message length, message
 };
 
@@ -59,6 +65,16 @@ struct LobbyState {
     std::optional<RaceStart> PendingStart;
     std::optional<RaceEnd> EndedElsewhere;
     std::string LastRaceMessage;
+
+    // Shared console (ConsoleStart). The host announces its latest one; guests start the newest that includes them.
+    bool SharedConsole = false;
+    u32 ConsoleId = 0;
+    std::vector<u8> ConsoleSlots;
+    RaceConfig ConsoleRules;
+    bool ConsoleExtraMode = false;
+    u32 SeenConsoleId = 0;
+    std::optional<ConsoleStart> PendingConsole;
+    bool Racing = false;
 
     Clock::time_point LastBroadcast;
     bool Changed = true;
@@ -97,6 +113,7 @@ void BroadcastMemberState() {
     writer.Write8(IsReady() ? 1 : 0);
     writer.Write32(sLobby.LastRaceId);
     writer.Write8(sLobby.RunningRaceId != 0 ? 1 : 0);
+    writer.Write8(sLobby.Racing ? 1 : 0);
     writer.Write32(sLobby.BarrierSegment);
     writer.Write32((u32) sLobby.BarrierFrame);
     const s32 ping = sLobby.Relay.GetPingMs();
@@ -113,6 +130,14 @@ void BroadcastRoomSettings() {
     writer.Write8((u8) sLobby.RoomSettings.CC);
     writer.Write8((u8) sLobby.RoomSettings.CupIndex);
     WriteString(writer, sLobby.RoomSettings.TrackName, 255);
+    writer.Write8(sLobby.SharedConsole ? 1 : 0);
+    writer.Write32(sLobby.ConsoleId);
+    if (sLobby.ConsoleId != 0) {
+        writer.Write8((u8) sLobby.ConsoleSlots.size());
+        writer.WriteBytes(sLobby.ConsoleSlots.data(), sLobby.ConsoleSlots.size());
+        sLobby.ConsoleRules.Write(writer);
+        writer.Write8(sLobby.ConsoleExtraMode ? 1 : 0);
+    }
     writer.Write32(sLobby.RaceId);
     if (sLobby.RaceId != 0) {
         writer.Write8((u8) sLobby.RaceSlots.size());
@@ -128,6 +153,7 @@ void HandleMemberState(u8 source, ByteReader& reader) {
     member.Ready = reader.Read8() != 0;
     member.RaceId = reader.Read32();
     member.InRace = reader.Read8() != 0;
+    member.Racing = reader.Read8() != 0;
     member.BarrierSegment = reader.Read32();
     member.BarrierFrame = (s32) reader.Read32();
     const u16 ping = reader.Read16();
@@ -173,6 +199,22 @@ void HandleRaceAnnouncement(u32 raceId, ByteReader& reader) {
     sLobby.Changed = true;
 }
 
+/** Starts the host's newest console if it includes this peer. Joining makes the host start one that does. */
+void HandleConsoleAnnouncement(u32 consoleId, ConsoleStart console) {
+    if ((consoleId == 0) || (consoleId <= sLobby.SeenConsoleId)) {
+        return;
+    }
+    const auto own = std::find(console.Slots.begin(), console.Slots.end(), (u8) sLobby.Relay.GetSlot());
+    if (own == console.Slots.end()) {
+        return; // Made before this peer joined; the host makes a new one once it knows about this peer
+    }
+    sLobby.SeenConsoleId = consoleId;
+    console.Id = consoleId;
+    console.LocalPlayer = (s32) (own - console.Slots.begin());
+    NetLog("Console %u announced: player %d of %zu", consoleId, console.LocalPlayer + 1, console.Slots.size());
+    sLobby.PendingConsole = console;
+}
+
 void HandleRoomSettings(u8 source, ByteReader& reader) {
     if ((source != 0) || IsLocalHost()) {
         return;
@@ -182,12 +224,27 @@ void HandleRoomSettings(u8 source, ByteReader& reader) {
     settings.CC = reader.Read8();
     settings.CupIndex = reader.Read8();
     settings.TrackName = ReadString(reader);
+    const bool sharedConsole = reader.Read8() != 0;
+    const u32 consoleId = reader.Read32();
+    ConsoleStart console = {};
+    if (consoleId != 0) {
+        console.Slots.resize(reader.Read8());
+        reader.ReadBytes(console.Slots.data(), console.Slots.size());
+        if (!console.Rules.Read(reader)) {
+            return;
+        }
+        console.ExtraMode = reader.Read8() != 0;
+    }
     const u32 raceId = reader.Read32();
     const bool validMode = (settings.Mode == GRAND_PRIX) || (settings.Mode == VERSUS) || (settings.Mode == BATTLE);
     if (reader.Failed() || !validMode || (settings.CC < CC_50) || (settings.CC > CC_EXTRA)) {
         return;
     }
     sLobby.RoomSettings = settings;
+    sLobby.SharedConsole = sharedConsole;
+    if (sharedConsole && (console.Slots.size() <= kMaxMembers)) {
+        HandleConsoleAnnouncement(consoleId, console);
+    }
     HandleRaceAnnouncement(raceId, reader);
 }
 
@@ -242,10 +299,41 @@ void UpdateMembers() {
     self.Character = sLobby.Character;
     self.Ready = IsReady();
     self.InRace = sLobby.RunningRaceId != 0;
+    self.Racing = sLobby.Racing;
+    sLobby.Relay.SetInRace(sLobby.Racing);
     self.RaceId = sLobby.LastRaceId;
     self.BarrierSegment = sLobby.BarrierSegment;
     self.BarrierFrame = sLobby.BarrierFrame;
     self.PingMs = sLobby.Relay.GetPingMs();
+}
+
+/**
+ * Host: starts a new shared console when the members changed, once every member's state has arrived and nobody is
+ * racing; a race in progress finishes first.
+ */
+void UpdateConsole() {
+    std::vector<u8> slots;
+    for (size_t slot = 0; slot < kMaxMembers; slot++) {
+        const Member& member = sLobby.Members[slot];
+        if (!member.Present) {
+            continue;
+        }
+        if (!member.Known || member.Racing) {
+            return;
+        }
+        slots.push_back((u8) slot);
+    }
+    if ((sLobby.ConsoleId != 0) && (slots == sLobby.ConsoleSlots)) {
+        return;
+    }
+    sLobby.ConsoleId++;
+    sLobby.ConsoleSlots = slots;
+    sLobby.ConsoleRules = RaceConfig::FromLocalCVars();
+    sLobby.ConsoleExtraMode = has_unlocked_extra_mode_in_save() != 0;
+    sLobby.SeenConsoleId = sLobby.ConsoleId;
+    sLobby.PendingConsole = ConsoleStart{ sLobby.ConsoleId, slots, 0, sLobby.ConsoleRules, sLobby.ConsoleExtraMode };
+    NetLog("Starting console %u with %zu players", sLobby.ConsoleId, slots.size());
+    sLobby.Changed = true;
 }
 
 void ResetRoom() {
@@ -256,6 +344,11 @@ void ResetRoom() {
     sLobby.RaceId = 0;
     sLobby.SeenRaceId.reset();
     sLobby.PendingStart.reset();
+    sLobby.ConsoleId = 0;
+    sLobby.ConsoleSlots.clear();
+    sLobby.SeenConsoleId = 0;
+    sLobby.PendingConsole.reset();
+    sLobby.Racing = false;
     sLobby.Changed = true;
 }
 
@@ -270,14 +363,16 @@ void Connect(const std::string& name) {
 
 } // namespace
 
-void Host(const std::string& relayAddress, const std::string& name) {
+void Host(const std::string& relayAddress, const std::string& name, bool sharedConsole) {
     Connect(name);
+    sLobby.SharedConsole = sharedConsole;
     sLobby.Relay.Create(relayAddress, MakeBuildId(NetplayIdentity::GetBuildId()),
-                        NetplayIdentity::ComputeContentHash());
+                        NetplayIdentity::ComputeContentHash(), sLobby.Name);
 }
 
 void Join(const std::string& relayAddress, const std::string& code, const std::string& name) {
     Connect(name);
+    sLobby.SharedConsole = false; // Until the host's settings say otherwise
     sLobby.Relay.Join(relayAddress, code, MakeBuildId(NetplayIdentity::GetBuildId()),
                       NetplayIdentity::ComputeContentHash());
 }
@@ -328,6 +423,9 @@ void Update() {
         HandleMessage(packet);
     }
     UpdateMembers();
+    if (IsLocalHost() && sLobby.SharedConsole) {
+        UpdateConsole();
+    }
 
     const Clock::time_point now = Clock::now();
     if (sLobby.Changed || (now - sLobby.LastBroadcast >= kBroadcastInterval)) {
@@ -539,6 +637,30 @@ std::optional<RaceStart> TakeRaceStart() {
         sLobby.Changed = true;
     }
     return start;
+}
+
+std::optional<ConsoleStart> TakeConsoleStart() {
+    std::optional<ConsoleStart> console;
+    console.swap(sLobby.PendingConsole);
+    if (console.has_value()) {
+        // The console's sessions use the race barrier: its id stands in for a race's.
+        sLobby.RunningRaceId = console->Id;
+        sLobby.LastRaceId = console->Id;
+        sLobby.LastRaceSlots = console->Slots;
+        sLobby.BarrierSegment = 0;
+        sLobby.BarrierFrame = 0;
+        sLobby.Changed = true;
+    }
+    return console;
+}
+
+bool IsSharedConsole() {
+    return (sLobby.Status == State::InRoom) && sLobby.SharedConsole;
+}
+
+void SetRacing(bool racing) {
+    sLobby.Changed |= (racing != sLobby.Racing);
+    sLobby.Racing = racing;
 }
 
 GekkoNetAdapter* GetGekkoAdapter(u32 raceId, u32 segment) {

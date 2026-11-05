@@ -316,7 +316,9 @@ enum MENU_ITEM_TYPE {
     MENU_ITEM_TYPE_1CC,
     MENU_ITEM_TYPE_1CD,
     MENU_ITEM_TYPE_1CE,
-    MENU_ITEM_UI_HARBOUR_MASTERS
+    MENU_ITEM_UI_HARBOUR_MASTERS,
+    MAIN_MENU_ONLINE_GFX, // @port Game Select's "Z ONLINE" button
+    MENU_ITEM_ONLINE      // @port The ONLINE screen
 };
 
 enum LoadImgCompType {
@@ -486,6 +488,8 @@ void func_8009E208(void);
 void func_8009E230(void);
 void func_8009E258(void);
 void func_8009E280(void);
+/** @port Fades between Game Select and the ONLINE screen (netplay), either way. */
+void fade_to_online_menu(void);
 void func_8009E2A8(s32);
 void func_8009E2F0(s32);
 void func_8009E5BC(void);

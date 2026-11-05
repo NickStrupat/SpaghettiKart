@@ -10,7 +10,7 @@
 
 #include "tools/netplay-relay/RelayProtocol.h"
 
-constexpr size_t kNumGameplayIntCVars = 17;
+constexpr size_t kNumGameplayIntCVars = 18;
 constexpr size_t kNumGameplayFloatCVars = 2;
 
 /**

@@ -1,6 +1,6 @@
 # Netplay relay server
 
-Players meet through this relay. The host creates a room and gets a 6-character code. The other players join with that code, and the relay then forwards packets between the members of the room. It is a small, single-threaded UDP server and knows nothing about the game.
+Players meet through this relay. The host creates a room, which gets a 6-character code; the relay lists its open rooms, under their host's name, to games of the same build, and the other players join one from that list. The relay then forwards packets between the members of the room. It is a small, single-threaded UDP server and knows nothing about the game.
 
 The wire format is described in `RelayProtocol.h`, which the game includes too.
 

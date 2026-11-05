@@ -4,20 +4,23 @@
 /**
  * Wire format between SpaghettiKart and the netplay relay server. Shared by both; depends only on the standard library.
  *
- * Players meet in rooms named by a 6-character code. The relay forwards packets between the members of a room and
- * knows nothing about the game: lobby and rollback traffic are opaque payloads to it.
+ * Players meet in rooms named by a 6-character code, which they pick from the relay's list of open rooms. The relay
+ * forwards packets between the members of a room and knows nothing about the game: lobby and rollback traffic are
+ * opaque payloads to it.
  *
  * Every datagram starts with a 4-byte header: magic (u16), protocol version (u8), message type (u8).
  * All integers are little-endian.
  *
  *   Client -> relay
- *     Create     u32 request, char build[32], u64 content         Open a room; the creator gets slot 0 and hosts.
+ *     Create     u32 request, char build[32], u64 content, char name[16]
+ *                Open a room; the creator gets slot 0 and hosts. The name is the host's, shown in the room list.
  *     Join       u32 request, char code[6], char build[32], u64 content
  *     Relay      u64 token, u8 destination (slot or kBroadcast), payload
  *     KeepAlive  u64 token, u32 echo, u8 KeepAliveFlags, u32 local IPv4, u16 local port
  *                Sent every second; the relay answers with RoomState. The local address is the client's own on its
  *                network, for members behind the same router.
  *     Leave      u64 token
+ *     ListRooms  u32 request, char build[32], u64 content          Ask for the open rooms of this build.
  *
  *   Relay -> client
  *     Joined     u32 request, u64 token, char code[6], u8 slot     Answer to Create or Join.
@@ -28,6 +31,8 @@
  *                On KeepAlive (echo copied) and on membership changes (0). The public address is where the relay sees
  *                the member; both addresses are 0 for members that do not share them.
  *     RoomClosed u8 CloseReason
+ *     RoomList   u32 request, u8 count, then per room: char code[6], char host name[16], u8 members, u8 RoomFlags
+ *                The rooms with the asker's build and content that have a free slot, at most kMaxListedRooms.
  *
  *   Client -> client, directly
  *     Punch      u8 source slot, u64 source key, u32 time          To each address a member may have, until one answers,
@@ -52,16 +57,19 @@
 namespace RelayProtocol {
 
 constexpr uint16_t kMagic = 0x4B53; // "SK"
-constexpr uint8_t kVersion = 2;
+constexpr uint8_t kVersion = 3;
 constexpr uint16_t kDefaultPort = 7777;
 constexpr size_t kHeaderSize = 4;
 constexpr size_t kCodeLength = 6;
 constexpr size_t kBuildIdLength = 32;
+constexpr size_t kNameLength = 16;
 constexpr size_t kMaxSlots = 4;
 constexpr uint8_t kBroadcast = 0xFF;
 // Keeps datagrams under the 1280-byte IPv6 minimum MTU, so they are never fragmented.
 constexpr size_t kMaxPayload = 1200;
 constexpr size_t kMaxPacketSize = kHeaderSize + 16 + kMaxPayload;
+// One RoomList datagram: 24 bytes per room stays well under kMaxPayload.
+constexpr size_t kMaxListedRooms = 40;
 // No 0/O or 1/I, which are easy to mix up when reading a code out loud.
 constexpr char kCodeAlphabet[] = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 constexpr uint32_t kKeepAliveIntervalMs = 1000;
@@ -74,6 +82,7 @@ enum class MessageType : uint8_t {
     Relay = 3,
     KeepAlive = 4,
     Leave = 5,
+    ListRooms = 6,
 
     Punch = 0x41,
     PunchReply = 0x42,
@@ -84,10 +93,16 @@ enum class MessageType : uint8_t {
     Relayed = 0x83,
     RoomState = 0x84,
     RoomClosed = 0x85,
+    RoomList = 0x86,
 };
 
 enum KeepAliveFlags : uint8_t {
     kShareAddresses = 1 << 0, // Give the other members this client's addresses, so they can connect directly
+    kInRace = 1 << 1,         // The host is racing: the room list shows the room as racing
+};
+
+enum RoomFlags : uint8_t {
+    kRoomRacing = 1 << 0,
 };
 
 enum class ErrorCode : uint8_t {
@@ -129,11 +144,28 @@ inline const char* GetErrorText(ErrorCode error) {
 
 using RoomCode = std::array<char, kCodeLength>;
 using BuildId = std::array<char, kBuildIdLength>;
+using Name = std::array<char, kNameLength>;
 
 inline BuildId MakeBuildId(const std::string& text) {
     BuildId id = {};
     memcpy(id.data(), text.data(), (text.size() < id.size()) ? text.size() : id.size());
     return id;
+}
+
+/** A name padded with zeros, cut to kNameLength. */
+inline Name MakeName(const std::string& text) {
+    Name name = {};
+    memcpy(name.data(), text.data(), (text.size() < name.size()) ? text.size() : name.size());
+    return name;
+}
+
+/** The text of a zero-padded name. */
+inline std::string ToString(const Name& name) {
+    size_t length = 0;
+    while ((length < name.size()) && (name[length] != 0)) {
+        length++;
+    }
+    return std::string(name.data(), length);
 }
 
 /** Appends little-endian values to a fixed buffer. Writes past the end are dropped and mark the writer as failed. */

@@ -11,6 +11,7 @@
 #include "replays.h"
 #include "code_80057C60.h"
 #include "port/Game.h"
+#include "port/netplay/Netplay.h"
 #include "buffers.h"
 
 /*** macros ***/
@@ -437,8 +438,13 @@ s32 is_cc_mode_complete(s32 cc_mode) {
 }
 
 // Check if the 150CC mode has all 4 gold cups
-s32 has_unlocked_extra_mode(void) {
+s32 has_unlocked_extra_mode_in_save(void) {
     return is_cc_mode_complete(CC_150);
+}
+
+s32 has_unlocked_extra_mode(void) {
+    // @port The menus of a netplay room offer what the host unlocked, the same on every peer.
+    return Netplay_GetExtraMode(has_unlocked_extra_mode_in_save());
 }
 
 // Check if the Extra mode has all 4 gold cups

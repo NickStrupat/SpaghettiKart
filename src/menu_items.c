@@ -44,6 +44,7 @@
 #include "stdio.h"
 #include "port/Engine.h"
 #include "port/Game.h"
+#include "port/netplay/OnlineMenu.h"
 #include "engine/editor/Editor.h"
 
 #include "engine/Matrix.h"
@@ -2596,6 +2597,7 @@ void func_80094A64(UNUSED struct GfxPool* pool) {
         case MAIN_MENU:
         case CHARACTER_SELECT_MENU:
         case COURSE_SELECT_MENU:
+        case ONLINE_MENU:
             handle_menus_default();
             func_80099AEC();
             break;
@@ -2654,6 +2656,10 @@ void setup_menus(void) {
             case HARBOUR_MASTERS_MENU:
                 add_menu_item(MENU_ITEM_UI_HARBOUR_MASTERS, 0, 0, MENU_ITEM_PRIORITY_0);
                 break;
+            case ONLINE_MENU:
+                add_menu_item(MAIN_MENU_BACKGROUND, 0, 0, MENU_ITEM_PRIORITY_2);
+                add_menu_item(MENU_ITEM_ONLINE, 0, 0, MENU_ITEM_PRIORITY_4);
+                break;
             case LOGO_INTRO_MENU:
                 add_menu_item(MENU_ITEM_UI_LOGO_INTRO, 0, 0, MENU_ITEM_PRIORITY_0);
                 break;
@@ -2689,6 +2695,9 @@ void setup_menus(void) {
                 add_menu_item(MENU_ITEM_UI_2P_GAME, 0x0000015E, 0x0000003E, MENU_ITEM_PRIORITY_6);
                 add_menu_item(MENU_ITEM_UI_1P_GAME, 0x0000015E, 0x0000003E, MENU_ITEM_PRIORITY_6);
                 add_menu_item(MENU_ITEM_UI_OK, 0x0000015E, 0x000000C8, MENU_ITEM_PRIORITY_6);
+                // @port Netplay's button, sliding in with OPTION and DATA (see func_800AA280). Added first, so that
+                // they pass over it, as OPTION passes over DATA.
+                add_menu_item(MAIN_MENU_ONLINE_GFX, 0x0000015E, 0x000000C8, MENU_ITEM_PRIORITY_6);
                 add_menu_item(MAIN_MENU_DATA_GFX, 0x0000015E, 0x000000C8, MENU_ITEM_PRIORITY_6);
                 add_menu_item(MAIN_MENU_OPTION_GFX, 0x0000015E, 0x000000C8, MENU_ITEM_PRIORITY_6);
                 if (has_unlocked_extra_mode() != 0) {
@@ -5339,11 +5348,22 @@ void func_8009CE64(s32 arg0) {
                             break;
                     }
                     break;
+                case MENU_FADE_TYPE_ONLINE:
+                    switch (gMenuSelection) {
+                        case MAIN_MENU:
+                            gMenuSelection = ONLINE_MENU;
+                            break;
+                        case ONLINE_MENU:
+                            gMenuSelection = MAIN_MENU;
+                            break;
+                    }
+                    break;
             }
             if (gFadeModeSelection == 0) {
                 gFadeModeSelection = 1;
             }
-            if (gMenuSelection >= 0xE) {
+            // @port Past COURSE_SELECT_MENU the race starts; the port's ONLINE screen comes later in the numbering.
+            if ((gMenuSelection >= 0xE) && (gMenuSelection != ONLINE_MENU)) {
                 gGamestateNext = 4;
                 if (gModeSelection == 1) {
                     gGhostPlayerInit = (s8) 1;
@@ -5775,6 +5795,11 @@ void func_8009E258(void) {
 void func_8009E280(void) {
     func_8009DFE0(10);
     gMenuFadeType = 4;
+}
+
+void fade_to_online_menu(void) {
+    func_8009DFE0(10);
+    gMenuFadeType = MENU_FADE_TYPE_ONLINE;
 }
 
 void func_8009E2A8(s32 arg0) {
@@ -6360,6 +6385,12 @@ void render_menus(MenuItem* arg0) {
         switch (arg0->type) {
             case MENU_ITEM_UI_HARBOUR_MASTERS:
                 HM_DrawIntro();
+                break;
+            case MENU_ITEM_ONLINE:
+                render_online_menu(arg0);
+                break;
+            case MAIN_MENU_ONLINE_GFX:
+                render_online_button(arg0);
                 break;
             case MENU_ITEM_UI_LOGO_INTRO:
                 func_80094660(gGfxPool, arg0->param1);
@@ -9176,10 +9207,12 @@ void handle_menus_with_pri_arg(s32 priSpecial) {
                 break;
             case MAIN_MENU_OPTION_GFX:
             case MAIN_MENU_DATA_GFX:
+            case MAIN_MENU_ONLINE_GFX:
                 switch (gMainMenuSelection) {
                     case MAIN_MENU_OPTION:
                     case MAIN_MENU_DATA:
                     case MAIN_MENU_PLAYER_SELECT:
+                    case MAIN_MENU_ONLINE:
                         func_800A9B9C(menuItem);
                         break;
                     case MAIN_MENU_MODE_SELECT:
@@ -10328,10 +10361,13 @@ void func_800A9E58(MenuItem* arg0) {
     }
 }
 
+// @port Where Game Select's netplay button settles: right of DATA, as DATA is right of OPTION (D_800E70A0)
+Unk_D_800E70A0 sOnlineButtonPosition = { 0x95, 0xC8, 0x00, 0x00 };
+
 void func_800AA280(MenuItem* arg0) {
     Unk_D_800E70A0* temp_v0;
 
-    temp_v0 = &D_800E70A0[arg0->type - 0xA];
+    temp_v0 = (arg0->type == MAIN_MENU_ONLINE_GFX) ? &sOnlineButtonPosition : &D_800E70A0[arg0->type - 0xA];
     if ((gMainMenuSelection == MAIN_MENU_OK_SELECT_GO_BACK) ||
         (gMainMenuSelection == MAIN_MENU_MODE_SUB_SELECT_GO_BACK)) {
         arg0->column = temp_v0->column;

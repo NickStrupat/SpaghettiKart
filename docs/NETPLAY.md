@@ -1,7 +1,9 @@
 # Netplay
 
 Online races for SpaghettiKart, on the `netplay` branch of this fork: rollback netcode, every mode (Versus, Battle,
-Grand Prix with CPUs), players meeting by room code on a small relay server and then connecting directly.
+Grand Prix with CPUs), players meeting in a room picked from a small relay server's list, then connecting directly.
+In a room, everyone plays on one shared console, as if each player's controller were plugged into it: the game's own
+menus pick the mode, characters and course.
 
 This file records what was built, why it was built that way, how to test it and what is still open. Code-level
 details live in the headers under `src/port/netplay/`, which each start with a description of their part.
@@ -12,7 +14,8 @@ details live in the headers under `src/port/netplay/`, which each start with a d
 |---|---|
 | Versus 2–4 players, Battle 2–4, Grand Prix 1–2 players + CPUs (whole cups, podium) | Works, tested by the simulator and by hand |
 | Rollback, desync detection | Works; an 8-frame rollback every frame stays in sync on every track and mode |
-| Room codes, lobby, relay server | Works |
+| Room list, ONLINE screen (Z on Game Select), relay server | Works; tested with scripted buttons |
+| Shared console: Game Select, character select and course select in lockstep, then the race | Works, tested by the simulator |
 | Direct connections (UDP hole punching), relay fallback | Works on one machine and between two Macs on one wifi; not yet tried across two home networks |
 | Own view (each player sees and hears only their own player) | Works |
 | Automatic input delay, connection stats overlay | Works |
@@ -23,9 +26,18 @@ details live in the headers under `src/port/netplay/`, which each start with a d
 
 1. Run a relay server where both players can reach it: on one of the players' computers on the same network, or on a
    small server for players in different places. See `tools/netplay-relay/README.md`.
-2. In the game: **Enhancements > Netplay > Open Netplay Lobby**. Enter the relay's `host:port`, then **Host**, or
-   **Join** with the host's room code.
-3. Pick a character, get ready; the host picks the mode, speed and track or cup, and starts.
+2. Once: **Enhancements > Netplay > Open Netplay Lobby**, and enter the relay's `host:port` there.
+3. On Game Select, press **Z** (**ONLINE**, beside L OPTION and R DATA). The ONLINE screen lists the relay's open
+   rooms by their host's name; pick one, or **HOST A ROOM**. **NAME** sets the name others see.
+4. In a room, every player's game shows the same screens. You are the controller of your place in the room (the host
+   is controller 1); the names along the bottom of Game Select say who is who. Pick the player count, mode,
+   characters and course in the normal menus, as on one console: anyone can move the Game Select and course cursors,
+   each player moves their own character cursor.
+5. **Z** on Game Select (now **LEAVE**) leaves the room and comes back to the ONLINE screen.
+
+Players beyond the chosen player count sit the race out and watch player 1. OPTION, DATA and Time Trials are not
+available in a room: they use each player's own saves and ghosts. Someone joining during a race waits for it to end;
+whenever the players change, everyone starts over on Game Select.
 
 Both players need the same build of the game and the same game files and mods; the relay refuses a mismatch. The relay
 must be as new as the game (its protocol version is checked).
@@ -40,8 +52,9 @@ Settings in the netplay window, each per player:
 | Input delay | Automatic | Frames your own input is held back. Automatic picks it from the ping at each race start |
 | Connect directly to other players | on | Race traffic skips the relay when routers allow it. Shares your IP address with the room |
 
-The host's gameplay settings (enhancements, rules, vehicle counts) apply to everyone for the race. The host can restart
-a race; anyone can leave it, which returns everyone to the room.
+The host's gameplay settings (enhancements, rules, vehicle counts, unique characters) and whether the host unlocked
+Extra mode apply to everyone in the room. During a race, the netplay window can leave it, which takes everyone back to
+the menus.
 
 ## Decisions
 
@@ -60,6 +73,9 @@ Made by the fork's owner, in this order. Later work assumes them.
    to 0 frames on a local network.
 6. **Sounds must not be wrong after a rollback**: re-simulated sounds are compared with the ones already played,
    rather than muted.
+7. **One shared console per room** (2026-11-05): the relay lists rooms, so nobody types a code, and inside a room the
+   game behaves as if all players were at one console with a controller each. Mode, characters and course come from
+   the game's own menus, not a separate lobby screen. The player count stays free, as on a console.
 
 ## How it works
 
@@ -138,11 +154,37 @@ A lobby race is a series of segments, one GekkoNet session per loaded race (each
 - Back to the menus ends the series; the podium after a cup is shown by each peer locally.
 - Menus that the original game lets anyone confirm are confirmed by player 1 (the host) only in netplay.
 
+### Shared console
+
+A room plays on one shared console (`Lobby::ConsoleStart`). The host starts one whenever the members change, once
+every member's state has arrived and nobody is racing; it lists the members in controller order and carries the
+host's rules (whitelisted gameplay settings, the Extra mode unlock). `Netplay.cpp` then runs the console's sessions
+one at a time, numbered in one sequence:
+
+- **Menus in lockstep** (`MenuSession.cpp`): a GekkoNet session with no prediction (GekkoNet's lockstep mode). A menu
+  frame runs only once every player's input for it has arrived; until then the game shows the last frame again
+  (`Netplay_IsWaitingForMenuInput`). Nothing is rolled back, so menu loads and the draws that change menu state run
+  exactly once per frame on every peer. A new console starts from the globals as they were at boot
+  (`SimState_RestoreBootState`), resets to Game Select and restarts the frame counter the menus' flashing follows.
+- **Menus to race:** when the menus set up a race, the menu session freezes on its last frame and a rollback session
+  takes the race from its first frame (`RaceSetUpByMenus`). The frozen session keeps handing out input until every
+  peer confirmed that same last frame through the race barrier. The relay client keeps two GekkoNet sessions apart by
+  their tags (two lanes), as both run for a moment.
+- **Race to menus:** when a race series ends in the menus, a menu session starts on the agreed frozen frame, without
+  a reset: every peer has the same state there. After the Grand Prix podium, which each peer shows on its own, the
+  menus start over from Game Select.
+- Players beyond the race's player count are full session peers whose input no player reads; they watch player 1.
+
+The **ONLINE screen** (`OnlineMenu.cpp`) is a menu screen of the port's own (`ONLINE_MENU`), drawn with the menus'
+helpers. Game Select's "Z ONLINE" button is the port's own art (`tools/make-online-button.py`, converted with
+`tools/png-to-texture.py`), in the style of OPTION and DATA.
+
 ### Relay, lobby and direct connections
 
 - `tools/netplay-relay/`: a standalone UDP server (C++20, standalone ASIO, Dockerfile). Wire format in
-  `RelayProtocol.h`, shared with the game. Rooms by 6-character code; the relay forwards packets and checks the build
-  id (commit plus a hash of local changes) and a hash of the game files.
+  `RelayProtocol.h`, shared with the game. Rooms by 6-character code, listed (`ListRooms`, protocol 3) with the
+  host's name to clients of the same build; the relay forwards packets and checks the build id (commit plus a hash of
+  local changes) and a hash of the game files.
 - `RelayClient.cpp`: the game's side, two channels: lobby messages and GekkoNet packets (tagged per race, so stragglers
   from an earlier race are dropped).
 - `Lobby.cpp`: no acknowledgements. Every member re-sends its full state every 250 ms; the host re-sends the room's
@@ -180,15 +222,16 @@ A lobby race is a series of segments, one GekkoNet session per loaded race (each
 
 | Tool | What it does |
 |---|---|
-| `tools/netplay-sim.py` | Plays whole races, cups and battles between bot-driven copies of the game through a relay, fast-forwarded (about 70× real time), and checks that every peer stayed in sync and the races ended as expected. 16 scenarios, about 4 minutes. **Run it after any change to netplay or simulation code.** |
+| `tools/netplay-sim.py` | Plays whole races, cups and battles between bot-driven copies of the game through a relay, fast-forwarded (about 70× real time), and checks that every peer stayed in sync and the races ended as expected. Shared-console scenarios drive the menus with scripted buttons and compare every menu frame. 21 scenarios, about 5 minutes. **Run it after any change to netplay, menu or simulation code.** |
 | Determinism harness | `SK_DETERMINISM_RECORD` / `_VERIFY` / `_ROLLBACK=8`: records a race's inputs and per-frame checksums, replays them, or rolls back 8 frames after every frame. See `DeterminismHarness.h`. |
 | `tools/netplay-stress.sh` | The rollback stress run on every track and arena, 4 at a time: 16 versus tracks, 4 battle arenas, 4 Grand Prix courses. Give it an AddressSanitizer build (below) to look for memory errors too. |
 | `tools/netplay-relay/test_relay.py` | Protocol tests for the relay. |
 | `tools/netplay-diff.py` | Names the variables that differ between two peers' start states (`SK_NETPLAY_DUMP=1`) or in a rollback trace. |
 
 The test environment variables (direct peers, lobby bots, simulated lag and loss, scripted leave/restart, bot
-drivers) are listed in `src/port/netplay/Netplay.h`. `SK_FAST=n` runs any of them without frame pacing or sound
-output, drawing one frame in n.
+drivers, scripted buttons) are listed in `src/port/netplay/Netplay.h`. `SK_FAST=n` runs any of them without frame
+pacing or sound output, drawing one frame in n. `SK_TEST_SCREENSHOTS=name@frame,...` saves what the game draws as
+PNG files (`TestScreenshots.h`): it reads the game's own framebuffer, so it needs no screen-recording permission.
 
 When a session fails, each peer writes `<prefix>.seg<N>.kept.txt`, the checksum breakdown of every frame it still
 kept; diffing the peers' files shows the first component that differs. A peer that detects a desync also writes
@@ -250,6 +293,14 @@ Each of these cost a debugging round.
   after its re-simulations, so it was never affected.
 - **After a game crashes, macOS asks at the next start whether to reopen its windows**, and the game waits for the
   answer. Test scripts start the game with `-ApplePersistenceIgnoreState YES`.
+- **Menu screen numbers past `COURSE_SELECT_MENU` start a race** when a fade ends (`gMenuSelection >= 0xE`); the
+  port's `ONLINE_MENU` is excluded there.
+- **Asset paths at odd addresses** are taken for raw texture data by the renderer; declare them aligned
+  (`ALIGN_ASSET(2)`, `alignas(8)`).
+- **The frame counter is not simulation state** (`gGlobalTimer`, it picks the gfx pool), but the menus' flashing
+  colors follow it; a shared console restarts it at each menu session.
+- **A frozen menu session and a race session sharing one GekkoNet adapter** steal each other's packets; the relay
+  client gives each tag its own lane.
 - **Music cues wrote a simulation global**: after the finish, the music's sound script picks which racer each camera
   shows (`func_800C2274` → `func_8001AAAC` → `D_801646D0`), read by the camera code. It runs once per shown frame
   from this computer's audio, so peers applied it on different frames; `demo-first` desynced after the race once
@@ -272,6 +323,10 @@ Each of these cost a debugging round.
   progress-meter HUD mode are not there.
 - With "Hear only my player", another player's engine is heard, but their own voice and item sounds (their camera's)
   are not.
+- Shared console: while a menu frame waits for another player's input, the window shows the last frame and the game
+  does not respond; with a few frames of ping this is not noticeable, a long freeze would be. The in-room screens have
+  been checked in window captures, not yet by people on two Macs.
+- Shared console: the netplay window can still join a room by typing its code (the old way), next to the room list.
 - libultraship's renderer reads past two texture buffers (`ImportTextureI4` at boot, `gfx_load_tlut` on some
   courses), reported by AddressSanitizer on every run; not netplay's, not fixed.
 

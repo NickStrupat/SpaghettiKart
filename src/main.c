@@ -1320,6 +1320,12 @@ void thread5_iteration(void) {
     }
     Harness_BeginFrame();
     Netplay_BeginFrame();
+    // @port A netplay room runs its menus in lockstep: until every player's input for the next frame has arrived,
+    // show the last frame again.
+    if (Netplay_IsWaitingForMenuInput()) {
+        Graphics_PushFrame(gGfxPool->gfxPool);
+        return;
+    }
     profiler_log_thread5_time(THREAD5_START);
     config_gfx_pool();
     read_controllers();

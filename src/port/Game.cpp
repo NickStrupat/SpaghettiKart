@@ -978,6 +978,9 @@ static void ApplyPendingReset() {
     if (CVarGetInteger("gEnableDebugMode", 0) == true) {
         gMenuSelection = START_MENU;
     }
+    // A netplay room's shared console starts its menus on Game Select, the same screen on every peer; leaving the
+    // room comes back to the ONLINE screen.
+    gMenuSelection = Netplay_GetResetMenu(gMenuSelection);
     // Re-enter through the intro's own transition protocol (see HM_TickIntro):
     // FADE_MODE_LOGO makes setup_menus rebuild the menu items and start a
     // fresh fade-in, replacing any in-flight transition that would otherwise

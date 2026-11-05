@@ -24,6 +24,7 @@ extern "C" {
 #include "code_800029B0.h"
 #include "racing/race_logic.h"
 #include "audio/external.h"
+#include "menus.h"
 }
 #include "port/Game.h"
 
@@ -585,7 +586,8 @@ void LoadFrame(const GekkoGameEvent::GekkoEventData::GekkoLoad& load) {
 
 PadControl GetLocalControl() {
     const u32 leaveAfter = sNet.Settings.LeaveAfterRaces;
-    if ((leaveAfter > 0) && (sNet.Segment > leaveAfter) && (sNet.SegmentFrames == kLeaveAfterRacesFrame)) {
+    const u32 seriesRace = sNet.Segment - sNet.Settings.FirstSegment + 1;
+    if ((leaveAfter > 0) && (seriesRace > leaveAfter) && (sNet.SegmentFrames == kLeaveAfterRacesFrame)) {
         NetSession::RequestLeave();
     }
     for (const TestControl& test : sNet.Settings.TestControls) {
@@ -614,8 +616,16 @@ std::string MakeReportPrefix(const SessionSettings& settings) {
     return directory + "/" + name;
 }
 
+/**
+ * The player this peer watches: its own, or on a shared console where it sits out the race (the race has fewer
+ * players than the console has controllers), player 1.
+ */
+s32 GetWatchedPlayer() {
+    return (sNet.Settings.LocalPlayer < gPlayerCount) ? sNet.Settings.LocalPlayer : 0;
+}
+
 s32 GetViewPlayer() {
-    return (CVarGetInteger(NetSession::kOwnViewCVar, 1) != 0) ? sNet.Settings.LocalPlayer : -1;
+    return (CVarGetInteger(NetSession::kOwnViewCVar, 1) != 0) ? GetWatchedPlayer() : -1;
 }
 
 } // namespace
@@ -631,7 +641,7 @@ void Start(const SessionSettings& settings) {
     sNet.Result = SessionResult::Running;
     sNet.ResultMessage.clear();
     sNet.ExitGamestate = RACING;
-    sNet.Segment = 1;
+    sNet.Segment = settings.FirstSegment;
     sNet.ShownFrames = 0;
     sNet.LeaveRequested = false;
     sNet.RandomState = 0x2545F491 ^ ((u32) (settings.LocalPlayer + 1) * 7919);
@@ -646,11 +656,18 @@ void Start(const SessionSettings& settings) {
         return;
     }
     sNet.CVars.Apply(settings.Config);
-    SimState_RestoreBaseline();
-    SimState_SetRollbackMode(true);
-    SimState_SetHostControlsMenus(true);
-    sNet.SetupCountAtWait = SimState_GetRaceSetupCount();
-    RaceConfig_StartRace(settings.Config);
+    if (settings.RaceSetUpByMenus) {
+        // The race loaded this frame; its session starts before the race runs a frame.
+        SimState_SetRollbackMode(true);
+        SimState_SetHostControlsMenus(true);
+        sNet.SetupCountAtWait = SimState_GetRaceSetupCount() - 1;
+    } else {
+        SimState_RestoreBaseline();
+        SimState_SetRollbackMode(true);
+        SimState_SetHostControlsMenus(true);
+        sNet.SetupCountAtWait = SimState_GetRaceSetupCount();
+        RaceConfig_StartRace(settings.Config);
+    }
     sNet.State = SessionState::WaitingForRace;
 }
 
@@ -713,6 +730,10 @@ u32 GetShownFrames() {
     return sNet.ShownFrames;
 }
 
+u32 GetSegment() {
+    return sNet.Segment;
+}
+
 u8 GetInputDelay() {
     return sNet.InputDelay;
 }
@@ -766,7 +787,7 @@ const std::string& GetResultMessage() {
 void BeginFrame() {
     // Sounds follow the view: this player's camera only, unless the player turned that off.
     const bool ownAudio = IsActive() && (CVarGetInteger(kOwnAudioCVar, 1) != 0);
-    audio_set_only_camera(ownAudio ? (s8) sNet.Settings.LocalPlayer : -1);
+    audio_set_only_camera(ownAudio ? (s8) GetWatchedPlayer() : -1);
 
     // Wait for a newly set up race: right after a segment ends the old one is still on screen, fading out.
     if ((sNet.State == SessionState::WaitingForRace) && (gGamestate == RACING) &&
@@ -805,7 +826,7 @@ bool ConsumeLocalPads(OSContPad* pads) {
 
     PadInput input;
     if (sNet.Bot.has_value()) {
-        input = sNet.Bot->Next(sNet.Settings.LocalPlayer);
+        input = sNet.Bot->Next(GetWatchedPlayer());
     } else {
         input.StickX = pads[0].stick_x;
         input.StickY = pads[0].stick_y;

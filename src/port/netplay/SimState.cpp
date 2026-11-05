@@ -44,6 +44,7 @@ SimSnapshot sBeforeDisplay;
 bool sDisplayPending = false;
 // The sim section as it was before the first race was set up
 std::vector<u8> sBaseline;
+std::vector<u8> sBootState;
 
 struct KeptRange {
     void* Data;
@@ -192,6 +193,19 @@ size_t GetWorldStateSize() {
     return size;
 }
 
+/** Restores the C files' globals from a copy, except the kept ranges. */
+void RestoreCGlobalsKeeping(const std::vector<u8>& copy) {
+    std::vector<std::vector<u8>> kept;
+    for (const KeptRange& range : kKeptRanges) {
+        const u8* data = static_cast<const u8*>(range.Data);
+        kept.emplace_back(data, data + range.Size);
+    }
+    RestoreSections(copy, kNumCSections);
+    for (size_t i = 0; i < kKeptRanges.size(); i++) {
+        memcpy(kKeptRanges[i].Data, kept[i].data(), kKeptRanges[i].Size);
+    }
+}
+
 } // namespace
 
 extern "C" bool SimState_IsSupported(void) {
@@ -244,14 +258,18 @@ extern "C" void SimState_RestoreBaseline(void) {
     if (sBaseline.empty()) {
         return; // No race has run yet
     }
-    std::vector<std::vector<u8>> kept;
-    for (const KeptRange& range : kKeptRanges) {
-        const u8* data = static_cast<const u8*>(range.Data);
-        kept.emplace_back(data, data + range.Size);
+    RestoreCGlobalsKeeping(sBaseline);
+}
+
+extern "C" void SimState_CaptureBootState(void) {
+    if (SimState_IsSupported()) {
+        CopySections(sBootState, kNumCSections);
     }
-    RestoreSections(sBaseline, kNumCSections);
-    for (size_t i = 0; i < kKeptRanges.size(); i++) {
-        memcpy(kKeptRanges[i].Data, kept[i].data(), kKeptRanges[i].Size);
+}
+
+extern "C" void SimState_RestoreBootState(void) {
+    if (!sBootState.empty()) {
+        RestoreCGlobalsKeeping(sBootState);
     }
 }
 

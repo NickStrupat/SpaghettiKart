@@ -13,6 +13,9 @@
  *                                       One UDP address per player, in player order. Each peer binds the
  *                                       port of its own entry.
  *   SK_NETPLAY_PLAYER=0                 This peer's player index.
+ *   SK_NETPLAY_MENUS=1                  Run the menus in lockstep (MenuSession.h) instead of a race, driven by
+ *                                       SK_TEST_INPUT; SK_NETPLAY_FRAMES menu frames end the test.
+ *   SK_NETPLAY_TEST_MENUS_AT=300        Start those menus on this game frame instead, after playing offline.
  *   SK_NETPLAY_MODE / _TRACK / _SEED    Race settings, as RaceConfig::FromEnvironment() reads them.
  * or bots meet through a relay (tools/netplay-relay):
  *   SK_NETPLAY_RELAY=127.0.0.1:7777     Relay server address.
@@ -22,6 +25,12 @@
  *   SK_NETPLAY_PLAYERS=2                Host: start once this many players are ready.
  *   SK_NETPLAY_RACES=1                  Host: races to run before exiting.
  *   SK_NETPLAY_MODE / _TRACK / _CUP     Host: race settings.
+ *   SK_NETPLAY_CONSOLE=1                Host: the room plays on a shared console. The players drive its menus with
+ *                                       SK_TEST_CONSOLE_INPUT and bots its races; the
+ *                                       test passes once SK_NETPLAY_RACES races ended and the menus ran on after,
+ *                                       or once the player leaves the room with Z.
+ *   SK_NETPLAY_TEST_JOIN_AT=900         Guest: join on this game frame, such as during the others' race.
+ *   SK_NETPLAY_TEST_CONSOLE_PLAYERS=1,2,1  Pass only after shared consoles of these sizes started, in this order.
  * Options for both:
  *   SK_NETPLAY_BOT=1                    Drive the local player with seeded synthetic inputs: 1 races (follows the
  *                                       track, uses items, confirms the screens after the race), 2 drives at random.
@@ -29,7 +38,8 @@
  *   SK_NETPLAY_DELAY_MS=60              Simulated one-way delay added to received packets.
  *   SK_NETPLAY_JITTER_MS=20             Random extra delay, up to this many ms.
  *   SK_NETPLAY_LOSS=5                   Percentage of received packets to drop.
- *   SK_NETPLAY_LOG=<file>               After each segment, write each frame's checksum, to compare peers.
+ *   SK_NETPLAY_LOG=<file>               After each segment, write each frame's checksum, to compare peers; also
+ *                                       each shared console menu session's (with or without a test mode).
  *   SK_NETPLAY_DESYNC_AT=300            Corrupt this peer's state at that frame, to test desync detection.
  *   SK_NETPLAY_TEST_CONTROLS=restart@300,next@200,leave@500
  *                                       Send these requests on that frame of every race (see PadControl).
@@ -44,6 +54,11 @@
  *   SK_NETPLAY_TEST_SOUND_ROLLBACK_AT=300  Run SoundRollback::SelfTest() on this shown frame of the first race.
  *   SK_NETPLAY_TEST_ENGINES_AT=300      Check on this shown frame that every other player's engine is heard.
  *   SK_NETPLAY_TEST_PRESS_L_AT=400      Press L (it sets the music volume setting) on this frame of every race.
+ * Outside races, with or without netplay:
+ *   SK_TEST_INPUT=Z@60,A@120,R_JPAD@150 Press these buttons on controller 1 on these game frames (counted from boot),
+ *                                       each once, for two frames.
+ *   SK_TEST_CONSOLE_INPUT=R_JPAD@60     The same, counted from the start of each shared console this player joins,
+ *                                       and pressed again on every new one.
  */
 
 #ifdef __cplusplus
@@ -58,6 +73,27 @@ void Netplay_BeginFrame(void);
 
 /** @returns true while a netplay session runs the race. */
 bool Netplay_IsInRace(void);
+
+/**
+ * @returns whether the menus offer Extra mode: the host's unlock on a shared console, otherwise this player's.
+ * @param unlockedInSave Whether this player's save unlocked it.
+ */
+s32 Netplay_GetExtraMode(s32 unlockedInSave);
+
+/** @returns true while this game plays on a netplay room's shared console. */
+bool Netplay_IsSharedConsole(void);
+
+/**
+ * @returns the screen a reset to the menus lands on: Game Select on a shared console, the ONLINE screen right after
+ *          leaving a room or while joining one, otherwise `menu`.
+ */
+s32 Netplay_GetResetMenu(s32 menu);
+
+/**
+ * @returns true while a room's menus wait for another player's input (MenuSession.h): this game loop iteration must
+ *          not run a frame, and shows the last one again.
+ */
+bool Netplay_IsWaitingForMenuInput(void);
 
 /**
  * Hands the local player's input (pads[0]) to the session.
@@ -94,6 +130,8 @@ void RestartRace();
 bool CanRestartRace();
 /** @returns true while this player is in, or loading, a netplay race. */
 bool IsRaceRunning();
+/** On a shared console: the player (controller) number of the member in this relay slot, from 0, or -1. */
+s32 GetConsolePlayer(u8 slot);
 } // namespace Netplay
 #endif
 

@@ -23,6 +23,7 @@ enum MenuFadeTypes {
     MENU_FADE_TYPE_DEMO,
     MENU_FADE_TYPE_DATA,
     MENU_FADE_TYPE_OPTION,
+    MENU_FADE_TYPE_ONLINE, // @port Between Game Select and the ONLINE screen (netplay)
     MENU_FADE_TYPE_MAX
 };
 
@@ -99,7 +100,8 @@ enum MainMenuSelectionType {
     MAIN_MENU_MODE_SUB_SELECT,        // CC Selection and T.Trials options (Begin, Data)
     MAIN_MENU_OK_SELECT,              // OK option after selecting a submode
     MAIN_MENU_OK_SELECT_GO_BACK,      // OK option after going back from player select
-    MAIN_MENU_MODE_SUB_SELECT_GO_BACK // Used in T.Trials after going back to Data option from track data
+    MAIN_MENU_MODE_SUB_SELECT_GO_BACK, // Used in T.Trials after going back to Data option from track data
+    MAIN_MENU_ONLINE                   // @port Fading to the ONLINE screen (netplay)
 };
 
 /**

@@ -10,12 +10,13 @@ import sys
 import time
 
 MAGIC = 0x4B53
-VERSION = 2
-CREATE, JOIN, RELAY, KEEPALIVE, LEAVE = 1, 2, 3, 4, 5
-JOINED, ERROR, RELAYED, ROOM_STATE, ROOM_CLOSED = 0x81, 0x82, 0x83, 0x84, 0x85
+VERSION = 3
+CREATE, JOIN, RELAY, KEEPALIVE, LEAVE, LIST_ROOMS = 1, 2, 3, 4, 5, 6
+JOINED, ERROR, RELAYED, ROOM_STATE, ROOM_CLOSED, ROOM_LIST = 0x81, 0x82, 0x83, 0x84, 0x85, 0x86
 NO_SUCH_ROOM, ROOM_FULL, BUILD_MISMATCH, CONTENT_MISMATCH, UNKNOWN_CLIENT = 1, 2, 3, 4, 7
 HOST_LEFT = 1
-SHARE_ADDRESSES = 1
+SHARE_ADDRESSES, IN_RACE = 1, 2
+ROOM_RACING = 1
 BUILD = b"test-build".ljust(32, b"\0")
 CONTENT = 0x1234
 
@@ -61,9 +62,21 @@ class Peer:
         _, self.token, code, self.slot = struct.unpack("<IQ6sB", body)
         self.code = code
 
-    def create(self, request=1):
-        self.send(header(CREATE) + struct.pack("<I", request) + BUILD + struct.pack("<Q", CONTENT))
+    def create(self, request=1, name=b"Host", build=BUILD):
+        self.send(header(CREATE) + struct.pack("<I", request) + build + struct.pack("<Q16s", CONTENT, name))
         self.joined(self.receive(JOINED))
+
+    def list_rooms(self, request=1, build=BUILD, content=CONTENT):
+        """@returns [(code, host name, members, flags)] for each listed room."""
+        self.send(header(LIST_ROOMS) + struct.pack("<I", request) + build + struct.pack("<Q", content))
+        body = self.receive(ROOM_LIST)
+        got_request, count = struct.unpack_from("<IB", body)
+        assert got_request == request, "the list answers its request"
+        rooms = []
+        for i in range(count):
+            code, name, members, flags = struct.unpack_from("<6s16sBB", body, 5 + i * 24)
+            rooms.append((code, name.rstrip(b"\0"), members, flags))
+        return rooms
 
     def join(self, code, request=1, build=BUILD, content=CONTENT):
         self.send(header(JOIN) + struct.pack("<I6s", request, code) + build + struct.pack("<Q", content))
@@ -74,9 +87,9 @@ class Peer:
     def relay(self, destination, payload):
         self.send(header(RELAY) + struct.pack("<QB", self.token, destination) + payload)
 
-    def room_state(self, echo=0, share=False, local=(0, 0)):
+    def room_state(self, echo=0, share=False, local=(0, 0), racing=False):
         """@returns (own slot, occupied mask, [(key, public address, local address)] per occupied slot)."""
-        flags = SHARE_ADDRESSES if share else 0
+        flags = (SHARE_ADDRESSES if share else 0) | (IN_RACE if racing else 0)
         self.send(header(KEEPALIVE) + struct.pack("<QIBIH", self.token, echo, flags, *local))
         while True:
             body = self.receive(ROOM_STATE)
@@ -104,6 +117,14 @@ def main():
         token = host.token
         host.create()
         assert host.token == token, "a repeated create gets the same reply"
+
+        browser = Peer(port)
+        Peer(port).create(name=b"Other build", build=b"other".ljust(32, b"\0"))
+        assert browser.list_rooms() == [(host.code, b"Host", 1, 0)], "only rooms of the same build are listed"
+        assert browser.list_rooms(request=2, content=CONTENT + 1) == [], "and of the same content"
+        host.room_state(echo=9, racing=True)
+        assert browser.list_rooms(request=3)[0][3] == ROOM_RACING, "the host's keep-alive marks the room racing"
+        host.room_state(echo=10)
 
         guest = Peer(port)
         guest.join(b"ZZZZZZ")
@@ -140,6 +161,7 @@ def main():
         others[1].joined(others[1].receive(JOINED))
         assert (others[0].slot, others[1].slot) == (2, 3)
         assert others[2].error() == ROOM_FULL
+        assert browser.list_rooms(request=4) == [], "full rooms are not listed"
 
         others[0].send(header(LEAVE) + struct.pack("<Q", others[0].token))
         time.sleep(0.1)

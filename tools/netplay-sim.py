@@ -68,6 +68,9 @@ class Scenario:
     timeout: int = 300  # Seconds
     quiet_limit: int = 90  # Seconds without a new log line from any game before the scenario counts as stuck
 
+    def env_for(self, peer: int) -> dict:
+        return {**self.peer_env.get(-1, {}), **self.peer_env.get(peer, {})}
+
 
 # Event names for Scenario.expect, and the log lines that count as one
 EVENTS = {
@@ -83,9 +86,17 @@ EVENTS = {
     "network_address": r"Slot \d+ can be reached at (?!127\.)",
     "sound_self_test": r"Test: sound rollback self-test passed",
     "engines": r"Test: the other players' engines are heard",
+    "consoles": r"Console \d+: player",
+    "menus_in_sync": r"Test: menus in sync",
+    "left_room": r"Leaving the room",
 }
 # The game prints each line to stdout, then again through its log; count the plain copy only.
 EVENTS = {event: re.compile(r"^\[Netplay\] " + pattern, re.MULTILINE) for event, pattern in EVENTS.items()}
+
+# Scripted buttons for player 1 of a shared console, counted from the console's start: 2P on Game Select, then
+# versus (or Mario GP), 150cc, OK; on character select, OK once both picked; then the course (cup) and OK.
+CONSOLE_2P_VS = "R_JPAD@60,A@90,D_JPAD@120,A@150,A@180,A@210,A@280,A@350,A@420,A@450,A@480"
+CONSOLE_2P_GP = "R_JPAD@60,A@90,A@120,A@150,A@180,A@250,A@320,A@390,A@420"
 
 SCENARIOS = [
     Scenario("vs-2p", "2 players, versus, two full races, connected directly; each hears the other's engine", 2, "vs",
@@ -134,6 +145,34 @@ SCENARIOS = [
              series_races=1, peer_env={1: {"SK_NETPLAY_RELAY": "{lan}:{port}"}},
              # The host's addresses are loopback ones as the relay sees them; the guest must get its network address.
              expect={"races_over": 1, "direct": 1, "network_address": 1}),
+    Scenario("console-2p", "2 players on a shared console: the menus in lockstep (Game Select, characters, course, "
+             "by scripted buttons), a full versus race, the next race, then the menus again", 2, "vs",
+             series_races=1, peer_env={-1: {"SK_NETPLAY_CONSOLE": "1"},
+                                       0: {"SK_TEST_CONSOLE_INPUT": CONSOLE_2P_VS},
+                                       1: {"SK_TEST_CONSOLE_INPUT": "R_JPAD@290,A@310"}},
+             expect={"consoles": 1, "races_over": 1, "finishes": 1, "menus_in_sync": 1}),
+    Scenario("console-spectator", "3 players on a shared console pick a 2-player race: player 3 sits it out and "
+             "watches player 1", 3, "vs", series_races=1,
+             peer_env={-1: {"SK_NETPLAY_CONSOLE": "1"}, 0: {"SK_TEST_CONSOLE_INPUT": CONSOLE_2P_VS},
+                       1: {"SK_TEST_CONSOLE_INPUT": "R_JPAD@290,A@310"}},
+             expect={"consoles": 1, "races_over": 1, "menus_in_sync": 1}),
+    Scenario("console-gp", "2 players on a shared console: a whole Grand Prix from the menus, the podium, then "
+             "Game Select again", 2, "gp",
+             peer_env={-1: {"SK_NETPLAY_CONSOLE": "1"}, 0: {"SK_TEST_CONSOLE_INPUT": CONSOLE_2P_GP},
+                       1: {"SK_TEST_CONSOLE_INPUT": "R_JPAD@260,A@280"}},
+             expect={"consoles": 1, "cups": 1, "podiums": 1, "menus_in_sync": 1}, timeout=600),
+    Scenario("console-join", "A third player joins a shared console during its race: it waits, then everyone "
+             "starts over on Game Select with three controllers", 3, "vs", series_races=1,
+             peer_env={-1: {"SK_NETPLAY_CONSOLE": "1", "SK_NETPLAY_TEST_CONSOLE_PLAYERS": "2,3"},
+                       0: {"SK_TEST_CONSOLE_INPUT": CONSOLE_2P_VS}, 1: {"SK_TEST_CONSOLE_INPUT": "R_JPAD@290,A@310"},
+                       2: {"SK_NETPLAY_TEST_JOIN_AT": "1200", "SK_NETPLAY_RACES": "0",
+                           "SK_NETPLAY_TEST_CONSOLE_PLAYERS": "3"}},
+             expect={"consoles": 1, "menus_in_sync": 1}),
+    Scenario("console-leave", "2 players on a shared console; the guest leaves with Z on Game Select and the host "
+             "carries on alone", 2, "vs", races=0,
+             peer_env={-1: {"SK_NETPLAY_CONSOLE": "1"}, 0: {"SK_NETPLAY_TEST_CONSOLE_PLAYERS": "1,2,1"},
+                       1: {"SK_TEST_CONSOLE_INPUT": "Z@200", "SK_NETPLAY_TEST_CONSOLE_PLAYERS": "9"}},
+             expect={"consoles": 1}),
     Scenario("lag", "2 players, versus at 60 ms +-20 ms and 5% loss, in real time", 2, "vs",
              track="mk:frappe_snowland", frames=1800,
              peer_env={-1: {"SK_FAST": "0", "SK_NETPLAY_DELAY_MS": "60", "SK_NETPLAY_JITTER_MS": "20",
@@ -177,20 +216,45 @@ def compare_checksum_logs(directory: Path, players: int):
     for host_log in host_logs:
         suffix = host_log.name[len("p0.log"):]
         logs = [directory / f"p{i}.log{suffix}" for i in range(players)]
-        missing = [log.name for log in logs if not log.exists()]
-        if missing:
-            mismatches.append(f"{suffix}: no log from {', '.join(missing)}")
+        # On a shared console, a player who joins during a race does not run it.
+        present = [log for log in logs if log.exists()]
+        if len(present) < 2:
+            mismatches.append(f"{suffix}: only {present[0].name} logged it")
             continue
-        lines = [log.read_text().splitlines() for log in logs]
+        lines = [log.read_text().splitlines() for log in present]
         # The last frames of a segment can still be predictions on the peer that ended it first.
         compared = max(min(len(peer) for peer in lines) - 10, 0)
-        for i in range(1, players):
-            differing = sum(1 for a, b in zip(lines[0][:compared], lines[i][:compared]) if a != b)
+        for log, peer in zip(present[1:], lines[1:]):
+            differing = sum(1 for a, b in zip(lines[0][:compared], peer[:compared]) if a != b)
             if differing:
-                first = next(n for n, (a, b) in enumerate(zip(lines[0], lines[i])) if a != b)
-                mismatches.append(f"{suffix}: p0 vs p{i}: {differing} of {compared} frames differ, first at line "
-                                  f"{first + 1}")
+                first = next(n for n, (a, b) in enumerate(zip(lines[0], peer)) if a != b)
+                mismatches.append(f"{suffix}: p0 vs {log.name[:2]}: {differing} of {compared} frames differ, first "
+                                  f"at line {first + 1}")
     return len(host_logs), mismatches
+
+
+def compare_menu_logs(directory: Path, players: int):
+    """A shared console's menus run in lockstep: every peer in a menu session logs the same checksum each frame.
+    @returns (sessions compared, list of mismatch descriptions)."""
+    mismatches = []
+    compared_sessions = 0
+    for host_log in sorted(directory.glob("p0.log.console*.seg*.menu")):
+        suffix = host_log.name[len("p0.log"):]
+        logs = [directory / f"p{i}.log{suffix}" for i in range(players)]
+        # Sessions of a console that some peers were not part of (the host alone, before the others joined)
+        present = [log for log in logs if log.exists()]
+        if len(present) < 2:
+            continue
+        lines = [log.read_text().splitlines() for log in present]
+        # Each peer stops logging when it leaves; compare the frames all of them ran.
+        common = min(len(peer) for peer in lines)
+        compared_sessions += 1
+        for log, peer in zip(present[1:], lines[1:]):
+            differing = [n for n in range(common) if peer[n] != lines[0][n]]
+            if differing:
+                mismatches.append(f"{suffix}: p0 vs {log.name[:2]}: {len(differing)} of {common} menu frames "
+                                  f"differ, first at frame {differing[0] + 1}")
+    return compared_sessions, mismatches
 
 
 def compare_sound_logs(directory: Path, players: int):
@@ -326,8 +390,12 @@ def run_scenario(scenario: Scenario, args, run_dir: Path):
 
     segments, mismatches = compare_checksum_logs(directory, scenario.players)
     problems += mismatches
-    if segments == 0:
+    if segments == 0 and scenario.races > 0:
         problems.append("no race segment was logged")
+    menu_sessions, mismatches = compare_menu_logs(directory, scenario.players)
+    problems += mismatches
+    if scenario.env_for(-1).get("SK_NETPLAY_CONSOLE") == "1" and menu_sessions == 0:
+        problems.append("no shared console menu session was compared")
     sounds = 0
     if scenario.cvars.get("gNetplay.OwnAudio") == 0:
         sounds, mismatches = compare_sound_logs(directory, scenario.players)
@@ -338,6 +406,7 @@ def run_scenario(scenario: Scenario, args, run_dir: Path):
     host = texts[0] if texts else ""
     counts = {event: len(pattern.findall(host)) for event, pattern in EVENTS.items()}
     counts["sounds_compared"] = sounds
+    counts["menu_sessions"] = menu_sessions
     for kind in ("played late", "stopped", "restarted"):
         counts["sounds_" + kind.replace(" ", "_")] = sum(
             int(n) for n in re.findall(r"^\[Netplay\] .*, (\d+) " + kind, host, re.MULTILINE))

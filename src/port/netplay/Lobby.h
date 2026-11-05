@@ -33,6 +33,11 @@ constexpr size_t kMaxNameLength = 16;
  * address with them. 0: everything goes through the relay. Read when connecting to a room.
  */
 constexpr const char* kDirectConnectCVar = "gNetplay.DirectConnect";
+/** This player's name, shown to the other players and, for a host, in the room list. */
+constexpr const char* kNameCVar = "gNetplay.Name";
+/** The relay server, "host[:port]". */
+constexpr const char* kRelayCVar = "gNetplay.Relay";
+constexpr const char* kDefaultRelay = "127.0.0.1:7777";
 
 enum class State { Offline, Connecting, InRoom };
 
@@ -42,7 +47,8 @@ struct Member {
     std::string Name;
     s8 Character = 0;
     bool Ready = false;
-    bool InRace = false;
+    bool InRace = false;     // Runs a race, or a shared console (its RaceId)
+    bool Racing = false;     // Is in a race right now, rather than in the menus
     u32 RaceId = 0;          // The race it runs, or ran last
     u32 BarrierSegment = 0;  // The last segment of that race it confirmed the end of
     s32 BarrierFrame = 0;    // The frame it confirmed that segment ended on
@@ -57,6 +63,18 @@ struct Settings {
     std::string TrackName = "mk:luigi_raceway"; // Versus and Battle
 };
 
+/**
+ * A shared console the host started: every member listed plays on one console, as if each had a controller plugged
+ * into it (player k on controller k). The menus run in lockstep and races with rollback (Netplay.cpp).
+ */
+struct ConsoleStart {
+    u32 Id;
+    std::vector<u8> Slots; // Relay slot of each player, in player (controller) order
+    s32 LocalPlayer;
+    RaceConfig Rules;      // The host's gameplay settings, which apply to everyone
+    bool ExtraMode;        // Whether the host unlocked Extra (mirrored 150cc), which the menus then offer
+};
+
 /** A race this peer has to run, handed to the session code. */
 struct RaceStart {
     u32 Id;
@@ -65,7 +83,12 @@ struct RaceStart {
     std::vector<u8> Slots; // Relay slot of each player, in player order
 };
 
-void Host(const std::string& relayAddress, const std::string& name);
+/**
+ * Opens a room on the relay and hosts it.
+ * @param sharedConsole true: the room plays on a shared console (ConsoleStart). false: the host picks races, which
+ *        start from RaceConfig (StartRace(); the netplay window's old flow and the simulator's bots).
+ */
+void Host(const std::string& relayAddress, const std::string& name, bool sharedConsole);
 void Join(const std::string& relayAddress, const std::string& code, const std::string& name);
 void Leave();
 /** Talks to the relay and the other members. Call once per frame. */
@@ -105,6 +128,12 @@ std::string GetStartBlocker();
 void StartRace();
 /** The race this peer has been asked to run, if any; taken once. */
 std::optional<RaceStart> TakeRaceStart();
+/** The newest shared console that includes this peer, once; the host starts a new one when the members change. */
+std::optional<ConsoleStart> TakeConsoleStart();
+/** @returns true while this peer is in a room that plays on a shared console. */
+bool IsSharedConsole();
+/** Tells the room whether this peer is racing; the host waits for nobody to be before changing the console. */
+void SetRacing(bool racing);
 /** @returns the GekkoNet adapter for one segment of a race, carrying packets between the room's members. */
 GekkoNetAdapter* GetGekkoAdapter(u32 raceId, u32 segment);
 /** Tells the room that this peer confirmed a segment of its race ended on this frame. */

@@ -23,6 +23,8 @@
 #include <sounds.h>
 #include "spawn_players.h"
 #include "port/Game.h"
+#include "port/netplay/Netplay.h"
+#include "port/netplay/OnlineMenu.h"
 
 /** BSS **/
 s32 gIntroModelZEye;
@@ -182,6 +184,7 @@ void update_menus(void) {
                 switch (gMenuSelection) {
                     case CONTROLLER_PAK_MENU:
                     case START_MENU:
+                    case ONLINE_MENU:
                         break;
                     default:
                         func_8009E1C0();
@@ -207,6 +210,11 @@ void update_menus(void) {
                 case CONTROLLER_PAK_MENU:
                     if (controllerIdx == PLAYER_ONE) {
                         controller_pak_menu_act(&gControllers[controllerIdx], controllerIdx);
+                    }
+                    break;
+                case ONLINE_MENU:
+                    if (controllerIdx == PLAYER_ONE) {
+                        online_menu_act(&gControllers[controllerIdx]);
                     }
                     break;
                 case START_MENU_FROM_QUIT:
@@ -1351,6 +1359,11 @@ void main_menu_act(struct Controller* controller, u16 controllerIdx) {
                     reset_cycle_flash_menu();
                     play_sound2(SOUND_MENU_SELECT);
                     newMode = gGameModePlayerSelection[gPlayerCount - 1][gGameModeMenuColumn[gPlayerCount - 1]];
+                } else if ((btnAndStick & (CONT_L | CONT_R)) && Netplay_IsSharedConsole()) {
+                    // @port OPTION and DATA work on each player's own save and Controller Pak; a netplay room's
+                    // console would run them on every player's computer.
+                    play_sound2(SOUND_MENU_FILE_NOT_FOUND);
+                    newMode = gGameModePlayerSelection[gPlayerCount - 1][gGameModeMenuColumn[gPlayerCount - 1]];
                 } else if (btnAndStick & CONT_L) {
                     // L800B2C58
                     gMainMenuSelection = MAIN_MENU_OPTION;
@@ -1361,6 +1374,12 @@ void main_menu_act(struct Controller* controller, u16 controllerIdx) {
                     gMainMenuSelection = MAIN_MENU_DATA;
                     func_8009E258();
                     play_sound2(SOUND_MENU_DATA);
+                    newMode = gGameModePlayerSelection[gPlayerCount - 1][gGameModeMenuColumn[gPlayerCount - 1]];
+                } else if ((btnAndStick & Z_TRIG) && !Netplay_IsSharedConsole()) {
+                    // @port The ONLINE screen: netplay rooms. On a room's console, Z leaves it (Netplay.cpp).
+                    gMainMenuSelection = MAIN_MENU_ONLINE;
+                    fade_to_online_menu();
+                    play_sound2(SOUND_MENU_OPTION);
                     newMode = gGameModePlayerSelection[gPlayerCount - 1][gGameModeMenuColumn[gPlayerCount - 1]];
                 } else {
                     newMode = gGameModePlayerSelection[gPlayerCount - 1][gGameModeMenuColumn[gPlayerCount - 1]];
@@ -1388,6 +1407,12 @@ void main_menu_act(struct Controller* controller, u16 controllerIdx) {
                     gMainMenuSelection = MAIN_MENU_PLAYER_SELECT;
                     reset_cycle_flash_menu();
                     play_sound2(SOUND_MENU_GO_BACK);
+                    newMode = gGameModePlayerSelection[gPlayerCount - 1][gGameModeMenuColumn[gPlayerCount - 1]];
+                } else if ((btnAndStick & A_BUTTON) && Netplay_IsSharedConsole() &&
+                           (gGameModePlayerSelection[gPlayerCount - 1][gGameModeMenuColumn[gPlayerCount - 1]] ==
+                            TIME_TRIALS)) {
+                    // @port Time trials race the ghosts in each player's own save, which the others do not have.
+                    play_sound2(SOUND_MENU_FILE_NOT_FOUND);
                     newMode = gGameModePlayerSelection[gPlayerCount - 1][gGameModeMenuColumn[gPlayerCount - 1]];
                 } else if (btnAndStick & A_BUTTON) {
                     // L800B2E3C
@@ -1900,6 +1925,9 @@ void load_menu_states(s32 menuSelection) {
         case HARBOUR_MASTERS_MENU:
             func_800CA008(0, 0);
             break;
+        case ONLINE_MENU:
+            online_menu_enter();
+            break;
         case LOGO_INTRO_MENU:
             func_800CA008(0, 0);
             break;
@@ -1971,7 +1999,8 @@ void load_menu_states(s32 menuSelection) {
                     }
                     break;
                 }
-                case MENU_FADE_TYPE_OPTION: {
+                case MENU_FADE_TYPE_OPTION:
+                case MENU_FADE_TYPE_ONLINE: {
                     gMainMenuSelection = MAIN_MENU_PLAYER_SELECT;
                     break;
                 }

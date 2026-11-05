@@ -50,6 +50,14 @@ void SimState_ResetControllers(void);
  */
 void SimState_RestoreBaseline(void);
 
+/**
+ * Keeps a copy of the simulation's globals as they are at boot, before the first frame. Every peer boots the same
+ * code and data, so netplay starts a room's menus from this copy (MenuSession.h).
+ */
+void SimState_CaptureBootState(void);
+/** Puts the globals back to the boot copy, keeping the same state as SimState_RestoreBaseline(). */
+void SimState_RestoreBootState(void);
+
 /** Bracket the simulation half of a race frame. In rollback mode, routes its allocations into the sim arena. */
 void SimState_BeginSimFrame(void);
 void SimState_EndSimFrame(void);

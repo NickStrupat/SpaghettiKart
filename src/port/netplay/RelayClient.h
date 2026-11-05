@@ -31,8 +31,12 @@ class RelayClient {
     RelayClient();
     ~RelayClient();
 
-    /** Opens a new room on the relay at "host[:port]"; this client becomes its host, in slot 0. */
-    void Create(const std::string& relayAddress, const RelayProtocol::BuildId& build, u64 content);
+    /**
+     * Opens a new room on the relay at "host[:port]"; this client becomes its host, in slot 0. The room list shows it
+     * under the host's name.
+     */
+    void Create(const std::string& relayAddress, const RelayProtocol::BuildId& build, u64 content,
+                const std::string& hostName);
     void Join(const std::string& relayAddress, const std::string& code, const RelayProtocol::BuildId& build,
               u64 content);
     /** Leaves the room, if in one, and returns to Idle. */
@@ -57,6 +61,8 @@ class RelayClient {
     void SetDirectEnabled(bool enabled);
     /** Testing: direct connections stop working this long after joining, as if a router closed them. */
     void BlockDirectAfter(u32 milliseconds);
+    /** Whether this client is racing. The room list shows a host's room as racing. */
+    void SetInRace(bool inRace);
     /** @returns true while packets to this slot go to it directly rather than through the relay. */
     bool IsDirect(u8 slot) const;
     /** Round trip straight to this slot, or -1 while not connected directly or not measured yet. */
@@ -73,6 +79,41 @@ class RelayClient {
     GekkoNetAdapter* GetGekkoAdapter(u16 sessionTag);
 
     struct Impl; // Defined in RelayClient.cpp; public so that the GekkoNet adapter functions there can reach it
+
+  private:
+    std::unique_ptr<Impl> mImpl;
+};
+
+/**
+ * Asks a relay for its open rooms, for the room list on the ONLINE screen. Separate from RelayClient, which is the
+ * connection to one room: the list is wanted before joining any. Single-threaded, like RelayClient.
+ */
+class RelayRoomList {
+  public:
+    struct Room {
+        std::string Code;
+        std::string HostName;
+        u8 Members = 0;
+        bool Racing = false;
+    };
+
+    RelayRoomList();
+    ~RelayRoomList();
+
+    /** Asks the relay at "host[:port]" for the rooms of this build and content. The answer replaces the list. */
+    void Refresh(const std::string& relayAddress, const RelayProtocol::BuildId& build, u64 content);
+    /** Receives the answer and resends a lost request. Call once per frame. */
+    void Update();
+    /** @returns true while a request waits for its answer. */
+    bool IsBusy() const;
+    /** @returns true once a list has arrived. */
+    bool HasList() const;
+    /** The rooms of the last answer, newest first. */
+    const std::vector<Room>& GetRooms() const;
+    /** Why the last request failed, or empty. */
+    const std::string& GetError() const;
+
+    struct Impl;
 
   private:
     std::unique_ptr<Impl> mImpl;
