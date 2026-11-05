@@ -590,4 +590,44 @@ jobs:
           path: |
             Spaghettify.nro
             spaghetti.o2r
-            
+
+  # Every push to main publishes its builds as a GitHub release, once all of them have built.
+  release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [build-windows, build-macos-arm64, build-macos-intel, build-linux-release-docker, build-linux-x86-docker]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download builds
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Package
+        run: |
+          OUT=$PWD/release
+          mkdir "$OUT"
+          # The Mac builds are already zipped, with ditto, which keeps the app runnable.
+          cp artifacts/spaghetti-mac-arm64/SpaghettiKart.app.zip "$OUT/SpaghettiKart-mac-arm64.zip"
+          cp artifacts/spaghetti-mac-intel-x64/SpaghettiKart.app.zip "$OUT/SpaghettiKart-mac-intel.zip"
+          # Artifacts lose the executable bit.
+          chmod +x artifacts/spaghetti-linux-x64/spaghetti.appimage artifacts/spaghetti-linux-x86/spaghetti.appimage
+          for build in windows-x64:spaghetti-windows-x64 windows-x86:spaghetti-windows-Win32 \
+              linux-x64:spaghetti-linux-x64 linux-x86:spaghetti-linux-x86; do
+            (cd "artifacts/${build#*:}" && zip -qr "$OUT/SpaghettiKart-${build%%:*}.zip" .)
+          done
+          ls -l "$OUT"
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          TAG=build-${{ github.run_number }}
+          # A re-run of this job replaces the files of the release it already made.
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" release/* --clobber
+          else
+            gh release create "$TAG" release/* --target "$GITHUB_SHA" \
+              --title "Build ${{ github.run_number }} (${GITHUB_SHA::8})" --generate-notes \
+              --notes "macOS: the app is not notarized. If macOS refuses to open it, allow it in System Settings > Privacy & Security, or run \`xattr -dr com.apple.quarantine SpaghettiKart.app\`."
+          fi
