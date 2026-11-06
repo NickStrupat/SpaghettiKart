@@ -142,6 +142,10 @@ all of it memory pools and frame buffers; the simulation's own state is under 1 
   are not connected directly.
 - **Controls.** Leaving and restarting travel inside the inputs (two unused button bits), so every peer acts on the
   same frame.
+- **Stick positions.** GekkoNet compares inputs byte for byte, so every wobble of a held stick would be a wrong
+  prediction and a rollback. Before a race input is sent, its stick becomes one fixed position among those the race
+  treats the same (`CanonicalStick.cpp`): MK64 ignores the stick near the centre, steering stops growing near the edge,
+  and the Y axis only matters for backing up and throwing items.
 
 ### Race series
 
@@ -289,6 +293,8 @@ Each of these cost a debugging round.
   checksum hashes only active items' state.
 - **C++ statics that own heap memory** dangle after a section restore; the baseline restores C sections only.
 - **The audio thread must not read CVars** (it raced the main thread's CVar map).
+- **Race code that reads the stick in a new way** (`rawStickX`, `rawStickY`) sees the canonical position standing
+  for the player's, not the player's own. It cannot desync, but add it to `GetMeaning()` in `CanonicalStick.cpp`.
 - **Audio state is per computer and not rolled back**, so simulation code that asks it something (is this sound's
   slot still there?) can answer differently when a frame is simulated again. Track such calls by what the simulation
   passed in (see stops across rollbacks).

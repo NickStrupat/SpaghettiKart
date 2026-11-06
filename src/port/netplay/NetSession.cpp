@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <vector>
 
+#include "CanonicalStick.h"
 #include "Checksum.h"
 #include "NetLog.h"
 #include "RaceEvents.h"
@@ -833,6 +834,8 @@ bool ConsumeLocalPads(OSContPad* pads) {
         // Pausing would only pause this peer.
         input.Buttons = pads[0].button & ~START_BUTTON;
     }
+    // Stick wobble that the race cannot tell apart would only be wrong predictions and rollbacks.
+    CanonicalStick::Apply(&input.StickX, &input.StickY);
     if ((sNet.Settings.PressLAtFrame > 0) && (sNet.SegmentFrames + 1 == sNet.Settings.PressLAtFrame)) {
         input.Buttons |= L_TRIG;
     }
