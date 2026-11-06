@@ -54,6 +54,7 @@ extern "C" {
 }
 
 #include "port/netplay/DeterminismHarness.h"
+#include "port/netplay/SimState.h"
 #include "port/netplay/Netplay.h"
 
 extern "C" void Graphics_PushFrame(Gfx* pool) {
@@ -1039,6 +1040,8 @@ extern "C"
     int
     main(int argc, char* argv[]) {
 #endif
+    // Netplay desync recovery copies the host's snapshot, pointers and all, into the other players' games.
+    SimState_DisableAddressRandomization(argv);
 #ifdef _WIN32
     // Allow non-ascii characters for Windows
     setlocale(LC_ALL, ".UTF8");

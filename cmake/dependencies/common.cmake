@@ -62,6 +62,14 @@ endif()
 target_link_libraries(${PROJECT_NAME} PRIVATE GekkoNet)
 # The relay client (src/port/netplay/RelayClient.cpp) uses GekkoNet's copy of standalone ASIO.
 target_include_directories(${PROJECT_NAME} PRIVATE ${gekkonet_SOURCE_DIR}/GekkoLib/thirdparty/asio)
+# Netplay desync recovery packs the host's state with zlib (src/port/netplay/Resync.cpp). The macOS SDK has it; the
+# found package would add the include folder of whichever SDK it found, ahead of the C++ headers.
+if(APPLE)
+  target_link_libraries(${PROJECT_NAME} PRIVATE z)
+else()
+  find_package(ZLIB REQUIRED)
+  target_link_libraries(${PROJECT_NAME} PRIVATE ZLIB::ZLIB)
+endif()
 
 # libultraship
 # Removes MPQ/OTR support

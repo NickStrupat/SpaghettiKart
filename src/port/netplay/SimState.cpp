@@ -25,6 +25,14 @@ extern "C" {
 #include <mach-o/getsect.h>
 #include <mach-o/ldsyms.h>
 #endif
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#include <climits>
+#include <cstdlib>
+#include <spawn.h>
+
+extern char** environ;
+#endif
 
 namespace {
 
@@ -210,6 +218,40 @@ void RestoreCGlobalsKeeping(const std::vector<u8>& copy) {
 
 extern "C" bool SimState_IsSupported(void) {
     return GetSectionRanges()[1].Size > 0;
+}
+
+extern "C" void SimState_DisableAddressRandomization(char** argv) {
+// Not PLATFORM_IOS, which <mach-o/loader.h> defines as a platform number.
+#if defined(__APPLE__) && TARGET_OS_OSX
+    // Not public; the value <spawn_private.h> gives it, which debuggers use to start programs.
+    constexpr short kDisableAslr = 0x0100;
+    constexpr const char* kRestartedVariable = "SK_RESTARTED_WITHOUT_ASLR";
+    // The variable keeps a restart that did not turn randomization off from restarting again.
+    if ((_dyld_get_image_vmaddr_slide(0) == 0) || (getenv(kRestartedVariable) != nullptr)) {
+        return;
+    }
+    char path[PATH_MAX];
+    uint32_t size = sizeof(path);
+    posix_spawnattr_t attributes;
+    if ((_NSGetExecutablePath(path, &size) != 0) || (posix_spawnattr_init(&attributes) != 0)) {
+        return;
+    }
+    setenv(kRestartedVariable, "1", 1);
+    posix_spawnattr_setflags(&attributes, POSIX_SPAWN_SETEXEC | kDisableAslr);
+    // Replaces this process and does not return, unless it failed.
+    posix_spawn(nullptr, path, nullptr, &attributes, argv, environ);
+    posix_spawnattr_destroy(&attributes);
+#else
+    (void) argv;
+#endif
+}
+
+extern "C" uintptr_t SimState_GetImageAddress(void) {
+#if defined(__APPLE__)
+    return (uintptr_t) &_mh_execute_header;
+#else
+    return 0;
+#endif
 }
 
 extern "C" void SimState_SetRollbackMode(bool enabled) {

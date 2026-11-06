@@ -6,6 +6,7 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <gekkonet.h>
@@ -51,6 +52,13 @@ struct SessionSettings {
      */
     std::function<void(u32 segment, s32 frame)> ReachBarrier;
     std::function<BarrierStatus(u32 segment, s32 frame)> GetBarrierStatus;
+    /**
+     * Desync recovery (Resync.h): sends a message to one player's peer, or with -1 to every other player. Without
+     * these and the barrier, a desync ends the race.
+     */
+    std::function<void(s32 player, const std::vector<u8>& message)> SendResync;
+    /** The resync messages that arrived since the last call, each with its sender's player index. */
+    std::function<std::vector<std::pair<s32, std::vector<u8>>>()> TakeResync;
     /** One-way latency to the slowest other player in ms, or -1 while unknown. Picks the automatic input delay. */
     std::function<s32()> GetLatencyMs;
     /** @returns true while packets to this player go through the relay, not straight to it. */
@@ -70,7 +78,7 @@ struct SessionSettings {
     u32 JitterMs = 0;           // Random extra delay, up to this many ms
     u32 LossPercent = 0;        // Percentage of received packets to drop
     std::string LogPath;        // After each segment, write each frame's checksum to <LogPath>.seg<N>
-    u32 DesyncAtFrame = 0;      // Corrupt the local state at this frame, to test desync detection
+    u32 DesyncAtFrame = 0;      // Corrupt the local state at this frame of the first segment, to test desyncs
     std::vector<TestControl> TestControls; // Requests the local player makes in every segment
     bool DumpSegmentStarts = false;        // Write the state each segment starts from to <LogPath>.seg<N>.start
     u32 LeaveAfterRaces = 0;               // Leave the series early in the race after this many; 0 never does

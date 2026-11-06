@@ -67,6 +67,7 @@ class Scenario:
     expect_none: tuple = ()  # Events no peer may log
     timeout: int = 300  # Seconds
     quiet_limit: int = 90  # Seconds without a new log line from any game before the scenario counts as stuck
+    desync_expected: bool = False  # A peer's state is corrupted on purpose: DESYNC lines are not a failure
 
     def env_for(self, peer: int) -> dict:
         return {**self.peer_env.get(-1, {}), **self.peer_env.get(peer, {})}
@@ -89,6 +90,7 @@ EVENTS = {
     "consoles": r"Console \d+: player",
     "menus_in_sync": r"Test: menus in sync",
     "left_room": r"Leaving the room",
+    "recoveries": r"Recovered from the desync",
 }
 # The game prints each line to stdout, then again through its log; count the plain copy only.
 EVENTS = {event: re.compile(r"^\[Netplay\] " + pattern, re.MULTILINE) for event, pattern in EVENTS.items()}
@@ -116,6 +118,10 @@ SCENARIOS = [
     Scenario("guest-leaves", "3 players, versus; player 3 leaves mid-race and everyone returns to the room", 3, "vs",
              track="mk:koopa_troopa_beach", peer_env={2: {"SK_NETPLAY_TEST_CONTROLS": "leave@600"}},
              expect={"segments": 1}),
+    Scenario("desync-recover", "3 players, versus; player 3's state goes wrong at frame 600, everyone takes over the "
+             "host's state and the race goes on to its end", 3, "vs", track="mk:luigi_raceway", series_races=1,
+             peer_env={2: {"SK_NETPLAY_DESYNC_AT": "600"}}, desync_expected=True,
+             expect={"recoveries": 1, "races_over": 1, "finishes": 2}),
     Scenario("demo-first", "2 players, two lobby races; the host idles into the title screen's demo first, which "
              "only the title screen (gSkipIntro 1) starts", 2, "vs", track="mk:luigi_raceway", races=2,
              series_races=1, cvars={"gSkipIntro": 1}, peer_env={0: {"SK_NETPLAY_TEST_START_DELAY": "1500"}},
@@ -386,7 +392,7 @@ def run_scenario(scenario: Scenario, args, run_dir: Path):
             failure = next((line for line in reversed(lines) if "FAIL" in line or "DESYNC" in line), "")
             problems.append(f"p{i} exit {game.returncode}: {failure[10:]}")
         for line in lines:
-            if "DESYNC" in line:
+            if ("DESYNC" in line) and not scenario.desync_expected:
                 problems.append(f"p{i}: {line[10:]}")
         for event, minimum in scenario.expect.items():
             count = len(EVENTS[event].findall(text))

@@ -23,6 +23,16 @@ extern "C" {
 /** @returns true when this build can save and restore simulation state (clang builds). */
 bool SimState_IsSupported(void);
 
+/**
+ * macOS: restarts the game in place with address space layout randomization off, unless it is already off, so that
+ * the game's code and globals sit at the same address in every copy of the same build. A snapshot's pointers then
+ * hold in another copy, which desync recovery needs (Resync.h). Call first thing in main(). If the restart fails,
+ * the game carries on with randomization, without desync recovery.
+ */
+void SimState_DisableAddressRandomization(char** argv);
+/** @returns the address the game's image is loaded at; the same in every copy without randomization. */
+uintptr_t SimState_GetImageAddress(void);
+
 /** Enables or disables rollback mode. Takes effect at the next race setup. */
 void SimState_SetRollbackMode(bool enabled);
 bool SimState_IsRollbackMode(void);

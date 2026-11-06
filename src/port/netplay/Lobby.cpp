@@ -24,6 +24,8 @@ constexpr auto kBroadcastInterval = std::chrono::milliseconds(250);
 constexpr int kRaceEndedRepeats = 3;
 constexpr s8 kNumCharacters = BOWSER + 1;
 constexpr size_t kMaxMessageSize = 512;
+// Race data waits here until the session takes it; past this many messages, more are dropped.
+constexpr size_t kMaxQueuedRaceData = 1024;
 // Sent for a ping not measured yet
 constexpr u16 kUnknownPing = 0xFFFF;
 
@@ -36,6 +38,7 @@ enum class MessageType : u8 {
                       // of each player, RaceConfig (the rules), u8 Extra mode unlocked;
                       // u32 race (0 for none), then for a race: u8 player count, the slot of each player, RaceConfig
     RaceEnded = 3,    // u32 race, u8 SessionResult, u8 message length, message
+    RaceData = 4,     // u32 race, then data for that race's session (desync recovery, Resync.h)
 };
 
 struct LobbyState {
@@ -65,6 +68,7 @@ struct LobbyState {
     std::optional<RaceStart> PendingStart;
     std::optional<RaceEnd> EndedElsewhere;
     std::string LastRaceMessage;
+    std::vector<RaceData> RaceDataReceived; // For LastRaceId
 
     // Shared console (ConsoleStart). The host announces its latest one; guests start the newest that includes them.
     bool SharedConsole = false;
@@ -267,6 +271,16 @@ void HandleRaceEnded(u8 source, ByteReader& reader) {
     }
 }
 
+void HandleRaceData(u8 source, ByteReader& reader) {
+    const u32 raceId = reader.Read32();
+    if (reader.Failed() || (raceId == 0) || (raceId != sLobby.LastRaceId) || (source >= kMaxMembers) ||
+        (sLobby.RaceDataReceived.size() >= kMaxQueuedRaceData)) {
+        return;
+    }
+    const u8* data = reader.GetRemaining();
+    sLobby.RaceDataReceived.push_back({ source, std::vector<u8>(data, data + reader.GetRemainingSize()) });
+}
+
 void HandleMessage(const RelayClient::LobbyPacket& packet) {
     ByteReader reader(packet.Data.data(), packet.Data.size());
     switch ((MessageType) reader.Read8()) {
@@ -278,6 +292,9 @@ void HandleMessage(const RelayClient::LobbyPacket& packet) {
             break;
         case MessageType::RaceEnded:
             HandleRaceEnded(packet.Source, reader);
+            break;
+        case MessageType::RaceData:
+            HandleRaceData(packet.Source, reader);
             break;
         default:
             break;
@@ -631,6 +648,7 @@ std::optional<RaceStart> TakeRaceStart() {
         sLobby.RunningRaceId = start->Id;
         sLobby.LastRaceId = start->Id;
         sLobby.LastRaceSlots = start->Slots;
+        sLobby.RaceDataReceived.clear();
         sLobby.BarrierSegment = 0;
         sLobby.BarrierFrame = 0;
         sLobby.LastRaceMessage.clear();
@@ -647,6 +665,7 @@ std::optional<ConsoleStart> TakeConsoleStart() {
         sLobby.RunningRaceId = console->Id;
         sLobby.LastRaceId = console->Id;
         sLobby.LastRaceSlots = console->Slots;
+        sLobby.RaceDataReceived.clear();
         sLobby.BarrierSegment = 0;
         sLobby.BarrierFrame = 0;
         sLobby.Changed = true;
@@ -719,6 +738,28 @@ void ReportRaceEnded(u32 raceId, SessionResult result, const std::string& messag
     for (int i = 0; i < kRaceEndedRepeats; i++) {
         sLobby.Relay.SendLobby(kBroadcast, data, writer.GetSize());
     }
+}
+
+void SendRaceData(u32 raceId, u8 destination, const std::vector<u8>& data) {
+    if (sLobby.Status != State::InRoom) {
+        return;
+    }
+    u8 message[RelayProtocol::kMaxPayload];
+    ByteWriter writer(message, sizeof(message));
+    writer.Write8((u8) MessageType::RaceData);
+    writer.Write32(raceId);
+    writer.WriteBytes(data.data(), data.size());
+    if (!writer.Failed()) {
+        sLobby.Relay.SendLobby(destination, message, writer.GetSize());
+    }
+}
+
+std::vector<RaceData> TakeRaceData(u32 raceId) {
+    std::vector<RaceData> data;
+    if (raceId == sLobby.LastRaceId) {
+        data.swap(sLobby.RaceDataReceived);
+    }
+    return data;
 }
 
 std::optional<RaceEnd> TakeRaceEndedElsewhere() {

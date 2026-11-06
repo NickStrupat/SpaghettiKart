@@ -40,7 +40,8 @@
  *   SK_NETPLAY_LOSS=5                   Percentage of received packets to drop.
  *   SK_NETPLAY_LOG=<file>               After each segment, write each frame's checksum, to compare peers; also
  *                                       each shared console menu session's (with or without a test mode).
- *   SK_NETPLAY_DESYNC_AT=300            Corrupt this peer's state at that frame, to test desync detection.
+ *   SK_NETPLAY_DESYNC_AT=300            Corrupt this peer's state at that frame of the first segment, to test desync
+ *                                       detection and recovery.
  *   SK_NETPLAY_TEST_CONTROLS=restart@300,next@200,leave@500
  *                                       Send these requests on that frame of every race (see PadControl).
  *   SK_NETPLAY_DUMP=1                   Write the state each segment starts from, for tools/netplay-diff.py.

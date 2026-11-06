@@ -148,6 +148,19 @@ struct RaceEnd {
     SessionResult Result;
     std::string Message;
 };
+
+/** A message for a race's session from another member, such as part of a state for desync recovery (Resync.h). */
+struct RaceData {
+    u8 Source; // Sender's relay slot
+    std::vector<u8> Data;
+};
+/**
+ * Sends a message to the session of a race this peer runs, on one relay slot, or on every other member with
+ * RelayProtocol::kBroadcast. At most RelayProtocol::kMaxPayload - 5 bytes; nothing is acknowledged or resent.
+ */
+void SendRaceData(u32 raceId, u8 destination, const std::vector<u8>& data);
+/** The messages for this race's session that arrived since the last call. */
+std::vector<RaceData> TakeRaceData(u32 raceId);
 /** @returns the end of this peer's race reported by another member, or by losing the room, since the last call. */
 std::optional<RaceEnd> TakeRaceEndedElsewhere();
 /** How the last race ended, shown in the lobby. */

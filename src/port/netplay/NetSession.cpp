@@ -15,6 +15,8 @@
 #include "KartSmoothing.h"
 #include "NetLog.h"
 #include "RaceEvents.h"
+#include "Resync.h"
+#include "SimArena.h"
 #include "SimState.h"
 #include "SoundRollback.h"
 #include "SyntheticDriver.h"
@@ -63,13 +65,17 @@ constexpr u32 kDirectBarrierFrames = 30;
 constexpr auto kLeaveTimeout = std::chrono::seconds(8);
 // SessionSettings::LeaveAfterRaces leaves on this frame of the next race, once it is under way.
 constexpr u32 kLeaveAfterRacesFrame = 30;
+// A desync recovery's Request is sent once, a few times over, so that every player hears of it.
+constexpr int kRecoveryRequestRepeats = 3;
+// Give up on a desync recovery that has not finished by then, and end the race.
+constexpr auto kRecoveryTimeout = std::chrono::seconds(15);
 // PadControl travels in two bits of the button word that no N64 button uses.
 constexpr u16 kControlShift = 6;
 constexpr u16 kControlMask = 0x3 << kControlShift;
 
 static_assert(sizeof(PadInput) == 4, "PadInput is sent to peers as raw bytes");
 
-enum class SessionState { Off, WaitingForRace, Connecting, Running };
+enum class SessionState { Off, WaitingForRace, Connecting, Running, Recovering };
 
 struct DelayedPacket {
     GekkoNetResult* Result;
@@ -89,6 +95,16 @@ struct Barrier {
     std::chrono::steady_clock::time_point Since;
 };
 
+/** A desync recovery under way (Resync.h). */
+struct Recovery {
+    u32 Segment = 0;     // The segment that went out of sync
+    s32 Frame = -1;      // The host's frame every player starts again from, once known
+    bool Loaded = false; // This peer holds the host's state of that frame
+    std::optional<Resync::Server> Server;       // The host's side
+    std::optional<Resync::Collector> Collector; // The other players'
+    std::chrono::steady_clock::time_point Since;
+};
+
 /** What one session update did, for the stats overlay. */
 struct UpdateStats {
     u8 RollbackFrames = 0;
@@ -105,6 +121,8 @@ struct NetSessionState {
     s32 ExitGamestate = RACING;
 
     u32 Segment = 0;
+    // The race of the series running now, from 1. A desync recovery starts a segment, not a race.
+    u32 SeriesRace = 0;
     // A segment's session starts once a race set up after this count has loaded.
     u32 SetupCountAtWait = 0;
     GekkoSession* Gekko = nullptr;
@@ -126,7 +144,9 @@ struct NetSessionState {
     std::string ReportPrefix;
     u32 ShownFrames = 0;
     u32 SegmentFrames = 0;
+    s32 LastShownFrame = -1;
     u8 InputDelay = 0;
+    Recovery Recovering;
 
     // Requests the local player sends with its inputs
     PadControl PendingControl = PadControl::None;
@@ -217,8 +237,9 @@ bool IsTransitionPending() {
     return (gIsInQuitToMenuTransition != 0) || (gGamestate != RACING);
 }
 
-void WriteChecksumLog() {
-    const std::string path = sNet.Settings.LogPath + ".seg" + std::to_string(sNet.Segment);
+/** @param suffix Added to the file name: a segment that went out of sync is not compared with the other peers'. */
+void WriteChecksumLog(const char* suffix) {
+    const std::string path = sNet.Settings.LogPath + ".seg" + std::to_string(sNet.Segment) + suffix;
     FILE* log = fopen(path.c_str(), "w");
     if (log == nullptr) {
         NetLog("Could not write %s", path.c_str());
@@ -289,8 +310,11 @@ void WriteKeptFramesReport() {
            frames.empty() ? -1 : frames.back(), path.c_str());
 }
 
-/** Prints the segment's statistics, tears down its GekkoNet session and writes its checksum log. */
-void EndGekkoSession(const char* verdict, const std::string& message) {
+/**
+ * Prints the segment's statistics, tears down its GekkoNet session and writes its checksum log.
+ * @param desynced The segment went out of sync and the race goes on in a recovery.
+ */
+void EndGekkoSession(const char* verdict, const std::string& message, bool desynced = false) {
     if (sNet.Gekko == nullptr) {
         NetLog("%s: %s", verdict, message.c_str());
         return;
@@ -309,8 +333,10 @@ void EndGekkoSession(const char* verdict, const std::string& message) {
         FreePacket(packet.Result);
     }
     sNet.DelayedPackets.clear();
-    if (!sNet.Settings.LogPath.empty()) {
-        WriteChecksumLog();
+    if (!sNet.Settings.LogPath.empty() && desynced) {
+        WriteChecksumLog(".desynced");
+    } else if (!sNet.Settings.LogPath.empty()) {
+        WriteChecksumLog("");
         SoundRollback::WriteLog(sNet.Settings.LogPath + ".seg" + std::to_string(sNet.Segment) + ".sounds");
     }
     SoundRollback::Stop();
@@ -330,7 +356,8 @@ u8 ChooseInputDelay(s32* latencyMs) {
     return (u8) std::min((s32) (*latencyMs / kFrameMs), kMaxAutoInputDelay);
 }
 
-void StartGekkoSession() {
+/** @param recovered The segment starts from a desync recovery, in the middle of the race. */
+void StartGekkoSession(bool recovered = false) {
     const SessionSettings& settings = sNet.Settings;
     gekko_create(&sNet.Gekko, GekkoGameSession);
     GekkoConfig config = {};
@@ -378,6 +405,7 @@ void StartGekkoSession() {
     sNet.SegmentEnd = Barrier{};
     sNet.FrameChecksums.clear();
     sNet.SegmentFrames = 0;
+    sNet.LastShownFrame = -1;
     sNet.PendingControl = PadControl::None;
     sNet.WaitingThisFrame = false;
     sNet.WaitedLastFrame = false;
@@ -390,7 +418,9 @@ void StartGekkoSession() {
     sNet.State = SessionState::Connecting;
     NetLog("Segment %u started: player %d of %zu, input delay %u (latency %d ms)", sNet.Segment,
            settings.LocalPlayer, settings.Addresses.size(), sNet.InputDelay, latencyMs);
-    RaceEvents::Reset();
+    if (!recovered) {
+        RaceEvents::Reset();
+    }
     SoundRollback::Start(!settings.LogPath.empty());
     fflush(stdout);
 }
@@ -403,6 +433,7 @@ void EndSegment() {
     if (continues) {
         EndGekkoSession("PASS", "Next race");
         sNet.Segment++;
+        sNet.SeriesRace++;
         sNet.SetupCountAtWait = SimState_GetRaceSetupCount();
         sNet.State = SessionState::WaitingForRace;
         return;
@@ -456,6 +487,172 @@ void UpdateBarrier(s32 shownFrame) {
     }
 }
 
+/** @returns true when this session can recover from a desync now, rather than end the race (Resync.h). */
+bool CanRecover() {
+    const SessionSettings& settings = sNet.Settings;
+    if ((settings.SendResync == nullptr) || (settings.TakeResync == nullptr) || (settings.GetBarrierStatus == nullptr)) {
+        return false;
+    }
+    if (IsTransitionPending() || sNet.SegmentEnd.Reached) {
+        NetLog("No desync recovery while the race ends");
+        return false;
+    }
+    std::string reason;
+    if (!Resync::IsAvailable(&reason)) {
+        NetLog("No desync recovery: %s", reason.c_str());
+        return false;
+    }
+    return true;
+}
+
+/** @returns the newest frame kept at or before this one, or -1. */
+s32 FindKeptFrame(s32 frame) {
+    s32 newest = -1;
+    for (s32 kept : sNet.SnapshotFrames) {
+        if ((kept >= 0) && (kept <= frame) && (kept > newest)) {
+            newest = kept;
+        }
+    }
+    return newest;
+}
+
+/**
+ * Freezes the race and starts taking over the host's state. The host goes back to a frame whose inputs are all final
+ * and serves its state of that frame; every other player pulls it.
+ */
+void BeginRecovery(const std::string& why) {
+    // Snapshot buffers and the packed state are long-lived, not the simulation's.
+    SimHeapPause pause;
+    const u32 segment = sNet.Segment;
+    WriteKeptFramesReport();
+    EndGekkoSession("RESYNC", why, true);
+    sNet.State = SessionState::Recovering;
+    sNet.Recovering = Recovery{};
+    sNet.Recovering.Segment = segment;
+    sNet.Recovering.Since = std::chrono::steady_clock::now();
+    const std::vector<u8> request = Resync::MakeRequest(segment);
+    for (int i = 0; i < kRecoveryRequestRepeats; i++) {
+        sNet.Settings.SendResync(-1, request);
+    }
+    if (sNet.Settings.LocalPlayer != 0) {
+        sNet.Recovering.Collector.emplace(segment);
+        NetLog("Taking over the host's state");
+        return;
+    }
+
+    // Once a peer has advanced a frame, every input more than a prediction window back is final.
+    const s32 frame = FindKeptFrame(std::max(sNet.LastShownFrame - (s32) kPredictionWindow - 1, 0));
+    if ((frame < 0) || ((size_t) frame >= sNet.FrameChecksums.size())) {
+        NetSession::Stop(SessionResult::Desync, "Could not recover from the desync: no state kept to start from");
+        return;
+    }
+    const size_t index = GetSnapshotIndex(frame);
+    std::vector<u8> packed = Resync::Pack(sNet.Snapshots[index], sNet.FrameChecksums[frame]);
+    if (packed.empty()) {
+        NetSession::Stop(SessionResult::Desync, "Could not recover from the desync: the state did not pack");
+        return;
+    }
+    NetLog("Every player starts again from frame %d (%zu bytes packed)", frame, packed.size());
+    SimState::Load(sNet.Snapshots[index]);
+    sNet.Exit = sNet.ExitAt[index];
+    sNet.Recovering.Server.emplace(segment, frame, std::move(packed));
+    sNet.Recovering.Frame = frame;
+    sNet.Recovering.Loaded = true;
+    sNet.Settings.ReachBarrier(segment, frame);
+}
+
+/** Loads the host's state, once all of it has arrived, then confirms its frame to the others. */
+void LoadHostState() {
+    SimHeapPause pause;
+    Recovery& recovery = sNet.Recovering;
+    const s32 frame = recovery.Collector->GetFrame();
+    // Where the host's state points into the host's heap, this peer's own state says what to use instead: its own
+    // of the same frame, or else of now.
+    static SimSnapshot sOwn;
+    static SimSnapshot sHostState;
+    const size_t index = GetSnapshotIndex(frame);
+    const bool kept = (frame >= 0) && (sNet.SnapshotFrames[index] == frame);
+    if (!kept) {
+        SimState::Save(sOwn);
+    }
+    u32 checksum = 0;
+    std::string error;
+    if (!Resync::Unpack(recovery.Collector->TakePacked(), kept ? sNet.Snapshots[index] : sOwn, &sHostState, &checksum,
+                        &error)) {
+        NetSession::Stop(SessionResult::Desync, "Could not recover from the desync: " + error);
+        return;
+    }
+    SimState::Load(sHostState);
+    const u64 loaded = Sim_GameplayChecksum();
+    if ((u32) (loaded ^ (loaded >> 32)) != checksum) {
+        NetSession::Stop(SessionResult::Desync, "Could not recover from the desync: the host's state did not take");
+        return;
+    }
+    NetLog("Took over the host's state of frame %d", frame);
+    sNet.Exit = ExitCause{};
+    recovery.Frame = frame;
+    recovery.Loaded = true;
+    sNet.Settings.ReachBarrier(recovery.Segment, frame);
+}
+
+/** Runs a recovery's next step. Once every player holds the host's state, a new segment starts from it. */
+void UpdateRecovery() {
+    Recovery& recovery = sNet.Recovering;
+    if (std::chrono::steady_clock::now() - recovery.Since > kRecoveryTimeout) {
+        NetSession::Stop(SessionResult::Desync, "Could not recover from the desync in time");
+        return;
+    }
+    if (recovery.Collector.has_value() && !recovery.Loaded) {
+        if (!recovery.Collector->IsComplete()) {
+            recovery.Collector->Update(sNet.Settings.SendResync);
+            return;
+        }
+        LoadHostState();
+        if (sNet.State != SessionState::Recovering) {
+            return;
+        }
+    }
+    const BarrierStatus status = sNet.Settings.GetBarrierStatus(recovery.Segment, recovery.Frame);
+    if (status == BarrierStatus::Failed) {
+        NetSession::Stop(SessionResult::Desync, "Not every player recovered from the desync");
+    } else if (status == BarrierStatus::Passed) {
+        NetLog("Recovered from the desync in segment %u", recovery.Segment);
+        sNet.Recovering = Recovery{};
+        sNet.Segment++;
+        StartGekkoSession(true);
+    }
+}
+
+/** Reads the other players' recovery messages: a desync one of them found, pulls for the host, chunks for the rest. */
+void HandleRecoveryMessages() {
+    if (sNet.Settings.TakeResync == nullptr) {
+        return;
+    }
+    for (const auto& [player, bytes] : sNet.Settings.TakeResync()) {
+        Resync::Message message;
+        if (!Resync::ReadMessage(bytes, &message) || (message.Segment != sNet.Segment)) {
+            continue;
+        }
+        if ((sNet.State == SessionState::Connecting) || (sNet.State == SessionState::Running)) {
+            const std::string who = "Player " + std::to_string(player + 1);
+            if (!CanRecover()) {
+                NetSession::Stop(SessionResult::Desync, who + " went out of sync");
+                return;
+            }
+            BeginRecovery(who + " found a desync");
+        }
+        if (sNet.State != SessionState::Recovering) {
+            return;
+        }
+        Recovery& recovery = sNet.Recovering;
+        if ((message.Kind == Resync::MessageKind::Pull) && recovery.Server.has_value()) {
+            recovery.Server->HandlePull(player, message, sNet.Settings.SendResync);
+        } else if ((message.Kind == Resync::MessageKind::Chunk) && recovery.Collector.has_value()) {
+            recovery.Collector->Add(message);
+        }
+    }
+}
+
 void HandleSessionEvents() {
     int count = 0;
     GekkoSessionEvent** events = gekko_session_events(sNet.Gekko, &count);
@@ -489,6 +686,11 @@ void HandleSessionEvents() {
                 NetLog("DESYNC at frame %d: local checksum %08x, player %d has %08x", desync.frame,
                        desync.local_checksum, desync.remote_handle + 1, desync.remote_checksum);
                 WriteDesyncReport(desync.frame);
+                if (CanRecover()) {
+                    BeginRecovery("Out of sync with player " + std::to_string(desync.remote_handle + 1) +
+                                  " at frame " + std::to_string(desync.frame));
+                    break;
+                }
                 NetSession::Stop(SessionResult::Desync,
                                  "The game went out of sync with player " + std::to_string(desync.remote_handle + 1) +
                                      " at frame " + std::to_string(desync.frame));
@@ -589,8 +791,7 @@ void LoadFrame(const GekkoGameEvent::GekkoEventData::GekkoLoad& load) {
 
 PadControl GetLocalControl() {
     const u32 leaveAfter = sNet.Settings.LeaveAfterRaces;
-    const u32 seriesRace = sNet.Segment - sNet.Settings.FirstSegment + 1;
-    if ((leaveAfter > 0) && (seriesRace > leaveAfter) && (sNet.SegmentFrames == kLeaveAfterRacesFrame)) {
+    if ((leaveAfter > 0) && (sNet.SeriesRace > leaveAfter) && (sNet.SegmentFrames == kLeaveAfterRacesFrame)) {
         NetSession::RequestLeave();
     }
     for (const TestControl& test : sNet.Settings.TestControls) {
@@ -653,6 +854,7 @@ void Start(const SessionSettings& settings) {
     sNet.ResultMessage.clear();
     sNet.ExitGamestate = RACING;
     sNet.Segment = settings.FirstSegment;
+    sNet.SeriesRace = 1;
     sNet.ShownFrames = 0;
     sNet.LeaveRequested = false;
     sNet.RandomState = 0x2545F491 ^ ((u32) (settings.LocalPlayer + 1) * 7919);
@@ -696,6 +898,7 @@ void Stop(SessionResult result, const std::string& message) {
     // The game exits with _Exit(), which skips flushing stdio.
     fflush(stdout);
     sNet.Socket = nullptr;
+    sNet.Recovering = Recovery{};
     sNet.LeaveRequested = false;
     sNet.PendingControl = PadControl::None;
     sNet.Result = result;
@@ -811,13 +1014,17 @@ void BeginFrame() {
 }
 
 bool IsInRace() {
-    return ((sNet.State == SessionState::Connecting) || (sNet.State == SessionState::Running)) &&
+    return ((sNet.State == SessionState::Connecting) || (sNet.State == SessionState::Running) ||
+            (sNet.State == SessionState::Recovering)) &&
            (gGamestate == RACING);
 }
 
 bool ConsumeLocalPads(OSContPad* pads) {
     if (!IsInRace()) {
         return false;
+    }
+    if (sNet.State == SessionState::Recovering) {
+        return true; // The race is frozen until the new segment starts.
     }
 
     // Waiting when ahead keeps every peer's prediction distance, and so its rollbacks, about equal.
@@ -855,7 +1062,15 @@ bool ConsumeLocalPads(OSContPad* pads) {
 }
 
 void RunRaceFrame() {
-    HandleSessionEvents();
+    if (sNet.State != SessionState::Recovering) {
+        HandleSessionEvents();
+    }
+    HandleRecoveryMessages();
+    if (sNet.State == SessionState::Recovering) {
+        UpdateRecovery();
+        DrawShownFrame();
+        return;
+    }
     if ((sNet.State == SessionState::Connecting) &&
         (std::chrono::steady_clock::now() - sNet.ConnectStarted > kConnectTimeout)) {
         Stop(SessionResult::ConnectFailed, "Not every player connected");
@@ -912,7 +1127,8 @@ void RunRaceFrame() {
                 SimState_AdvanceFrame(pads.data(), i == shownAdvance);
                 SoundRollback::EndFrame();
                 // Every time the frame is simulated, re-simulations included, or a rollback would undo it.
-                if ((sNet.Settings.DesyncAtFrame > 0) && (event->data.adv.frame == (s32) sNet.Settings.DesyncAtFrame)) {
+                if ((sNet.Settings.DesyncAtFrame > 0) && (sNet.Segment == sNet.Settings.FirstSegment) &&
+                    (event->data.adv.frame == (s32) sNet.Settings.DesyncAtFrame)) {
                     gRandomSeed16 ^= 1;
                 }
                 ApplyControls(controls.data());
@@ -944,6 +1160,7 @@ void RunRaceFrame() {
     const s32 shownFrame = (shownAdvance >= 0) ? events[shownAdvance]->data.adv.frame : -1;
     if (shownAdvance >= 0) {
         const SessionSettings& settings = sNet.Settings;
+        sNet.LastShownFrame = shownFrame;
         sNet.SegmentFrames++;
         sNet.ShownFrames++;
         RaceEvents::Update(sNet.SegmentFrames);
@@ -957,7 +1174,8 @@ void RunRaceFrame() {
 
 void EndFrame() {
     // Segments freeze before the game leaves the race; this catches a way out that slipped past them.
-    if (((sNet.State == SessionState::Connecting) || (sNet.State == SessionState::Running)) &&
+    if (((sNet.State == SessionState::Connecting) || (sNet.State == SessionState::Running) ||
+         (sNet.State == SessionState::Recovering)) &&
         (gGamestate != RACING)) {
         Stop(SessionResult::RaceOver, "The race is over");
     }

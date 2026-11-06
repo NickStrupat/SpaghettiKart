@@ -24,7 +24,7 @@ copies built by `tools/macos-build-deps.sh` instead (see `docs/BUILDING.md`). Ch
 Any change to simulation code (anything under `src/` that runs during a race) or to `src/port/netplay/` can break
 determinism, which only shows up between two running games.
 
-1. `python3 tools/netplay-sim.py`: 22 scenarios, about 5 minutes; every one must pass. Changes to the menus count
+1. `python3 tools/netplay-sim.py`: 23 scenarios, about 5 minutes; every one must pass. Changes to the menus count
    too: a room's shared console runs them in lockstep.
 2. For relay or protocol changes: `python3 tools/netplay-relay/test_relay.py build-relay/netplay-relay`.
 3. For a new kind of race state, or memory handling: `tools/netplay-stress.sh`, the rollback stress run on every track

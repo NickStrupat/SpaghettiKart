@@ -316,6 +316,23 @@ void StartDirectRace() {
     }
 }
 
+/** Lets a race's session recover from a desync through the room (Resync.h). */
+void SetResyncChannel(SessionSettings* settings, u32 raceId, const std::vector<u8>& slots) {
+    settings->SendResync = [raceId, slots](s32 player, const std::vector<u8>& message) {
+        Lobby::SendRaceData(raceId, (player < 0) ? RelayProtocol::kBroadcast : slots[player], message);
+    };
+    settings->TakeResync = [raceId, slots]() {
+        std::vector<std::pair<s32, std::vector<u8>>> messages;
+        for (Lobby::RaceData& data : Lobby::TakeRaceData(raceId)) {
+            const auto player = std::find(slots.begin(), slots.end(), data.Source);
+            if (player != slots.end()) {
+                messages.emplace_back((s32) (player - slots.begin()), std::move(data.Data));
+            }
+        }
+        return messages;
+    };
+}
+
 void StartLobbyRace(const Lobby::RaceStart& start) {
     SessionSettings settings;
     settings.LocalPlayer = start.LocalPlayer;
@@ -328,6 +345,7 @@ void StartLobbyRace(const Lobby::RaceStart& start) {
     settings.GetBarrierStatus = [raceId](u32 segment, s32 frame) {
         return Lobby::GetBarrierStatus(raceId, segment, frame);
     };
+    SetResyncChannel(&settings, raceId, start.Slots);
     settings.IsRelayed = [slots = start.Slots](s32 player) { return !Lobby::IsDirect(slots[player]); };
     settings.GetLatencyMs = [slots = start.Slots]() {
         // Test peers add their simulated delay to every packet they receive.
@@ -596,6 +614,7 @@ void StartConsoleRace(u32 segment) {
     settings.GetBarrierStatus = [id](u32 raceSegment, s32 frame) {
         return Lobby::GetBarrierStatus(id, raceSegment, frame);
     };
+    SetResyncChannel(&settings, id, sConsole.Start.Slots);
     settings.IsRelayed = [slots = sConsole.Start.Slots](s32 player) { return !Lobby::IsDirect(slots[player]); };
     settings.GetLatencyMs = [slots = sConsole.Start.Slots]() {
         const s32 latency = Lobby::GetLatencyMs(slots);

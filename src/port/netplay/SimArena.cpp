@@ -11,11 +11,20 @@
 #else
 #include <sys/mman.h>
 #endif
+#ifdef __APPLE__
+#include <mach/mach.h>
+#include <mach/mach_vm.h>
+#endif
 
 namespace {
 
 // Address space reserved for the arena. Pages are only backed by memory once used.
 constexpr size_t kArenaCapacity = 256 * 1024 * 1024;
+#ifdef __APPLE__
+// Where the arena goes when it can: at one address in every copy of the game, a snapshot's pointers into it hold in
+// another copy too (Resync.h). macOS keeps addresses below 0x7000000000 for itself; this one is free.
+constexpr mach_vm_address_t kFixedAddress = 0x500000000000;
+#endif
 // Blocks are powers of two, from 1 << kMinBlockShift bytes up to the arena capacity.
 constexpr size_t kMinBlockShift = 5;
 constexpr size_t kNumSizeClasses = 24;
@@ -55,9 +64,19 @@ bool Reserve() {
 #ifdef _WIN32
     void* memory = VirtualAlloc(nullptr, kArenaCapacity, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 #else
-    void* memory = mmap(nullptr, kArenaCapacity, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
-    if (memory == MAP_FAILED) {
-        memory = nullptr;
+    void* memory = nullptr;
+#ifdef __APPLE__
+    // Fails, rather than replacing what is there, if something else took the address.
+    mach_vm_address_t fixed = kFixedAddress;
+    if (mach_vm_allocate(mach_task_self(), &fixed, kArenaCapacity, VM_FLAGS_FIXED) == KERN_SUCCESS) {
+        memory = reinterpret_cast<void*>(fixed);
+    }
+#endif
+    if (memory == nullptr) {
+        memory = mmap(nullptr, kArenaCapacity, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+        if (memory == MAP_FAILED) {
+            memory = nullptr;
+        }
     }
 #endif
     if (memory == nullptr) {

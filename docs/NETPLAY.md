@@ -14,6 +14,7 @@ details live in the headers under `src/port/netplay/`, which each start with a d
 |---|---|
 | Versus 2–4 players, Battle 2–4, Grand Prix 1–2 players + CPUs (whole cups, podium) | Works, tested by the simulator and by hand |
 | Rollback, desync detection | Works; an 8-frame rollback every frame stays in sync on every track and mode |
+| Desync recovery (everyone takes over the host's state, the race goes on) | Works, tested by the simulator on one Mac; not yet tried between two |
 | Room list, ONLINE screen (Z on Game Select), relay server | Works; tested with scripted buttons |
 | Shared console: Game Select, character select and course select in lockstep, then the race | Works, tested by the simulator |
 | Direct connections (UDP hole punching), relay fallback | Works on one machine and between two Macs on one wifi; not yet tried across two home networks |
@@ -77,6 +78,10 @@ Made by the fork's owner, in this order. Later work assumes them.
 7. **One shared console per room** (2026-11-05): the relay lists rooms, so nobody types a code, and inside a room the
    game behaves as if all players were at one console with a controller each. Mode, characters and course come from
    the game's own menus, not a separate lobby screen. The player count stays free, as on a console.
+8. **Address space layout randomization off** (2026-11-06), so that desync recovery can copy the host's state, raw
+   pointers and all, into the other games, rather than guess which numbers in it are pointers. The game restarts
+   itself without it at launch. This weakens the protection against someone in the room, or the relay's operator,
+   exploiting a memory bug in netplay's packet handling; accepted for playing with friends on one's own relay.
 
 ## How it works
 
@@ -152,6 +157,24 @@ all of it memory pools and frame buffers; the simulation's own state is under 1 
   `SimState_EndDisplay` undoes the move with the rest of the draw. Karts that a camera on screen follows are left
   alone, and an offset past 36 units (four frames at top speed) is shown as a jump. Between bots, rollbacks move a
   kart under 5 units, a kart being about 11 wide.
+
+### Desync recovery
+
+When the peers' simulations go apart, every player takes over the host's state and the race goes on (`Resync.cpp`,
+`NetSession.cpp`), after a freeze of well under a second.
+
+- A snapshot is raw memory. Every copy of the game restarts itself at launch without address space layout
+  randomization (`SimState_DisableAddressRandomization`, in `main()`), so the image sits at `0x100000000`, and the sim
+  arena sits at `0x500000000000`; their pointers then hold in another copy of the same build. Pointers into the
+  regular heap (the loaded game files, about 90 in a race's state) differ between copies: the host marks each one,
+  and the other players keep their own values there.
+- A peer that detects a desync tells the others (a race-data message through the room) and every peer freezes. The
+  host goes back to its state of the newest frame whose inputs are final, packs it with zlib (560 KB to about 75 KB)
+  and serves it in 1 KB chunks; each other player pulls them, unpacks the host's state onto its own and checks that
+  its checksum is now the host's. Everyone then confirms that frame through the segment barrier, and a new segment
+  (GekkoNet session) starts from it.
+- If any step fails or takes over 15 s, the race ends as before. The desynced segment's checksum log is written as
+  `.seg<N>.desynced`, along with the usual desync and kept-frames reports: a recovered desync is still a bug to find.
 
 ### Race series
 
@@ -232,7 +255,7 @@ helpers. Game Select's "Z ONLINE" button is the port's own art (`tools/make-onli
 
 | Tool | What it does |
 |---|---|
-| `tools/netplay-sim.py` | Plays whole races, cups and battles between bot-driven copies of the game through a relay, fast-forwarded (about 70× real time), and checks that every peer stayed in sync and the races ended as expected. Shared-console scenarios drive the menus with scripted buttons and compare every menu frame. 22 scenarios, about 5 minutes. **Run it after any change to netplay, menu or simulation code.** |
+| `tools/netplay-sim.py` | Plays whole races, cups and battles between bot-driven copies of the game through a relay, fast-forwarded (about 70× real time), and checks that every peer stayed in sync and the races ended as expected. Shared-console scenarios drive the menus with scripted buttons and compare every menu frame. 23 scenarios, about 5 minutes. **Run it after any change to netplay, menu or simulation code.** |
 | Determinism harness | `SK_DETERMINISM_RECORD` / `_VERIFY` / `_ROLLBACK=8`: records a race's inputs and per-frame checksums, replays them, or rolls back 8 frames after every frame. See `DeterminismHarness.h`. |
 | `tools/netplay-stress.sh` | The rollback stress run on every track and arena, 4 at a time: 16 versus tracks, 4 battle arenas, 4 Grand Prix courses. Give it an AddressSanitizer build (below) to look for memory errors too. |
 | `tools/netplay-relay/test_relay.py` | Protocol tests for the relay. |
@@ -313,6 +336,8 @@ Each of these cost a debugging round.
   port's `ONLINE_MENU` is excluded there.
 - **Asset paths at odd addresses** are taken for raw texture data by the renderer; declare them aligned
   (`ALIGN_ASSET(2)`, `alignas(8)`).
+- **`PLATFORM_IOS` is defined by `<mach-o/loader.h>`** (a platform number), so `!defined(PLATFORM_IOS)` is false in
+  any file that includes the Mach-O headers, even on macOS. Use `TARGET_OS_OSX` there.
 - **The frame counter is not simulation state** (`gGlobalTimer`, it picks the gfx pool), but the menus' flashing
   colors follow it; a shared console restarts it at each menu session.
 - **A reset to Game Select only takes effect at the top of the next game frame** (`CM_RequestReset`). A menu session
@@ -333,8 +358,12 @@ Each of these cost a debugging round.
 - **Windows**: MSVC cannot place globals in sections, so its builds refuse to start netplay ("build it with clang").
   A clang-cl build would be needed; untested.
 - Mixed platforms need the determinism harness run between them first.
+- Desync recovery needs macOS: it relies on starting the game without address randomization.
 
 ## Open
+
+- Desync recovery between two Macs: tested only between copies on one Mac. The two Macs run different macOS versions,
+  whose memory layouts could differ; a failed recovery ends the race as before, with the reason in the log.
 
 - Direct connections across two real home networks. Routers that use a new public port per destination (symmetric
   NAT, common on mobile networks) stay on the relay.
