@@ -10,6 +10,7 @@
 #include "port/Game.h"
 #include "port/GamepadAssignment.h"
 #include "engine/World.h"
+#include "port/netplay/KartSmoothing.h"
 #include "port/netplay/Lobby.h"
 #include "port/netplay/NetSession.h"
 #include "port/netplay/Netplay.h"
@@ -411,6 +412,11 @@ void DrawViewChoice() {
     CheckboxCVar("Show only my player", NetSession::kOwnViewCVar);
     CheckboxCVar("Hear only my player", NetSession::kOwnAudioCVar);
     CheckboxCVar("Show connection stats", NetSession::kStatsOverlayCVar);
+    CheckboxCVar("Smooth other karts' corrections", KartSmoothing::kCVar);
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("When the game corrects a guess about another player's input, their kart glides to its "
+                          "place\ninstead of jumping. Only changes what you see.");
+    }
     ImGui::BeginDisabled(Lobby::GetState() != Lobby::State::Offline);
     CheckboxCVar("Connect directly to other players", Lobby::kDirectConnectCVar);
     ImGui::EndDisabled();

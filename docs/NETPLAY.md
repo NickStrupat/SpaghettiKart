@@ -49,6 +49,7 @@ Settings in the netplay window, each per player:
 | Show only my player | on | Full-screen view of your own player instead of the split screen |
 | Hear only my player | on | Only your camera's sounds, in proper stereo |
 | Show connection stats | on | Ping per player, input delay, rollbacks and waits, top right during races |
+| Smooth other karts' corrections | on | After a rollback, other karts glide to where they now are instead of jumping |
 | Input delay | Automatic | Frames your own input is held back. Automatic picks it from the ping at each race start |
 | Connect directly to other players | on | Race traffic skips the relay when routers allow it. Shares your IP address with the room |
 
@@ -146,6 +147,11 @@ all of it memory pools and frame buffers; the simulation's own state is under 1 
   prediction and a rollback. Before a race input is sent, its stick becomes one fixed position among those the race
   treats the same (`CanonicalStick.cpp`): MK64 ignores the stick near the centre, steering stops growing near the edge,
   and the Y axis only matters for backing up and throwing items.
+- **Smoothing.** After a rollback, a kart can be somewhere else than the shown frames led up to. The shown frame
+  draws it offset by how far the rollback moved it, and the offset fades over about 150 ms (`KartSmoothing.cpp`);
+  `SimState_EndDisplay` undoes the move with the rest of the draw. Karts that a camera on screen follows are left
+  alone, and an offset past 36 units (four frames at top speed) is shown as a jump. Between bots, rollbacks move a
+  kart under 5 units, a kart being about 11 wide.
 
 ### Race series
 

@@ -73,6 +73,12 @@ void SimState_EndSimFrame(void);
 void SimState_AdvanceFrame(OSContPad* pads, bool shown);
 
 /**
+ * Saves the state for SimState_EndDisplay() to put back, unless this display already has. Changes made from then on,
+ * such as where the shown frame draws karts, are undone with the draw's own.
+ */
+void SimState_BeginDisplay(void);
+
+/**
  * Draws the current race frame for display, without sounds. The draw's state changes are undone by
  * SimState_EndDisplay(), as the display list points into the state it drew.
  * @param viewPlayer The player whose view fills the screen (race_render_own_view()), or -1 for split screen.

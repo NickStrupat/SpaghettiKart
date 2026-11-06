@@ -12,6 +12,7 @@
 
 #include "CanonicalStick.h"
 #include "Checksum.h"
+#include "KartSmoothing.h"
 #include "NetLog.h"
 #include "RaceEvents.h"
 #include "SimState.h"
@@ -299,10 +300,10 @@ void EndGekkoSession(const char* verdict, const std::string& message) {
     GekkoNetworkStats network = {};
     gekko_network_stats(sNet.Gekko, (sNet.Settings.LocalPlayer == 0) ? 1 : 0, &network);
     NetLog("%s: %s. Segment %u: %u frames shown, %u rollbacks (avg %.1f, max %u frames), %u stalls, "
-           "%u time-sync waits, ping %.0f ms, %s",
+           "%u time-sync waits, ping %.0f ms, %s, %s",
            verdict, message.c_str(), sNet.Segment, sNet.SegmentFrames, rollbacks.total_count, rollbacks.avg_frames,
            rollbacks.max_frames, rollbacks.total_stalls, sNet.WaitedFrames, network.avg_ping,
-           SoundRollback::GetSummary().c_str());
+           SoundRollback::GetSummary().c_str(), KartSmoothing::GetSummary().c_str());
     gekko_destroy(&sNet.Gekko);
     for (DelayedPacket& packet : sNet.DelayedPackets) {
         FreePacket(packet.Result);
@@ -385,6 +386,7 @@ void StartGekkoSession() {
     sNet.WaitedFrames = 0;
     sNet.NumRecentUpdates = 0;
     sNet.ConnectStarted = std::chrono::steady_clock::now();
+    KartSmoothing::Reset();
     sNet.State = SessionState::Connecting;
     NetLog("Segment %u started: player %d of %zu, input delay %u (latency %d ms)", sNet.Segment,
            settings.LocalPlayer, settings.Addresses.size(), sNet.InputDelay, latencyMs);
@@ -629,6 +631,14 @@ s32 GetViewPlayer() {
     return (CVarGetInteger(NetSession::kOwnViewCVar, 1) != 0) ? GetWatchedPlayer() : -1;
 }
 
+/** Draws the frame shown, with the karts a rollback moved still on their way to where they now are. */
+void DrawShownFrame() {
+    const s32 viewPlayer = GetViewPlayer();
+    SimState_BeginDisplay();
+    KartSmoothing::Apply(viewPlayer);
+    SimState_DrawFrame(viewPlayer);
+}
+
 } // namespace
 
 namespace NetSession {
@@ -851,12 +861,12 @@ void RunRaceFrame() {
         Stop(SessionResult::ConnectFailed, "Not every player connected");
     }
     if (!IsInRace()) {
-        SimState_DrawFrame(GetViewPlayer());
+        DrawShownFrame();
         return;
     }
     if (sNet.WaitingThisFrame) {
         gekko_network_poll(sNet.Gekko);
-        SimState_DrawFrame(GetViewPlayer());
+        DrawShownFrame();
         UpdateBarrier(-1);
         return;
     }
@@ -879,8 +889,16 @@ void RunRaceFrame() {
     update.Stalled = (shownAdvance < 0);
     sNet.RecentUpdates[sNet.NumRecentUpdates++ % kLiveStatsUpdates] = update;
 
+    // GekkoNet rolls back before it advances to the new frame: once the re-simulation is done, the state is the same
+    // frame as before the update, and comparing the karts shows how far the rollback moved them.
+    KartSmoothing::BeginUpdate();
+    bool rolledBack = false;
     for (int i = 0; i < count; i++) {
         const GekkoGameEvent* event = events[i];
+        if (rolledBack && (i == shownAdvance)) {
+            KartSmoothing::EndRollback();
+            rolledBack = false;
+        }
         switch (event->type) {
             case GekkoAdvanceEvent: {
                 // Once the game starts leaving the race, the segment is frozen: frames pass without changing it.
@@ -906,15 +924,19 @@ void RunRaceFrame() {
             case GekkoLoadEvent:
                 LoadFrame(event->data.load);
                 SoundRollback::Rollback();
+                rolledBack = true;
                 break;
             default:
                 break;
         }
     }
+    if (rolledBack) {
+        KartSmoothing::EndRollback();
+    }
     SoundRollback::Settle((shownAdvance >= 0) ? events[shownAdvance]->data.adv.frame : -1);
 
     // The new frame, or while waiting for remote input or frozen, the current one again.
-    SimState_DrawFrame(GetViewPlayer());
+    DrawShownFrame();
     if (IsTransitionPending()) {
         // Whatever started the transition, a restart request has nothing left to do.
         sNet.PendingControl = PadControl::None;

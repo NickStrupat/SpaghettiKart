@@ -332,11 +332,15 @@ extern "C" void SimState_AdvanceFrame(OSContPad* pads, bool shown) {
     sResimulating = false;
 }
 
-extern "C" void SimState_DrawFrame(s32 viewPlayer) {
+extern "C" void SimState_BeginDisplay(void) {
     if (!sDisplayPending) {
         SimState::Save(sBeforeDisplay);
         sDisplayPending = true;
     }
+}
+
+extern "C" void SimState_DrawFrame(s32 viewPlayer) {
+    SimState_BeginDisplay();
     sDrawingShownFrame = true;
     if (viewPlayer >= 0) {
         race_render_own_view(viewPlayer);
