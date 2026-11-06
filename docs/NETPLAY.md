@@ -265,7 +265,10 @@ Each of these cost a debugging round.
 
 - **Draw code changes simulation state** (`init_render_player()`, results-screen menu items, the GP points count).
   Never skip drawing a simulated frame. Settings that change drawing change that state too: `gNoCulling` and
-  `gDisableLod` are room rules, not each player's own. Two Macs desynced on frame 0 because one had culling off.
+  `gDisableLod` are room rules, not each player's own. Two Macs desynced on frame 0 because one had culling off. The
+  debug switches that skip drawing (`gDraw*`, `gRenderCollisionMesh`) and debug mode are forced to their defaults in
+  a room (`RaceConfig.cpp`). Any CVar the simulation or the menus read belongs in that list. The settings menu greys
+  out every widget for a CVar on it while a room session runs (`Menu::MenuDrawItem`).
 - **Memory-pool allocations are not in snapshots.** A pool buffer that changes during a race must move to a global
   (`sGPPointsCopy` did).
 - **Allocating from inside a simulated frame lands in the sim arena.** Non-simulation code reached from there must

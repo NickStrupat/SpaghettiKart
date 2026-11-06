@@ -29,7 +29,7 @@ static_assert(std::endian::native == std::endian::little, "Harness log files are
 namespace {
 
 constexpr char kMagic[4] = { 'S', 'K', 'D', 'T' };
-constexpr u32 kFormatVersion = 1;
+constexpr u32 kFormatVersion = 2;
 constexpr u32 kDefaultFrames = 1800;
 // Frames to wait after boot before starting the race, so the engine and menus finish initializing.
 constexpr u32 kBootFrames = 30;

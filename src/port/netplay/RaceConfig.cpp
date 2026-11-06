@@ -21,7 +21,7 @@ namespace {
 struct IntCVar {
     const char* Name;
     s32 Default;
-    bool AlwaysOff = false; // Local-only tools that take over player input
+    bool Forced = false; // Debug tools: every peer runs with Default, whatever the host has
 };
 
 struct FloatCVar {
@@ -31,7 +31,7 @@ struct FloatCVar {
 
 // CVars read by simulation code, or by the menus a shared console runs in lockstep. Render-only CVars stay under
 // player control. gNoCulling and gDisableLod are not render-only: the draw code they change writes actor state, and
-// gDisableLod also picks Mario Raceway's collision mesh.
+// gDisableLod also picks Mario Raceway's collision mesh. The gDraw* switches skip that draw code altogether.
 constexpr std::array<IntCVar, kNumGameplayIntCVars> kGameplayIntCVars = { {
     { "gHarderCPU", 0 },
     { "gShellsShootStraight", 0 },
@@ -53,6 +53,24 @@ constexpr std::array<IntCVar, kNumGameplayIntCVars> kGameplayIntCVars = { {
     { "gUniqueCharacterSelections", 1 },
     { "gNoCulling", 0 },
     { "gDisableLod", 1 },
+    { "gDisableRubberbanding", 0 },
+    { "gDisableItemboxes", 0 },
+    { "gAllThwompsAreMarty", 0 },
+    { "gAllBombKartsChase", 0 },
+    { "gEnableDebugMode", 0, true }, // The menus read it into gEnableDebugMode
+    { "gRenderCollisionMesh", 0, true },
+    { "gDrawSky", 1, true },
+    { "gDrawSkyActors", 1, true },
+    { "gDrawTrackGeometry", 1, true },
+    { "gDrawCActors", 1, true },
+    { "gDrawCPPActors", 1, true },
+    { "gDrawStaticMeshActors", 1, true },
+    { "gDrawObjects", 1, true },
+    { "gDrawPlayers", 1, true },
+    { "gDrawTransparentTrack", 1, true },
+    { "gDrawParticles", 1, true },
+    { "gDrawItemBoxes", 1, true },
+    { "gDrawHUD", 1, true },
 } };
 
 constexpr std::array<FloatCVar, kNumGameplayFloatCVars> kGameplayFloatCVars = { {
@@ -77,6 +95,9 @@ s32 ParseMode(const char* mode) {
     }
     return GRAND_PRIX;
 }
+
+// Overrides currently applied: a shared console and the race session it starts each hold one.
+s32 sNumActiveOverrides = 0;
 
 // libultraship declares CVarExists() but never defines it.
 bool IsCVarSet(const char* name) {
@@ -211,11 +232,12 @@ void GameplayCVarOverride::Apply(const RaceConfig& config) {
         }
         mSavedDebugMode = gEnableDebugMode;
         mActive = true;
+        sNumActiveOverrides++;
     }
 
     for (size_t i = 0; i < kGameplayIntCVars.size(); i++) {
         const IntCVar& cvar = kGameplayIntCVars[i];
-        CVarSetInteger(cvar.Name, cvar.AlwaysOff ? 0 : config.IntCVars[i]);
+        CVarSetInteger(cvar.Name, cvar.Forced ? cvar.Default : config.IntCVars[i]);
     }
     for (size_t i = 0; i < kGameplayFloatCVars.size(); i++) {
         CVarSetFloat(kGameplayFloatCVars[i].Name, config.FloatCVars[i]);
@@ -246,6 +268,28 @@ void GameplayCVarOverride::Restore() {
     }
     gEnableDebugMode = mSavedDebugMode;
     mActive = false;
+    sNumActiveOverrides--;
+}
+
+bool GameplayCVarOverride::IsAnyActive() {
+    return sNumActiveOverrides > 0;
+}
+
+bool GameplayCVarOverride::Sets(const char* name) {
+    if (name == nullptr) {
+        return false;
+    }
+    for (const IntCVar& cvar : kGameplayIntCVars) {
+        if (strcmp(cvar.Name, name) == 0) {
+            return true;
+        }
+    }
+    for (const FloatCVar& cvar : kGameplayFloatCVars) {
+        if (strcmp(cvar.Name, name) == 0) {
+            return true;
+        }
+    }
+    return false;
 }
 
 void RaceConfig_StartRace(const RaceConfig& config) {

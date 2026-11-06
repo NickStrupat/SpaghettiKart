@@ -20,7 +20,7 @@ typedef enum {
     DISABLE_FOR_ADVANCED_RESOLUTION_ON,
     DISABLE_FOR_VERTICAL_RES_TOGGLE_ON,
     DISABLE_FOR_LOW_RES_MODE_ON,
-    //DISABLE_FOR_MULTIPLAYER_CONNECTED,
+    DISABLE_FOR_NETPLAY_ROOM,
 } DisableOption;
 
 struct WidgetInfo;
@@ -103,7 +103,7 @@ using OptionsVariant =
 // `sameLine` allows for specifying that the widget should be on the same line as the previous widget
 struct WidgetInfo {
     std::string name; // Used by all widgets
-    const char* cVar; // Used by all widgets except
+    const char* cVar = nullptr; // Used by all widgets except
     WidgetType type;
     std::shared_ptr<UIWidgets::WidgetOptions> options;
     std::variant<bool*, int32_t*, float*> valuePointer;

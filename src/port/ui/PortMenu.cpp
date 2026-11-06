@@ -9,6 +9,7 @@
 #include <variant>
 #include <tuple>
 #include "ResolutionEditor.h"
+#include "port/netplay/RaceConfig.h"
 
 #include "engine/tracks/Track.h"
 #include "engine/tracks/KalimariDesert.h"
@@ -661,8 +662,9 @@ void PortMenu::InitElement() {
             "Vertical Resolution Toggle Enabled" } },
         { DISABLE_FOR_LOW_RES_MODE_ON,
           { [](disabledInfo& info) -> bool { return CVarGetInteger(CVAR_LOW_RES_MODE, 0); }, "N64 Mode Enabled" } },
-        //{ DISABLE_FOR_MULTIPLAYER_CONNECTED,
-        //  { CheckNetworkConnected, "Multiplayer Connected"}},
+        { DISABLE_FOR_NETPLAY_ROOM,
+          { [](disabledInfo& info) -> bool { return GameplayCVarOverride::IsAnyActive(); },
+            "The netplay room sets it for every player" } },
     };
 }
 

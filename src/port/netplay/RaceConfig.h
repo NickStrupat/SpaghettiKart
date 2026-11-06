@@ -10,7 +10,7 @@
 
 #include "tools/netplay-relay/RelayProtocol.h"
 
-constexpr size_t kNumGameplayIntCVars = 20;
+constexpr size_t kNumGameplayIntCVars = 38;
 constexpr size_t kNumGameplayFloatCVars = 2;
 
 /**
@@ -61,6 +61,11 @@ public:
     void Apply(const RaceConfig& config);
     void Restore();
     bool IsActive() const { return mActive; }
+
+    /** True while any override is active: a room or a test run decides the gameplay CVars. */
+    static bool IsAnyActive();
+    /** True for a CVar an override sets. The settings menu locks these while one is active. */
+    static bool Sets(const char* name);
 
 private:
     struct SavedCVar {

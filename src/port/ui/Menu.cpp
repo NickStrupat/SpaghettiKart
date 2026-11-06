@@ -1,6 +1,7 @@
 #include "Menu.h"
 #include "UIWidgets.h"
 #include "port/Engine.h"
+#include "port/netplay/RaceConfig.h"
 #include "ship/window/gui/GuiMenuBar.h"
 #include "ship/window/gui/GuiElement.h"
 #include <variant>
@@ -221,11 +222,20 @@ void Menu::MenuDrawItem(WidgetInfo& widget, uint32_t width, UIWidgets::Colors me
     disabledValue = false;
     disabledTooltip = " ";
 
-    if (widget.preFunc != nullptr) {
+    // A netplay room decides the settings the simulation reads; changing one mid-race would desync the players.
+    const bool setByRoom =
+        disabledMap.at(DISABLE_FOR_NETPLAY_ROOM).active && GameplayCVarOverride::Sets(widget.cVar);
+    // A widget the room disabled last frame and has no preFunc still needs its disables reset.
+    if ((widget.preFunc != nullptr) || setByRoom || !widget.activeDisables.empty()) {
         widget.ResetDisables();
-        widget.preFunc(widget);
-        if (widget.isHidden) {
-            return;
+        if (widget.preFunc != nullptr) {
+            widget.preFunc(widget);
+            if (widget.isHidden) {
+                return;
+            }
+        }
+        if (setByRoom) {
+            widget.activeDisables.push_back(DISABLE_FOR_NETPLAY_ROOM);
         }
         if (!widget.activeDisables.empty()) {
             widget.options->disabled = true;
