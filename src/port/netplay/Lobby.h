@@ -37,7 +37,7 @@ constexpr const char* kDirectConnectCVar = "gNetplay.DirectConnect";
 constexpr const char* kNameCVar = "gNetplay.Name";
 /** The relay server, "host[:port]". */
 constexpr const char* kRelayCVar = "gNetplay.Relay";
-constexpr const char* kDefaultRelay = "127.0.0.1:7777";
+constexpr const char* kDefaultRelay = "netkart64.duckdns.org:7777";
 
 enum class State { Offline, Connecting, InRoom };
 

@@ -25,9 +25,10 @@ details live in the headers under `src/port/netplay/`, which each start with a d
 
 ## Playing
 
-1. Run a relay server where both players can reach it: on one of the players' computers on the same network, or on a
-   small server for players in different places. See `tools/netplay-relay/README.md`.
-2. Once: **Enhancements > Netplay > Open Netplay Lobby**, and enter the relay's `host:port` there.
+1. The game uses the owner's relay, `netkart64.duckdns.org:7777`, by default. To use another one, run a relay server
+   where both players can reach it: on one of the players' computers on the same network, or on a small server for
+   players in different places. See `tools/netplay-relay/README.md`.
+2. For another relay only: **Enhancements > Netplay > Open Netplay Lobby**, and enter the relay's `host:port` there.
 3. On Game Select, press **Z** (**ONLINE**, beside L OPTION and R DATA). The ONLINE screen lists the relay's open
    rooms by their host's name; pick one, or **HOST A ROOM**. **NAME** sets the name others see.
 4. In a room, every player's game shows the same screens. You are the controller of your place in the room (the host
