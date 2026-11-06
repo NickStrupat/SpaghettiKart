@@ -222,7 +222,7 @@ helpers. Game Select's "Z ONLINE" button is the port's own art (`tools/make-onli
 
 | Tool | What it does |
 |---|---|
-| `tools/netplay-sim.py` | Plays whole races, cups and battles between bot-driven copies of the game through a relay, fast-forwarded (about 70× real time), and checks that every peer stayed in sync and the races ended as expected. Shared-console scenarios drive the menus with scripted buttons and compare every menu frame. 21 scenarios, about 5 minutes. **Run it after any change to netplay, menu or simulation code.** |
+| `tools/netplay-sim.py` | Plays whole races, cups and battles between bot-driven copies of the game through a relay, fast-forwarded (about 70× real time), and checks that every peer stayed in sync and the races ended as expected. Shared-console scenarios drive the menus with scripted buttons and compare every menu frame. 22 scenarios, about 5 minutes. **Run it after any change to netplay, menu or simulation code.** |
 | Determinism harness | `SK_DETERMINISM_RECORD` / `_VERIFY` / `_ROLLBACK=8`: records a race's inputs and per-frame checksums, replays them, or rolls back 8 frames after every frame. See `DeterminismHarness.h`. |
 | `tools/netplay-stress.sh` | The rollback stress run on every track and arena, 4 at a time: 16 versus tracks, 4 battle arenas, 4 Grand Prix courses. Give it an AddressSanitizer build (below) to look for memory errors too. |
 | `tools/netplay-relay/test_relay.py` | Protocol tests for the relay. |
@@ -264,7 +264,8 @@ force-quitting).
 Each of these cost a debugging round.
 
 - **Draw code changes simulation state** (`init_render_player()`, results-screen menu items, the GP points count).
-  Never skip drawing a simulated frame.
+  Never skip drawing a simulated frame. Settings that change drawing change that state too: `gNoCulling` and
+  `gDisableLod` are room rules, not each player's own. Two Macs desynced on frame 0 because one had culling off.
 - **Memory-pool allocations are not in snapshots.** A pool buffer that changes during a race must move to a global
   (`sGPPointsCopy` did).
 - **Allocating from inside a simulated frame lands in the sim arena.** Non-simulation code reached from there must
@@ -299,6 +300,9 @@ Each of these cost a debugging round.
   (`ALIGN_ASSET(2)`, `alignas(8)`).
 - **The frame counter is not simulation state** (`gGlobalTimer`, it picks the gfx pool), but the menus' flashing
   colors follow it; a shared console restarts it at each menu session.
+- **A reset to Game Select only takes effect at the top of the next game frame** (`CM_RequestReset`). A menu session
+  that resets restores the globals from boot at once; if its first frame ran in the same loop, the race on the results
+  screen ran on them and crashed (a new console after a player closed their game). Menu frames wait for the reset.
 - **A frozen menu session and a race session sharing one GekkoNet adapter** steal each other's packets; the relay
   client gives each tag its own lane.
 - **Music cues wrote a simulation global**: after the finish, the music's sound script picks which racer each camera

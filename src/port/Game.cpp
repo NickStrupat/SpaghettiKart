@@ -927,6 +927,10 @@ void CM_RequestReset(void) {
     sResetRequested.store(true);
 }
 
+bool CM_IsResetPending(void) {
+    return sResetRequested.load();
+}
+
 // The reset widget only requests; the reset is applied here at the top of the
 // game frame. Applying it from the widget raced the menu state machine: a
 // press landing mid-fade was re-advanced by the in-flight transition, and a

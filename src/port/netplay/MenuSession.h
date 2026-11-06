@@ -58,7 +58,10 @@ const std::string& GetStopReason();
  * @param localPad This player's controller, with any test input already applied.
  */
 void BeginFrame(const OSContPad& localPad);
-/** @returns true while the next frame's inputs have not all arrived: this iteration must not run a frame. */
+/**
+ * @returns true while the next frame's inputs have not all arrived, or a reset to Game Select has not happened yet:
+ * this iteration must not run a frame.
+ */
 bool IsWaiting();
 /**
  * Puts every player's pad for the frame about to run into pads[0..3].

@@ -146,8 +146,9 @@ SCENARIOS = [
              # The host's addresses are loopback ones as the relay sees them; the guest must get its network address.
              expect={"races_over": 1, "direct": 1, "network_address": 1}),
     Scenario("console-2p", "2 players on a shared console: the menus in lockstep (Game Select, characters, course, "
-             "by scripted buttons), a full versus race, the next race, then the menus again", 2, "vs",
-             series_races=1, peer_env={-1: {"SK_NETPLAY_CONSOLE": "1"},
+             "by scripted buttons), a full versus race, the next race, then the menus again; the host's drawing "
+             "settings, which change actor state, apply to both", 2, "vs", series_races=1,
+             peer_cvars={0: {"gNoCulling": 1, "gDisableLod": 0}}, peer_env={-1: {"SK_NETPLAY_CONSOLE": "1"},
                                        0: {"SK_TEST_CONSOLE_INPUT": CONSOLE_2P_VS},
                                        1: {"SK_TEST_CONSOLE_INPUT": "R_JPAD@290,A@310"}},
              expect={"consoles": 1, "races_over": 1, "finishes": 1, "menus_in_sync": 1}),
@@ -173,6 +174,12 @@ SCENARIOS = [
              peer_env={-1: {"SK_NETPLAY_CONSOLE": "1"}, 0: {"SK_NETPLAY_TEST_CONSOLE_PLAYERS": "1,2,1"},
                        1: {"SK_TEST_CONSOLE_INPUT": "Z@200", "SK_NETPLAY_TEST_CONSOLE_PLAYERS": "9"}},
              expect={"consoles": 1}),
+    Scenario("console-quit-after-race", "2 players on a shared console; the guest closes its game on the race's "
+             "results and the host starts over alone, from Game Select", 2, "vs", series_races=1, frames=900,
+             peer_env={-1: {"SK_NETPLAY_CONSOLE": "1"},
+                       0: {"SK_TEST_CONSOLE_INPUT": CONSOLE_2P_VS, "SK_NETPLAY_TEST_CONSOLE_PLAYERS": "1,2,1"},
+                       1: {"SK_TEST_CONSOLE_INPUT": "R_JPAD@290,A@310"}},
+             expect={"consoles": 1, "segments": 1, "menus_in_sync": 1}),
     Scenario("lag", "2 players, versus at 60 ms +-20 ms and 5% loss, in real time", 2, "vs",
              track="mk:frappe_snowland", frames=1800,
              peer_env={-1: {"SK_FAST": "0", "SK_NETPLAY_DELAY_MS": "60", "SK_NETPLAY_JITTER_MS": "20",

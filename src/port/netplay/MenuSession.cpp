@@ -202,6 +202,11 @@ void BeginFrame(const OSContPad& localPad) {
         return;
     }
     sMenu.FrameReady = false;
+    // A reset to Game Select only takes effect at the top of the next game frame. Until then the gamestate is the one
+    // before it, a race for one, and running that on the globals restored from boot crashes: no menu frame until then.
+    if (CM_IsResetPending()) {
+        return;
+    }
     HandleSessionEvents();
     if (!sMenu.Active) {
         return;

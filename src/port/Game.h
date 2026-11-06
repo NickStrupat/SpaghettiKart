@@ -36,6 +36,7 @@ extern Registry<ItemInfo> gItemRegistry;
 extern DataRegistry<RandomItemTable> gItemTableRegistry;
 World* GetWorld(void); // Retrieve the world instance
 void CM_RequestReset(void); // Queue a game reset; applied at the top of the next game frame
+bool CM_IsResetPending(void); // A queued game reset has not been applied yet
 #endif
 // NOLINTBEGIN(readability-identifier-naming)
 

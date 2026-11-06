@@ -29,8 +29,9 @@ struct FloatCVar {
     f32 Default;
 };
 
-// CVars read by simulation code, or by the menus a shared console runs in lockstep. Render-only CVars (gNoCulling,
-// gDisableLod, ...) stay under player control.
+// CVars read by simulation code, or by the menus a shared console runs in lockstep. Render-only CVars stay under
+// player control. gNoCulling and gDisableLod are not render-only: the draw code they change writes actor state, and
+// gDisableLod also picks Mario Raceway's collision mesh.
 constexpr std::array<IntCVar, kNumGameplayIntCVars> kGameplayIntCVars = { {
     { "gHarderCPU", 0 },
     { "gShellsShootStraight", 0 },
@@ -50,6 +51,8 @@ constexpr std::array<IntCVar, kNumGameplayIntCVars> kGameplayIntCVars = { {
     { "gFreecam", 0, true },
     { "gIsEditorEnabled", 0, true },
     { "gUniqueCharacterSelections", 1 },
+    { "gNoCulling", 0 },
+    { "gDisableLod", 1 },
 } };
 
 constexpr std::array<FloatCVar, kNumGameplayFloatCVars> kGameplayFloatCVars = { {
