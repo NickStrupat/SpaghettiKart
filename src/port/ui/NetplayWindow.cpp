@@ -354,32 +354,34 @@ std::string GetGamepadLabel(const GamepadAssignment::Gamepad& gamepad) {
 /** Which gamepad drives this copy of the game, for two copies on one computer. Saved in its settings folder. */
 void DrawControllerChoice() {
     const std::vector<GamepadAssignment::Gamepad> gamepads = GamepadAssignment::GetGamepads();
-    const s32 choice = CVarGetInteger(GamepadAssignment::kCVar, 0);
+    const std::string choice = CVarGetString(GamepadAssignment::kCVar, "");
     std::string current = "All controllers";
-    if (choice > 0) {
-        current = "Controller " + std::to_string(choice) + " (not connected)";
+    if (!choice.empty()) {
+        current = choice + " (not connected)";
         for (const GamepadAssignment::Gamepad& gamepad : gamepads) {
-            if (gamepad.Number == choice) {
+            if (gamepad.Id == choice) {
                 current = GetGamepadLabel(gamepad);
             }
         }
     }
 
-    s32 selected = choice;
+    std::string selected = choice;
     if (ImGui::BeginCombo("Your controller", current.c_str())) {
-        if (ImGui::Selectable("All controllers", choice == 0)) {
-            selected = 0;
+        if (ImGui::Selectable("All controllers", choice.empty())) {
+            selected = "";
         }
         for (const GamepadAssignment::Gamepad& gamepad : gamepads) {
-            const std::string label = GetGamepadLabel(gamepad) + (gamepad.AnyButtonHeld ? "  (pressed)" : "");
-            if (ImGui::Selectable(label.c_str(), gamepad.Number == choice)) {
-                selected = gamepad.Number;
+            // The ID stays put while "(pressed)" comes and goes, so the click lands.
+            const std::string label = GetGamepadLabel(gamepad) + (gamepad.AnyButtonHeld ? "  (pressed)" : "") +
+                                      "###gamepad" + std::to_string(gamepad.Number);
+            if (ImGui::Selectable(label.c_str(), gamepad.Id == choice)) {
+                selected = gamepad.Id;
             }
         }
         ImGui::EndCombo();
     }
     if (selected != choice) {
-        CVarSetInteger(GamepadAssignment::kCVar, selected);
+        CVarSetString(GamepadAssignment::kCVar, selected.c_str());
         Ship::Context::GetRawInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
     }
 
