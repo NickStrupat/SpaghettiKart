@@ -53,14 +53,33 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
   C_COMPILER_LAUNCHER "${WEB_SIM_LAUNCHER}"
   CXX_COMPILER_LAUNCHER "${WEB_SIM_LAUNCHER}")
 
-# The archives the page loads: made by a native build (see docs/BUILDING.md) and not part of the repository.
+# The archives the page loads: made by a native build (see docs/BUILDING.md) and not part of the repository. Without
+# mk64.o2r the page asks for the player's ROM and makes it.
 foreach(ARCHIVE mk64.o2r spaghetti.o2r)
   if(EXISTS ${CMAKE_SOURCE_DIR}/${ARCHIVE})
     add_custom_command(
       TARGET ${PROJECT_NAME} POST_BUILD
       COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/${ARCHIVE} ${WEB_DIR}/${ARCHIVE}
       VERBATIM)
-  else()
+  elseif(ARCHIVE STREQUAL "spaghetti.o2r")
     message(WARNING "${ARCHIVE} is missing from ${CMAKE_SOURCE_DIR}: copy it to ${WEB_DIR} before serving the page")
   endif()
 endforeach()
+
+# The archive maker (tools/web/extractor): Torch on its own, for a page that has to make mk64.o2r from the player's
+# ROM. Built as a separate project with this one's Emscripten, and run by ExtractWorker.js.
+include(ExternalProject)
+ExternalProject_Add(WebExtractor
+  SOURCE_DIR ${CMAKE_SOURCE_DIR}/tools/web/extractor
+  BINARY_DIR ${CMAKE_BINARY_DIR}/extractor
+  CMAKE_ARGS -DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE} -DCMAKE_BUILD_TYPE=Release
+             -DSK_SOURCE_DIR=${CMAKE_SOURCE_DIR}
+  BUILD_ALWAYS ON
+  # Its libraries' own install rules would put their headers here too: only the three files go next to the page.
+  INSTALL_COMMAND ${CMAKE_COMMAND} -E copy_if_different <BINARY_DIR>/extractor.js <BINARY_DIR>/extractor.wasm
+                  <BINARY_DIR>/extractor.data ${WEB_DIR})
+add_dependencies(${PROJECT_NAME} WebExtractor)
+add_custom_command(
+  TARGET ${PROJECT_NAME} POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/src/port/web/ExtractWorker.js ${WEB_DIR}/
+  VERBATIM)

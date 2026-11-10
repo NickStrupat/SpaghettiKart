@@ -127,8 +127,8 @@ list(APPEND ALL_FILES ${ALL_FILES_ROOT})
 list(FILTER ALL_FILES EXCLUDE REGEX ".*.inc.c")
 list(FILTER ALL_FILES EXCLUDE REGEX "./src/debug/crash_screen_enhancement.c")
 if(SPAGHETTIKART_WEB)
-  # Making the game's archive from a ROM needs Torch, which the browser build leaves out: the page is given a
-  # finished mk64.o2r instead.
+  # The browser build makes the game's archive with Torch in a module of its own (tools/web/extractor), which the page
+  # runs; the game itself has no Torch.
   list(FILTER ALL_FILES EXCLUDE REGEX "src/port/GameExtractor\\.cpp")
 endif()
 

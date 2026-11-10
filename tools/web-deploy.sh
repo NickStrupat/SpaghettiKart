@@ -17,7 +17,7 @@ cd "$(dirname "$0")/.."
 test -f build-web/web/index.wasm || { echo "build-web/web/ has no build: cmake --build build-web" >&2; exit 1; }
 
 $SSH "$PI" "mkdir -p $REMOTE_DIR/html"
-rsync -az --delete --exclude mk64.o2r -e "$SSH" build-web/web/ "$PI:$REMOTE_DIR/html/"
+rsync -az --delete --exclude mk64.o2r --exclude .DS_Store -e "$SSH" build-web/web/ "$PI:$REMOTE_DIR/html/"
 rsync -az -e "$SSH" tools/web-host/nginx.conf "$PI:$REMOTE_DIR/nginx.conf"
 
 # The relay's router matches the bare host name; this one's longer rule wins for everything but WebSockets.

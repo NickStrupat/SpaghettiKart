@@ -23,17 +23,19 @@
 <canvas id="canvas" tabindex="-1" oncontextmenu="event.preventDefault()"></canvas>
 <div id="overlay">
   <div id="status">Loading…</div>
-  <input id="picker" type="file" accept=".o2r" hidden>
+  <input id="picker" type="file" accept=".z64,.n64,.v64,.o2r" hidden>
 </div>
 <script>
 const statusElement = document.getElementById('status');
 const pickerElement = document.getElementById('picker');
 
 // The game's files: the two archives it reads everything from. spaghetti.o2r is the port's own and must be next to
-// this page. mk64.o2r is made from the player's ROM by the desktop version: when the server has none, the player
-// is asked for theirs.
+// this page. mk64.o2r holds the game's own data: when the server has none, the player is asked for their ROM, which
+// ExtractWorker.js turns into it here (or for an mk64.o2r the desktop version made).
 const kGameArchive = 'mk64.o2r';
 const kPortArchive = 'spaghetti.o2r';
+// The one ROM the archive maker knows: Mario Kart 64 (US), by the SHA-1 of its .z64 form (as src/port/GameExtractor.cpp).
+const kRomSha1 = '579c48e211ae952530ffc8738709f078d5dd215e';
 // The folder the game runs in: libultraship looks for archives, settings and saves in the working directory. It is
 // in memory only.
 const kGameDir = '/game';
@@ -112,6 +114,8 @@ function saveChanges() {
 /** The player's choice of a file, once they made it. */
 function pickFile() {
   return new Promise((resolve) => {
+    // Picking the same file again after a problem must still count as a choice.
+    pickerElement.value = '';
     pickerElement.hidden = false;
     pickerElement.onchange = async () => {
       if (pickerElement.files.length > 0) {
@@ -120,6 +124,84 @@ function pickFile() {
       }
     };
   });
+}
+
+/**
+ * The ROM in .z64 byte order, whichever of the three a dump came in, by its first word: .z64 is big-endian, .v64 swaps
+ * each pair of bytes, .n64 reverses each word. Null when it is no N64 ROM.
+ */
+function toZ64(rom) {
+  const word = rom.length >= 4 ? (rom[0] << 24 | rom[1] << 16 | rom[2] << 8 | rom[3]) >>> 0 : 0;
+  const swapped = new Uint8Array(rom.length);
+  if (word === 0x80371240) {
+    return rom;
+  } else if (word === 0x37804012) {
+    for (let i = 0; i + 1 < rom.length; i += 2) {
+      swapped[i] = rom[i + 1];
+      swapped[i + 1] = rom[i];
+    }
+    return swapped;
+  } else if (word === 0x40123780) {
+    for (let i = 0; i + 3 < rom.length; i += 4) {
+      swapped[i] = rom[i + 3];
+      swapped[i + 1] = rom[i + 2];
+      swapped[i + 2] = rom[i + 1];
+      swapped[i + 3] = rom[i];
+    }
+    return swapped;
+  }
+  return null;
+}
+
+async function sha1(bytes) {
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-1', bytes));
+  return Array.from(digest, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+/** mk64.o2r made from the ROM by the archive maker, on a worker. */
+function extractArchive(rom) {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker('ExtractWorker.js', { type: 'module' });
+    worker.onmessage = ({ data }) => {
+      worker.terminate();
+      data.error ? reject(new Error(data.error)) : resolve(data.archive);
+    };
+    worker.onerror = (event) => {
+      worker.terminate();
+      reject(new Error(event.message || 'The archive maker did not start.'));
+    };
+    worker.postMessage(rom, [rom.buffer]);
+  });
+}
+
+/** The game's archive from what the player picks: their ROM, made into one here, or an mk64.o2r. */
+async function askForGameArchive() {
+  let problem = '';
+  for (;;) {
+    showStatus(`${problem}Choose your Mario Kart 64 ROM (US version; .z64, .n64 or .v64). The game's files are made ` +
+               'from it right here and kept in this browser; nothing is uploaded.');
+    const file = await pickFile();
+    // An archive is a zip file.
+    if (file[0] === 0x50 && file[1] === 0x4b) {
+      return file;
+    }
+    const rom = toZ64(file);
+    if (rom === null) {
+      problem = 'That file is not an N64 ROM.\n\n';
+      continue;
+    }
+    if (await sha1(rom) !== kRomSha1) {
+      problem = 'That ROM is not the US version of Mario Kart 64, the only one SpaghettiKart can use.\n\n';
+      continue;
+    }
+    showStatus('Making the game\'s files from your ROM: about 20 seconds, only this once…');
+    try {
+      return await extractArchive(rom);
+    } catch (error) {
+      console.error(error);
+      problem = `Making the game's files failed: ${error.message}\n\n`;
+    }
+  }
 }
 
 async function fetchArchive(name) {
@@ -153,9 +235,7 @@ async function prepareGameFolder() {
     }
   }
   if (gameArchive === null) {
-    showStatus(`The game needs your ${kGameArchive}: the file the desktop version of SpaghettiKart makes from your ` +
-               'Mario Kart 64 ROM. It stays in this browser.');
-    gameArchive = await pickFile();
+    gameArchive = await askForGameArchive();
     FS.mkdirTree(`${kSaveDir}/${kKeptArchives}`);
     FS.writeFile(keptPath, gameArchive);
     await syncStorage(false);

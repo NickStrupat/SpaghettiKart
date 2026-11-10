@@ -108,7 +108,7 @@ option(BUILD_MARIO_ARTIST "Build with Mario Artist support" OFF)
 # default until its non-NAudio build is fixed upstream.
 option(BUILD_NAUDIO "Build with NAudio support" ON)
 
-# The browser build is given a finished mk64.o2r, so it has no use for Torch, which makes one from a ROM.
+# The browser build's game has no Torch: its page makes mk64.o2r with Torch built on its own (tools/web/extractor).
 if(NOT SPAGHETTIKART_WEB)
   add_subdirectory(torch)
 endif()

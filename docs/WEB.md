@@ -15,13 +15,15 @@ file records how to build and serve it, what was changed to make it run, and wha
 - **Online play works between browsers and with desktop players**, connecting directly over WebRTC (steps 2 and 3,
   see [Online play](#online-play)). It needs a relay new enough to accept WebSockets, as the public one does since
   2026-11-10.
-- **Does not work**: making `mk64.o2r` from a ROM in the browser; desync recovery when a browser and a desktop game
-  share a room.
+- **The player's ROM becomes `mk64.o2r` in the browser** (`.z64`, `.n64` or `.v64`), in about 20 seconds on the
+  first visit; see [The game's archive](#the-games-archive).
+- **Does not work**: desync recovery when a browser and a desktop game share a room.
 
 ## Building
 
 Needs Emscripten (`brew install emscripten`; 7.0.0 was used), CMake and Ninja, and the two archives a desktop build
-makes, `mk64.o2r` and `spaghetti.o2r`, in the repository's root (see `docs/BUILDING.md`).
+makes, `spaghetti.o2r` and (optionally, to skip asking for the ROM on a local page) `mk64.o2r`, in the repository's
+root (see `docs/BUILDING.md`).
 
 ```sh
 emcmake cmake -S . -B build-web -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -40,13 +42,28 @@ stack traces and Emscripten's run-time checks, in a 92 MB `index.wasm` instead o
   `tools/web-serve.py` does; a host that cannot set headers (GitHub Pages) cannot serve the game as it is.
 - Anywhere but `localhost`, browsers also want HTTPS for this.
 - `mk64.o2r` holds Nintendo's data and must not be put on a public server. Without it next to the page, the page
-  asks the player for their own file and keeps it in the browser's storage. `spaghetti.o2r` is the port's own and
-  has to be there.
+  asks the player for their ROM and makes it (below). `spaghetti.o2r` is the port's own and has to be there.
 - **The public page** is https://netkart64.duckdns.org/, on the public relay's computer since 2026-11-10.
   `tools/web-deploy.sh` copies `build-web/web/` there (never `mk64.o2r`) and runs nginx with
   `tools/web-host/nginx.conf`. Traefik in front adds HTTPS and routes requests for that name by kind: WebSockets to
   the relay, everything else to nginx; so the page's default relay address is its own server.
-  `node tools/web-check/check.mjs https://netkart64.duckdns.org/ pick:<mk64.o2r> wait:15000` checks it.
+  `node tools/web-check/check.mjs https://netkart64.duckdns.org/ pick:<ROM> wait:35000` checks it.
+
+## The game's archive
+
+On the desktop, the game's first start makes `mk64.o2r` from the player's ROM with Torch (`src/port/GameExtractor.cpp`).
+The page does the same with Torch compiled to WebAssembly on its own (`tools/web/extractor/`), built by the
+`WebExtractor` step of `cmake/web/WebTarget.cmake`: `extractor.wasm` (1.5 MB), and `extractor.data` (8 MB, Torch's
+asset descriptions from `config.yml`, `yamls/`, `include/defines.h` and `meta/mods.toml`). The page loads them only
+when it has no archive.
+
+- `src/port/web/shell.html` puts the ROM in `.z64` byte order and checks its SHA-1 against the US version's; then
+  `src/port/web/ExtractWorker.js` runs Torch on a worker, so the page keeps drawing its message. The archive is kept
+  in the browser's storage, as before; the ROM is not. An `mk64.o2r` from the desktop version is accepted too.
+- The archive is not byte for byte the desktop's (the zip's dates differ), but every file's name, size and CRC
+  match, which is what netplay's content check compares (`NetplayIdentity.h`).
+- Torch is a submodule this fork does not own: `tools/web/extractor/CMakeLists.txt` works around what it needs here
+  (a missing `<cstdlib>`, a thread check its link flags break).
 
 ## Testing
 
@@ -101,7 +118,7 @@ messages only between calls from the browser, and fast mode runs many game frame
 | Interpolated pictures | all drawn inside the game frame | one per refresh (`GameEngine::DrawPendingFrame()`) |
 | Graphics | Metal, OpenGL or Direct3D | WebGL 2, through libultraship's OpenGL ES path |
 | Files | the settings folder | a folder in memory; `src/port/web/shell.html` copies changes to IndexedDB |
-| `mk64.o2r` | made from a ROM by Torch | loaded by the page; Torch is not built |
+| `mk64.o2r` | made from a ROM by Torch | made from a ROM by Torch in WebAssembly, on a worker |
 | Online play | UDP to the relay; to other players directly, punching through routers | a WebSocket to the relay; WebRTC to other browsers |
 
 Everything specific to the browser is behind `__EMSCRIPTEN__` in the code and `SPAGHETTIKART_WEB` in CMake
@@ -145,7 +162,6 @@ Everything specific to the browser is behind `__EMSCRIPTEN__` in the code and `S
 ## Open
 
 - **Online play**, below.
-- **Making `mk64.o2r` in the browser** from the player's ROM. Torch has Emscripten support of its own.
 - **Size.** The 256 MB memory pool (`sMemoryPool` in `src/racing/memory.c`) and the unused 256 MB below it make the
   page reserve 1 GB of address space, more than phones allow.
 - **Threads.** Without them the page would not need the two headers. libultraship's resource pool and logger, and
