@@ -10,6 +10,7 @@ found so far. Each header in `src/port/netplay/` describes its own part.
 cmake --build build-cmake                    # the game: build-cmake/SpaghettiKart.app on macOS
 cmake --build build-relay                    # the relay server: build-relay/netplay-relay
 cmake build-cmake                            # after adding a source file (sources are globbed)
+cmake --build build-web                      # the browser build (`wasm` branch): build-web/web/, see docs/WEB.md
 ```
 
 The game needs the extracted `mk64.o2r` (on macOS in `~/Library/Application Support/SpaghettiKart/`).
@@ -33,6 +34,12 @@ determinism, which only shows up between two running games.
 
 When a scenario desyncs, diff the peers' `*.kept.txt` reports in its log folder, or rerun with `SK_NETPLAY_DUMP=1` and
 compare the start states with `tools/netplay-diff.py`.
+
+The browser build shares the game's code: after a change to it, build `build-web` too and load the page
+(`python3 tools/web-serve.py`) with `tools/web-check/check.mjs`, which uses a headless Chrome of its own, not the
+owner's browser. For simulation changes, `tools/web-check/stress.mjs` runs the rollback stress races in the browser,
+and with `NATIVE=` replays them on the desktop build. A "function signature mismatch" warning from its linker is a call that will stop the game;
+`docs/WEB.md` lists the other pitfalls.
 
 ## Rules
 

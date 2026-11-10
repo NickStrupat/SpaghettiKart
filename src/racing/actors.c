@@ -1126,9 +1126,11 @@ void spawn_fake_item_box(Vec3f pos) {
 }
 
 void init_kiwano_fruit(void) {
-    Vec3f sp64;
-    Vec3f sp58;
-    Vec3s sp50;
+    // @port Zeroed: the original passes them to add_actor_to_empty_slot() unset, so a fruit started from whatever the
+    // stack held. Zero on macOS by luck, other values in the browser build, which then desynced from it.
+    Vec3f sp64 = { 0.0f, 0.0f, 0.0f };
+    Vec3f sp58 = { 0.0f, 0.0f, 0.0f };
+    Vec3s sp50 = { 0, 0, 0 };
     Player* phi_s1;
     struct Actor* actor;
     s16 phi_s0;

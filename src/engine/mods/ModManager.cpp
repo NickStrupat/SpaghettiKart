@@ -4,7 +4,7 @@
 #include "ship/resource/archive/O2rArchive.h"
 #include "port/Engine.h"
 #include "semver.hpp"
-#include "utils/StringHelper.h"
+#include "ship/utils/StringHelper.h"
 #include <cstdlib>
 #include <memory>
 #include <optional>

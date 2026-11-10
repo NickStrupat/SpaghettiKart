@@ -7,17 +7,19 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "CafeOS")
   set(ADDITIONAL_LIBRARY_DEPENDENCIES "$<$<CONFIG:Debug>:-Wl,--wrap=abort>")
   target_include_directories(${PROJECT_NAME} PRIVATE
                              ${DEVKITPRO}/portlibs/wiiu/include/)
+elseif(SPAGHETTIKART_WEB)
+  # The browser build (docs/WEB.md) has no Ogg/Vorbis and no Torch: see cmake/dependencies/common.cmake.
 else()
   find_package(Ogg REQUIRED)
   find_package(Vorbis REQUIRED)
 endif()
 
-if(NOT CMAKE_SYSTEM_NAME MATCHES "NintendoSwitch|CafeOS")
+if(NOT CMAKE_SYSTEM_NAME MATCHES "NintendoSwitch|CafeOS" AND NOT SPAGHETTIKART_WEB)
   set(ADDITIONAL_LIBRARY_DEPENDENCIES Ogg::ogg Vorbis::vorbis
                                       Vorbis::vorbisenc Vorbis::vorbisfile)
 endif()
 
-if(UNIX AND NOT APPLE)
+if(UNIX AND NOT APPLE AND NOT SPAGHETTIKART_WEB)
   if(USE_OPENGLES)
     find_library(GLESv2_LIBRARY GLESv2 REQUIRED)
     target_link_libraries(${PROJECT_NAME} PRIVATE ${GLESv2_LIBRARY})
@@ -37,5 +39,9 @@ if(NOT USE_OPENGLES)
   target_include_directories(${PROJECT_NAME} PRIVATE ${GLEW_INCLUDE_DIRS})
 endif()
 
-target_link_libraries(${PROJECT_NAME}
-                      PRIVATE torch ${ADDITIONAL_LIBRARY_DEPENDENCIES})
+if(SPAGHETTIKART_WEB)
+  target_link_libraries(${PROJECT_NAME} PRIVATE ${ADDITIONAL_LIBRARY_DEPENDENCIES})
+else()
+  target_link_libraries(${PROJECT_NAME}
+                        PRIVATE torch ${ADDITIONAL_LIBRARY_DEPENDENCIES})
+endif()

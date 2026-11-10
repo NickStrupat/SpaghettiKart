@@ -73,6 +73,16 @@ class GameEngine {
     static uint32_t GetInterpolationFrameCount();
     void StartFrame() const;
     static void RunCommands(Gfx* pool, const std::vector<std::unordered_map<Mtx*, MtxF>>& mtx_replacements);
+#ifdef __EMSCRIPTEN__
+    /**
+     * Browser build: draws the next picture of the last game frame, if frame interpolation left any to draw. A page
+     * shows one picture per call from the browser, so RunCommands() draws the first and the main loop the others.
+     * @return false when the last game frame has no pictures left: time for the next one.
+     */
+    static bool DrawPendingFrame();
+    /** Browser build: how many pictures per second the main loop should draw. */
+    static uint32_t GetDrawRate();
+#endif
     void ProcessFrame(void (*run_one_game_iter)()) const;
     static void Destroy();
     static void ProcessGfxCommands(Gfx* pool);

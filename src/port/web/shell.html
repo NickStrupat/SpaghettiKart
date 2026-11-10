@@ -1,0 +1,218 @@
+<!doctype html>
+<!-- The page of the browser build (docs/WEB.md). Emscripten puts the game's script where {{{ SCRIPT }}} is. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SpaghettiKart</title>
+<!-- No icon: keeps the browser from asking the server for one. -->
+<link rel="icon" href="data:,">
+<style>
+  html, body { margin: 0; height: 100%; background: #000; color: #ddd; font: 16px system-ui, sans-serif; overflow: hidden; }
+  /* The game sizes its picture to the canvas, which fills the window. */
+  #canvas { display: block; width: 100vw; height: 100vh; outline: none; }
+  #overlay { position: fixed; inset: 0; display: flex; flex-direction: column; gap: 16px; align-items: center;
+             justify-content: center; text-align: center; padding: 16px; pointer-events: none; }
+  #status { white-space: pre-wrap; max-width: 40em; }
+  #status:empty { display: none; }
+  #picker { pointer-events: auto; }
+  #picker[hidden] { display: none; }
+</style>
+</head>
+<body>
+<canvas id="canvas" tabindex="-1" oncontextmenu="event.preventDefault()"></canvas>
+<div id="overlay">
+  <div id="status">Loading…</div>
+  <input id="picker" type="file" accept=".o2r" hidden>
+</div>
+<script>
+const statusElement = document.getElementById('status');
+const pickerElement = document.getElementById('picker');
+
+// The game's files: the two archives it reads everything from. spaghetti.o2r is the port's own and must be next to
+// this page. mk64.o2r is made from the player's ROM by the desktop version: when the server has none, the player
+// is asked for theirs.
+const kGameArchive = 'mk64.o2r';
+const kPortArchive = 'spaghetti.o2r';
+// The folder the game runs in: libultraship looks for archives, settings and saves in the working directory. It is
+// in memory only.
+const kGameDir = '/game';
+// Kept in the browser's storage (IndexedDB): a copy of what the game wrote to its folder, and the player's own
+// mk64.o2r under kKeptArchives.
+const kSaveDir = '/save';
+const kKeptArchives = '.archives';
+// What in the game's folder is not worth keeping: the archives are loaded again, the log is of this run.
+const kNotSaved = new Set([kGameArchive, kPortArchive, 'logs']);
+const kSaveIntervalMs = 3000;
+
+function showStatus(text) {
+  statusElement.textContent = text;
+}
+
+/** Every file under a folder, as a map from its path below the folder to a stamp that changes when the file does. */
+function listFiles(dir, skip) {
+  const files = new Map();
+  const walk = (prefix) => {
+    for (const name of FS.readdir(`${dir}/${prefix}`)) {
+      if (name === '.' || name === '..' || (prefix === '' && skip.has(name))) {
+        continue;
+      }
+      const path = prefix + name;
+      const stat = FS.stat(`${dir}/${path}`);
+      if (FS.isDir(stat.mode)) {
+        walk(`${path}/`);
+      } else {
+        files.set(path, `${stat.mtime.getTime()}:${stat.size}`);
+      }
+    }
+  };
+  walk('');
+  return files;
+}
+
+function copyFile(from, to) {
+  FS.mkdirTree(to.slice(0, to.lastIndexOf('/')));
+  FS.writeFile(to, FS.readFile(from));
+}
+
+function syncStorage(fromStorage) {
+  return new Promise((resolve, reject) => FS.syncfs(fromStorage, (error) => (error ? reject(error) : resolve())));
+}
+
+let savedFiles = new Map();
+let storageBusy = false;
+
+/** Copies what the game changed in its folder to the browser's storage. */
+function saveChanges() {
+  if (storageBusy) {
+    return;
+  }
+  const files = listFiles(kGameDir, kNotSaved);
+  let changed = false;
+  for (const [path, stamp] of files) {
+    if (savedFiles.get(path) !== stamp) {
+      copyFile(`${kGameDir}/${path}`, `${kSaveDir}/${path}`);
+      changed = true;
+    }
+  }
+  for (const path of savedFiles.keys()) {
+    if (!files.has(path)) {
+      FS.unlink(`${kSaveDir}/${path}`);
+      changed = true;
+    }
+  }
+  savedFiles = files;
+  if (changed) {
+    storageBusy = true;
+    syncStorage(false).catch((error) => console.error('Saving to the browser\'s storage failed', error))
+      .finally(() => { storageBusy = false; });
+  }
+}
+
+/** The player's choice of a file, once they made it. */
+function pickFile() {
+  return new Promise((resolve) => {
+    pickerElement.hidden = false;
+    pickerElement.onchange = async () => {
+      if (pickerElement.files.length > 0) {
+        pickerElement.hidden = true;
+        resolve(new Uint8Array(await pickerElement.files[0].arrayBuffer()));
+      }
+    };
+  });
+}
+
+async function fetchArchive(name) {
+  const response = await fetch(name);
+  return response.ok ? new Uint8Array(await response.arrayBuffer()) : null;
+}
+
+/** Fills the game's folder: saves and settings from the browser's storage, then the two archives. */
+async function prepareGameFolder() {
+  FS.mkdir(kGameDir);
+  FS.mkdir(kSaveDir);
+  FS.mount(IDBFS, {}, kSaveDir);
+  await syncStorage(true);
+  for (const path of listFiles(kSaveDir, new Set([kKeptArchives])).keys()) {
+    copyFile(`${kSaveDir}/${path}`, `${kGameDir}/${path}`);
+  }
+  savedFiles = listFiles(kGameDir, kNotSaved);
+
+  showStatus('Loading the game files…');
+  const [portArchive, serverGameArchive] = await Promise.all([fetchArchive(kPortArchive), fetchArchive(kGameArchive)]);
+  if (portArchive === null) {
+    throw new Error(`${kPortArchive} is missing next to this page.`);
+  }
+  let gameArchive = serverGameArchive;
+  const keptPath = `${kSaveDir}/${kKeptArchives}/${kGameArchive}`;
+  if (gameArchive === null) {
+    try {
+      gameArchive = FS.readFile(keptPath);
+    } catch (error) {
+      // Not kept yet: asked for below.
+    }
+  }
+  if (gameArchive === null) {
+    showStatus(`The game needs your ${kGameArchive}: the file the desktop version of SpaghettiKart makes from your ` +
+               'Mario Kart 64 ROM. It stays in this browser.');
+    gameArchive = await pickFile();
+    FS.mkdirTree(`${kSaveDir}/${kKeptArchives}`);
+    FS.writeFile(keptPath, gameArchive);
+    await syncStorage(false);
+  }
+  FS.writeFile(`${kGameDir}/${kPortArchive}`, portArchive);
+  FS.writeFile(`${kGameDir}/${kGameArchive}`, gameArchive);
+  FS.chdir(kGameDir);
+}
+
+var Module = {
+  canvas: document.getElementById('canvas'),
+  print: (text) => console.log(text),
+  printErr: (text) => console.error(text),
+  setStatus: (text) => {
+    // Emscripten reports its own loading steps here, ending with "Running...": the game is on screen from then on.
+    showStatus(text.startsWith('Running') ? '' : text);
+  },
+  preRun: [() => {
+    if (!crossOriginIsolated) {
+      showStatus('This page has to be served with the Cross-Origin-Opener-Policy and Cross-Origin-Embedder-Policy ' +
+                 'headers, because the game uses threads. tools/web-serve.py sends them.');
+      throw new Error('not cross-origin isolated');
+    }
+    // The game's test settings (SK_FAST, SK_DETERMINISM_..., see src/port/netplay/DeterminismHarness.h) come from the
+    // page's address: index.html?SK_FAST=10&SK_DETERMINISM_ROLLBACK=8.
+    for (const [name, value] of new URLSearchParams(location.search)) {
+      if (name.startsWith('SK_')) {
+        ENV[name] = value;
+      }
+    }
+    // main() waits for this.
+    addRunDependency('game-folder');
+    prepareGameFolder().then(() => {
+      showStatus('');
+      removeRunDependency('game-folder');
+      setInterval(saveChanges, kSaveIntervalMs);
+      // The last chance before the page goes away.
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') {
+          saveChanges();
+        }
+      });
+    }).catch((error) => {
+      console.error(error);
+      showStatus(String(error.message || error));
+    });
+  }],
+  onAbort: (what) => {
+    showStatus(`The game stopped: ${what}\nThe browser's console has the details.`);
+  },
+};
+window.addEventListener('error', (event) => {
+  if (statusElement.textContent === '') {
+    showStatus(`The game stopped: ${event.message}\nThe browser's console has the details.`);
+  }
+});
+</script>
+{{{ SCRIPT }}}
+</body>
+</html>

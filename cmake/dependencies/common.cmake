@@ -82,9 +82,18 @@ target_include_directories(
   ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/libultraship/include
   ${CMAKE_CURRENT_SOURCE_DIR}/libultraship/include/libultraship)
 
+if(SPAGHETTIKART_WEB)
+  include(cmake/dependencies/emscripten.cmake)
+endif()
 add_subdirectory(libultraship ${CMAKE_BINARY_DIR}/libultraship)
 add_dependencies(${PROJECT_NAME} libultraship)
 target_link_libraries(${PROJECT_NAME} PRIVATE libultraship)
+if(SPAGHETTIKART_WEB)
+  # libultraship's headers include libzip's, which other platforms find among the system's.
+  target_link_libraries(${PROJECT_NAME} PRIVATE libzip::zip)
+  target_compile_options(libultraship PRIVATE
+                         "SHELL:-include ${CMAKE_SOURCE_DIR}/src/port/web/LibultrashipShim.h")
+endif()
 
 # Torch
 option(USE_STANDALONE "Build as a standalone executable" OFF)
@@ -99,4 +108,7 @@ option(BUILD_MARIO_ARTIST "Build with Mario Artist support" OFF)
 # default until its non-NAudio build is fixed upstream.
 option(BUILD_NAUDIO "Build with NAudio support" ON)
 
-add_subdirectory(torch)
+# The browser build is given a finished mk64.o2r, so it has no use for Torch, which makes one from a ROM.
+if(NOT SPAGHETTIKART_WEB)
+  add_subdirectory(torch)
+endif()

@@ -1031,6 +1031,59 @@ void CM_ThrowRuntimeError(const char* fmt, ...) {
 #include <CoreFoundation/CoreFoundation.h>
 #endif
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+
+/**
+ * The browser build's main loop: the browser calls this once per screen refresh, and a page shows one picture per
+ * call. Draws a picture when the next is due, running a game frame first when the last has none left to draw.
+ */
+static void WebFrame() {
+    // A refresh that comes this much before a picture is due still draws it: refreshes are not evenly spaced, and
+    // waiting for the next one would drop a picture.
+    constexpr double kEarlyMs = 2.0;
+    // SK_FAST (see Engine.cpp): game frames run back to back for this long per call from the browser, which still
+    // needs time for itself.
+    constexpr double kFastBudgetMs = 12.0;
+    static double sNextPictureMs = 0.0;
+    static const bool sFast = getenv("SK_FAST") != nullptr;
+
+    if (Harness_IsFinished() || Netplay_IsFinished()) {
+        // A test run is over. Where the desktop game exits with the code, the page stops and prints it.
+        emscripten_cancel_main_loop();
+        Netplay_Shutdown();
+        const s32 exitCode = Harness_GetExitCode() | Netplay_GetExitCode();
+        printf("[Web] Finished with exit code %d\n", exitCode);
+        fflush(stdout);
+        EM_ASM({ showStatus('Finished with exit code ' + $0 + '.'); }, exitCode);
+        return;
+    }
+    if (!WindowIsRunning()) {
+        // Quit was chosen in the menu. A page cannot close itself: stop here and let it say so.
+        emscripten_cancel_main_loop();
+        EM_ASM({ showStatus('The game has quit. Reload the page to play again.'); });
+        return;
+    }
+    if (sFast) {
+        const double start = emscripten_get_now();
+        do {
+            push_frame();
+        } while ((emscripten_get_now() - start < kFastBudgetMs) && !Harness_IsFinished() && !Netplay_IsFinished());
+        return;
+    }
+    const double now = emscripten_get_now();
+    if (now + kEarlyMs < sNextPictureMs) {
+        return;
+    }
+    if (!GameEngine::DrawPendingFrame()) {
+        push_frame();
+    }
+    const double interval = 1000.0 / GameEngine::GetDrawRate();
+    // Keep to the schedule, unless it fell behind: a hidden page gets no calls, and should not catch up later.
+    sNextPictureMs = (now - sNextPictureMs > interval) ? now + interval : sNextPictureMs + interval;
+}
+#endif
+
 #ifdef _WIN32
 int SDL_main(int argc, char** argv) {
 #else
@@ -1093,6 +1146,11 @@ extern "C"
     gEditor.Load();
     Harness_Init();
     Netplay_Init();
+#ifdef __EMSCRIPTEN__
+    // A page's main thread belongs to the browser, which calls the game once per screen refresh instead. This does
+    // not return: the page runs until it is closed.
+    emscripten_set_main_loop(WebFrame, 0, true);
+#endif
     while (WindowIsRunning() && !Harness_IsFinished() && !Netplay_IsFinished()) {
         push_frame();
     }

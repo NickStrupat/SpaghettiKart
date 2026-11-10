@@ -317,6 +317,11 @@ Each of these cost a debugging round.
   demo's setup; the race start clears them. The demo only starts from the title screen (`gSkipIntro` 1), so tests need
   that setting to reach it.
 - **Pointers in raw-byte hashes**: `RailroadCrossing` overlays a pointer on other fields; the checksum skips it.
+  For the browser build, anything hashed must also have the same size there, where pointers and `size_t` are 4
+  bytes (a menu index was hashed as `size_t`).
+- **Uninitialized locals**: `init_kiwano_fruit()` (DK Jungle) passed unset stack variables as the fruits' position,
+  rotation and velocity. Zero on macOS by luck, leftovers in the browser build, which desynced from frame 0. Two
+  different builds or compilers can differ the same way; it showed up by replaying a browser race on a Mac.
 - **Leftovers from each peer's own history in hashed data**: menu items keep a texture slot and fields that
   `add_menu_item()` never sets, and a cleared item keeps all of them. Hashing the whole `gMenuItems` array made two
   computers with different settings (one starting at the title screen, one playing the intro) desync on frame 0. The

@@ -42,6 +42,13 @@ if(IOS OR CMAKE_SYSTEM_NAME STREQUAL "iOS")
   set(PROJECT_ID "dev.net64.game")
 endif()
 
+# The browser build (docs/WEB.md): configured with Emscripten's toolchain, "emcmake cmake -B build-web".
+set(SPAGHETTIKART_WEB OFF)
+if(EMSCRIPTEN)
+  set(SPAGHETTIKART_WEB ON)
+  include(cmake/web/WebFlags.cmake)
+endif()
+
 # Toggle for GLES (Required for many ARM/Mobile platforms)
 option(USE_OPENGLES "Use OpenGLES instead of Desktop OpenGL" OFF)
 
@@ -119,6 +126,11 @@ list(APPEND ALL_FILES ${ALL_FILES_ROOT})
 # Exclude specific files from the ALL_FILES list
 list(FILTER ALL_FILES EXCLUDE REGEX ".*.inc.c")
 list(FILTER ALL_FILES EXCLUDE REGEX "./src/debug/crash_screen_enhancement.c")
+if(SPAGHETTIKART_WEB)
+  # Making the game's archive from a ROM needs Torch, which the browser build leaves out: the page is given a
+  # finished mk64.o2r instead.
+  list(FILTER ALL_FILES EXCLUDE REGEX "src/port/GameExtractor\\.cpp")
+endif()
 
 if(SPAGHETTIKART_IOS)
   set(IOS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/libultraship/ios)
@@ -233,7 +245,9 @@ endif()
 # On macOS these live in the .app's Contents/Resources instead (see
 # cmake/macos/apple_bundle.cmake); copying them next to the executable would
 # just duplicate them inside Contents/MacOS.
-if(NOT CMAKE_SYSTEM_NAME MATCHES "Darwin")
+if(SPAGHETTIKART_WEB)
+  include(cmake/web/WebTarget.cmake)
+elseif(NOT CMAKE_SYSTEM_NAME MATCHES "Darwin")
 add_custom_command(
   TARGET ${PROJECT_NAME}
   POST_BUILD
@@ -245,7 +259,7 @@ add_custom_command(
   VERBATIM)
 endif()
 
-if(NOT CMAKE_SYSTEM_NAME STREQUAL "NintendoSwitch")
+if(NOT CMAKE_SYSTEM_NAME STREQUAL "NintendoSwitch" AND NOT SPAGHETTIKART_WEB)
   include(ExternalProject)
   # Torch's pinned spdlog bundles an fmt that trips a consteval error under
   # newer AppleClang (Xcode 16+): "call to consteval function

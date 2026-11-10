@@ -4,7 +4,10 @@
 #include <algorithm>
 #include <cstdlib>
 #include "ship/utils/StringHelper.h"
+// The browser build has no Torch to make the archive with (docs/WEB.md).
+#ifndef __EMSCRIPTEN__
 #include "GameExtractor.h"
+#endif
 #include "engine/mods/ModManager.h"
 #include "ui/ImguiUI.h"
 #include "ship/Context.h"
@@ -78,6 +81,14 @@ u32 GetFastDrawInterval() {
 
 // Frames are paced to this rate in fast mode: effectively not at all.
 constexpr int kFastTargetFps = 1000000;
+
+#ifdef __EMSCRIPTEN__
+// The pictures of the last game frame that the browser has not been given yet (GameEngine::DrawPendingFrame()).
+Gfx* sPendingPool = nullptr;
+std::vector<std::unordered_map<Mtx*, MtxF>> sPendingFrames;
+size_t sNextPendingFrame = 0;
+uint32_t sDrawRate = 30;
+#endif
 
 } // namespace
 
@@ -293,6 +304,11 @@ GameEngine::GameEngine() {
 }
 
 bool GameEngine::GenAssetFile() {
+#ifdef __EMSCRIPTEN__
+    // The page loads a finished mk64.o2r before the game starts, so this is only reached when that went wrong.
+    ShowMessage("Error", "mk64.o2r is missing and a browser cannot make it from a ROM.");
+    return false;
+#else
     auto extractor = new GameExtractor();
 
     if (!extractor->SelectGameFromUI()) {
@@ -313,6 +329,7 @@ bool GameEngine::GenAssetFile() {
                 "The extraction process will now begin.\n\nThis may take a few minutes.", SDL_MESSAGEBOX_INFORMATION);
 
     return extractor->GenerateOTR();
+#endif
 }
 
 uint32_t GameEngine::GetInterpolationFPS() {
@@ -446,10 +463,19 @@ void GameEngine::RunCommands(Gfx* pool, const std::vector<std::unordered_map<Mtx
         sFramesUntilDrawn = GetFastDrawInterval() - 1;
     }
 
+#ifdef __EMSCRIPTEN__
+    // Only the last picture drawn before going back to the browser is shown: draw one, leave the others to the
+    // main loop. The gfx pool and what it points to stay as they are until the next game frame.
+    sPendingPool = pool;
+    sPendingFrames = mtx_replacements;
+    sNextPendingFrame = 0;
+    DrawPendingFrame();
+#else
     for (const auto& mtxStack : mtx_replacements) {
         wnd->DrawAndRunGraphicsCommands(pool, mtxStack);
         interpreter->mInterpolationIndex++;
     }
+#endif
 
     bool curAltAssets = CVarGetInteger("gEnhancements.Mods.AlternateAssets", 0);
     if (prevAltAssets != curAltAssets) {
@@ -458,6 +484,23 @@ void GameEngine::RunCommands(Gfx* pool, const std::vector<std::unordered_map<Mtx
         gfx_texture_cache_clear();
     }
 }
+
+#ifdef __EMSCRIPTEN__
+bool GameEngine::DrawPendingFrame() {
+    auto wnd = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow());
+    if ((wnd == nullptr) || (sNextPendingFrame >= sPendingFrames.size())) {
+        return false;
+    }
+    wnd->GetInterpreterWeak().lock()->mInterpolationIndex = sNextPendingFrame;
+    wnd->DrawAndRunGraphicsCommands(sPendingPool, sPendingFrames[sNextPendingFrame]);
+    sNextPendingFrame++;
+    return true;
+}
+
+uint32_t GameEngine::GetDrawRate() {
+    return sDrawRate;
+}
+#endif
 
 /**
  * During the draw phase, the gfx pool is filled with graphics commands.
@@ -502,7 +545,14 @@ void GameEngine::ProcessGfxCommands(Gfx* pool) {
 
     auto wnd = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow());
     if (wnd != nullptr) {
+#ifdef __EMSCRIPTEN__
+        // The main loop paces the pictures (see Game.cpp). libultraship would do it by sleeping, which on a page's
+        // main thread is a busy wait that also holds up the browser.
+        wnd->SetTargetFps(kFastTargetFps);
+        sDrawRate = fps;
+#else
         wnd->SetTargetFps((GetFastDrawInterval() > 0) ? kFastTargetFps : GetInterpolationFPS());
+#endif
         wnd->SetMaximumFrameLatency(1);
     }
     RunCommands(pool, mtx_replacements);

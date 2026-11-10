@@ -93,7 +93,8 @@ void HashRaceFlow(u64& hash) {
     HashValue(hash, D_8018D9D9);
     for (size_t i = 0; i < MENU_ITEMS_MAX; i++) {
         if (gMenuItems[i].type != 0) {
-            HashValue(hash, i);
+            // As 8 bytes everywhere: size_t is 4 in the browser build, where the checksum must come out the same.
+            HashValue(hash, (u64) i);
             HashMenuItem(hash, gMenuItems[i]);
         }
     }

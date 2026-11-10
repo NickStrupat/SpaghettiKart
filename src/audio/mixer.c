@@ -453,8 +453,13 @@ static void mm128_transpose(__m128i* r0, __m128i* r1, __m128i* r2, __m128i* r3) 
 }
 
 static __m128i move_two_4x16(int16_t* a, int16_t* b) {
+#ifdef __EMSCRIPTEN__
+    // @port WebAssembly has no MMX registers to pass the halves through.
+    return _mm_unpacklo_epi64(_mm_loadl_epi64((__m128i*) b), _mm_loadl_epi64((__m128i*) a));
+#else
     return _mm_set_epi64(_mm_movepi64_pi64(_mm_loadl_epi64((__m128i*) a)),
                          _mm_movepi64_pi64(_mm_loadl_epi64((__m128i*) b)));
+#endif
 }
 
 void aResampleImpl(uint8_t flags, uint16_t pitch, RESAMPLE_STATE state) {

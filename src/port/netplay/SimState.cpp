@@ -127,6 +127,23 @@ SectionRanges FindSectionRanges() {
              Range{ __start_sim_cxx_bss, (size_t) (__stop_sim_cxx_bss - __start_sim_cxx_bss) } };
 }
 
+#elif defined(__clang__) && defined(__wasm__)
+
+// The browser build. Clang writes each file's simulation globals, initialized or not, into one segment with an empty
+// name; tools/web/sim-segments.py names it sim_data or sim_cxx_data after compiling, and the linker then defines
+// these. There is no bss part.
+extern "C" {
+extern u8 __start_sim_data[] __attribute__((weak));
+extern u8 __stop_sim_data[] __attribute__((weak));
+extern u8 __start_sim_cxx_data[] __attribute__((weak));
+extern u8 __stop_sim_cxx_data[] __attribute__((weak));
+}
+
+SectionRanges FindSectionRanges() {
+    return { Range{ __start_sim_data, (size_t) (__stop_sim_data - __start_sim_data) }, Range{},
+             Range{ __start_sim_cxx_data, (size_t) (__stop_sim_cxx_data - __start_sim_cxx_data) }, Range{} };
+}
+
 #else
 
 SectionRanges FindSectionRanges() {
@@ -217,7 +234,7 @@ void RestoreCGlobalsKeeping(const std::vector<u8>& copy) {
 } // namespace
 
 extern "C" bool SimState_IsSupported(void) {
-    return GetSectionRanges()[1].Size > 0;
+    return GetSectionsSize(kNumCSections) > 0;
 }
 
 extern "C" void SimState_DisableAddressRandomization(char** argv) {

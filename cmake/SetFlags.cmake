@@ -41,9 +41,15 @@ else()
     # Netplay requires bit-identical float results across platforms: no fast-math, no FMA contraction.
     -fno-fast-math
     -ffp-contract=off
-    -flto=auto
     -pipe)
-  target_link_options(${PROJECT_NAME} PRIVATE -flto=auto)
+  if(SPAGHETTIKART_WEB)
+    # The sound mixer is written with SSE2 intrinsics, which Emscripten translates to WebAssembly's 128-bit SIMD.
+    # Link-time optimization is left off: it has not been tried with Emscripten.
+    target_compile_options(${PROJECT_NAME} PRIVATE -msimd128 -msse2)
+  else()
+    target_compile_options(${PROJECT_NAME} PRIVATE -flto=auto)
+    target_link_options(${PROJECT_NAME} PRIVATE -flto=auto)
+  endif()
 
   set(C_FLAGS -Werror-implicit-function-declaration
               -Wno-incompatible-pointer-types)
@@ -89,6 +95,7 @@ else()
   endif()
 
   if(NOT APPLE
+     AND NOT SPAGHETTIKART_WEB
      AND NOT CMAKE_SYSTEM_NAME STREQUAL "NintendoSwitch"
      AND NOT CMAKE_SYSTEM_NAME STREQUAL "CafeOS")
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")

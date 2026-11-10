@@ -297,10 +297,21 @@ void DrawConsolePlayers() {
 extern "C" void online_menu_enter(void) {
     sOnline.Current = Screen::Rooms;
     sOnline.Cursor = 0;
+#ifndef __EMSCRIPTEN__
     RefreshRooms();
+#endif
 }
 
 extern "C" void online_menu_act(struct Controller* controller) {
+#ifdef __EMSCRIPTEN__
+    // A page cannot open the UDP sockets that the relay and the players talk over (docs/WEB.md): the screen only
+    // says so.
+    if (!is_screen_being_faded() && ((controller->buttonPressed | controller->stickPressed) & B_BUTTON)) {
+        fade_to_online_menu();
+        play_sound2(SOUND_MENU_GO_BACK);
+    }
+    return;
+#endif
     sOnline.RoomList.Update();
     const Lobby::State state = Lobby::GetState();
     if ((state == Lobby::State::Offline) && !sOnline.RoomList.IsBusy() &&
@@ -334,6 +345,10 @@ extern "C" void render_online_menu(MenuItem* item) {
     gDisplayListHead = draw_box_wide(gDisplayListHead, 0, 0, 0x140, 0xF0, 0, 0, 0, 0x64);
     set_text_color(TEXT_YELLOW);
     print_text1_center_mode_1(0xA0, 0x28, (char*) "ONLINE", 0, 1.4f, 1.4f);
+#ifdef __EMSCRIPTEN__
+    DrawStatus("NOT IN THE BROWSER YET");
+    return;
+#endif
     switch (Lobby::GetState()) {
         case Lobby::State::Connecting:
             DrawStatus("CONNECTING...");
