@@ -42,6 +42,11 @@ stack traces and Emscripten's run-time checks, in a 92 MB `index.wasm` instead o
 - `mk64.o2r` holds Nintendo's data and must not be put on a public server. Without it next to the page, the page
   asks the player for their own file and keeps it in the browser's storage. `spaghetti.o2r` is the port's own and
   has to be there.
+- **The public page** is https://netkart64.duckdns.org/, on the public relay's computer since 2026-11-10.
+  `tools/web-deploy.sh` copies `build-web/web/` there (never `mk64.o2r`) and runs nginx with
+  `tools/web-host/nginx.conf`. Traefik in front adds HTTPS and routes requests for that name by kind: WebSockets to
+  the relay, everything else to nginx; so the page's default relay address is its own server.
+  `node tools/web-check/check.mjs https://netkart64.duckdns.org/ pick:<mk64.o2r> wait:15000` checks it.
 
 ## Testing
 

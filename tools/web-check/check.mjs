@@ -10,6 +10,7 @@
 //   hold:<Key>         release:<Key>
 //   shot:<file.png>    a picture of the page (not of the screen)
 //   eval:<JavaScript>  run in the page and print the result; FS is the game's file system
+//   pick:<mk64.o2r>    answer the page's request for the player's file, on a server that has none (the public one)
 //   reload:
 // CHROME=<path> picks another Chrome than the one in /Applications. Without --use-angle=metal a headless Chrome draws
 // with a software renderer, far too slowly for the game.
@@ -67,6 +68,9 @@ try {
       await page.screenshot({ path: value });
     } else if (kind === 'eval') {
       console.log(`${stamp()} EVAL: ${JSON.stringify(await page.evaluate(value))}`);
+    } else if (kind === 'pick') {
+      const picker = await page.waitForSelector('#picker:not([hidden])', { timeout: 120000 });
+      await picker.uploadFile(value);
     } else if (kind === 'reload') {
       await page.reload({ waitUntil: 'load' });
     } else {
