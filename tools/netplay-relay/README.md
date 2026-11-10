@@ -1,6 +1,6 @@
 # Netplay relay server
 
-Players meet through this relay. The host creates a room, which gets a 6-character code; the relay lists its open rooms, under their host's name, to games of the same build, and the other players join one from that list. The relay then forwards packets between the members of the room. It is a small, single-threaded UDP server and knows nothing about the game.
+Players meet through this relay. The host creates a room, which gets a 6-character code; the relay lists its open rooms, under their host's name, to games of the same build, and the other players join one from that list. The relay then forwards packets between the members of the room. It is a small, single-threaded server and knows nothing about the game. The desktop game talks to it over UDP; the browser build (`docs/WEB.md`), which cannot send UDP, connects with a WebSocket on the same port number over TCP and sends the same messages, one per WebSocket message. Browser and desktop players can share a room.
 
 The wire format is described in `RelayProtocol.h`, which the game includes too.
 
@@ -16,12 +16,12 @@ Or with Docker:
 
 ```sh
 docker build -t spaghettikart-relay tools/netplay-relay
-docker run -d --name relay -p 7777:7777/udp --restart unless-stopped spaghettikart-relay
+docker run -d --name relay -p 7777:7777/udp -p 7777:7777/tcp --restart unless-stopped spaghettikart-relay
 ```
 
 Then, in the game, open **Enhancements > Netplay > Open Netplay Lobby** and enter the relay's `host:port` under **Relay server**.
 
-Open UDP port 7777 in the server's firewall. Each player needs about 10 KB/s in each direction while racing, so a small VPS can carry many rooms. Most races don't go through the relay at all; see below.
+Open UDP and TCP port 7777 in the server's firewall (TCP only matters for browsers). A page served over HTTPS may only open secure WebSockets (`wss://`): put a proxy that adds TLS in front of the TCP port, and give players the `wss://` address. Each player needs about 10 KB/s in each direction while racing, so a small VPS can carry many rooms. Most races don't go through the relay at all; see below.
 
 The game and the relay must speak the same protocol version: after updating the game, rebuild the relay too. A game that gets no answer says so.
 
@@ -35,6 +35,8 @@ Once players are in a room, their games try to reach each other directly (UDP ho
 
 Lobby messages always go through the relay. Routers that give every destination a different public port (symmetric NAT, common on mobile networks) block direct connections; those players stay on the relay.
 
+Browsers connect to each other with WebRTC data channels instead, set up through messages the relay passes along like any other (and a public STUN server, which tells each browser its public address). A browser and a desktop game cannot connect directly yet: their traffic goes through the relay.
+
 Direct connections share each player's IP address with the others in the room. A player can turn them off with **Connect directly to other players** in the netplay window; the relay then keeps that player's addresses to itself.
 
 ## Options
@@ -42,6 +44,7 @@ Direct connections share each player's IP address with the others in the room. A
 | Option | Effect |
 |---|---|
 | `--port N` | UDP port to listen on (default 7777) |
+| `--ws-port N` | TCP port for browsers' WebSockets (default: the same number as `--port`; 0 turns them off) |
 | `--delay-ms N` | Delays every packet the relay sends by N ms |
 | `--jitter-ms N` | Adds a random 0–N ms on top of the delay; this reorders packets |
 | `--loss P` | Drops P% of the packets the relay sends |
@@ -53,7 +56,7 @@ Direct connections share each player's IP address with the others in the room. A
 
 - Joining needs the same game build and the same game files and mods as the host. The relay compares both and refuses a mismatch with a clear error.
 - A room closes when its host leaves.
-- A client the relay has not heard from in 15 s is dropped.
+- A client the relay has not heard from in 15 s is dropped. A browser is dropped at once when its WebSocket closes.
 - Rate limits apply per source IP: packets, room creations (10 per minute), and join attempts (20 per minute; too slow to guess codes).
 - Payloads over 1200 bytes are dropped.
 - Traffic is not encrypted. The relay sees inputs and lobby messages, nothing more.

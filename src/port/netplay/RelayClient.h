@@ -15,8 +15,9 @@
  * The game's connection to the netplay relay: creates or joins a room, keeps the membership alive, and carries
  * two channels of packets between room members: lobby messages and GekkoNet's rollback traffic.
  *
- * Packets to one member go to it directly once a punch through both routers got an answer (see RelayProtocol.h), and
- * through the relay otherwise, or again once the direct way goes quiet. Broadcasts always go through the relay.
+ * Packets to one member go to it directly once a direct connection works, and through the relay otherwise, or again
+ * once the direct way goes quiet. Broadcasts always go through the relay. How packets move is a RelayLink's business
+ * (RelayLink.h): UDP with punching through routers on the desktop, a WebSocket and WebRTC in a browser.
  * Single-threaded: call Update() once per frame from the game thread. Only host name lookup runs on a worker thread.
  */
 class RelayClient {

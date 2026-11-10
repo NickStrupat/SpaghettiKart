@@ -1046,7 +1046,7 @@ static void WebFrame() {
     // needs time for itself.
     constexpr double kFastBudgetMs = 12.0;
     static double sNextPictureMs = 0.0;
-    static const bool sFast = getenv("SK_FAST") != nullptr;
+    static const bool sFast = (getenv("SK_FAST") != nullptr) && (atoi(getenv("SK_FAST")) > 0);
 
     if (Harness_IsFinished() || Netplay_IsFinished()) {
         // A test run is over. Where the desktop game exits with the code, the page stops and prints it.

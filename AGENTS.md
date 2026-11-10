@@ -38,7 +38,8 @@ compare the start states with `tools/netplay-diff.py`.
 The browser build shares the game's code: after a change to it, build `build-web` too and load the page
 (`python3 tools/web-serve.py`) with `tools/web-check/check.mjs`, which uses a headless Chrome of its own, not the
 owner's browser. For simulation changes, `tools/web-check/stress.mjs` runs the rollback stress races in the browser,
-and with `NATIVE=` replays them on the desktop build. A "function signature mismatch" warning from its linker is a call that will stop the game;
+and with `NATIVE=` replays them on the desktop build. For netplay changes, `tools/web-check/netplay.mjs` races browsers
+against each other (or against a desktop game) through a local relay. A "function signature mismatch" warning from its linker is a call that will stop the game;
 `docs/WEB.md` lists the other pitfalls.
 
 ## Rules

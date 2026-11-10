@@ -1,8 +1,11 @@
 /**
  * Netplay relay server: lists rooms, matches players by room code and forwards their packets.
  *
- *   netplay-relay [--port 7777] [--delay-ms N] [--jitter-ms N] [--loss PERCENT] [--no-rate-limits]
+ *   netplay-relay [--port 7777] [--ws-port 7777] [--delay-ms N] [--jitter-ms N] [--loss PERCENT] [--no-rate-limits]
  *
+ * The desktop game talks to it over UDP on --port. Browsers, which cannot send UDP, connect with a WebSocket on TCP
+ * port --ws-port (the same number by default; 0 turns WebSockets off) and send the same messages, one per binary
+ * WebSocket message (WebSocket.h). Players of both kinds can share a room.
  * The delay, jitter and loss options degrade every packet the relay sends, to test rollback on one machine.
  * --no-rate-limits is for tests that run several fast-forwarded games from one address.
  * Protocol: see RelayProtocol.h.
@@ -18,16 +21,21 @@
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
+#include <deque>
 #include <iterator>
 #include <map>
+#include <memory>
 #include <random>
 #include <string>
+#include <tuple>
 #include <unordered_map>
 #include <vector>
 
 #include "RelayProtocol.h"
+#include "WebSocket.h"
 
 using namespace RelayProtocol;
+using asio::ip::tcp;
 using asio::ip::udp;
 using Clock = std::chrono::steady_clock;
 
@@ -48,19 +56,40 @@ constexpr double kListsPerSecond = 1.0;
 constexpr double kListBurst = 10.0;
 constexpr auto kHousekeepingInterval = std::chrono::seconds(1);
 constexpr auto kRateLimitExpiry = std::chrono::seconds(120);
+// A WebSocket that has sent nothing for this long is closed: a client in a room keeps it busy every second.
+constexpr auto kWebSocketIdleTimeout = std::chrono::milliseconds(kClientTimeoutMs);
+// Messages waiting to go out on one WebSocket before the connection counts as stuck and is closed.
+constexpr size_t kMaxWebSocketQueue = 1024;
 
 struct Options {
     uint16_t Port = kDefaultPort;
+    uint16_t WebSocketPort = kDefaultPort;
     uint32_t DelayMs = 0;
     uint32_t JitterMs = 0;
     uint32_t LossPercent = 0;
     bool RateLimits = true;
 };
 
+/** Where a client is: a UDP endpoint, or a browser's WebSocket connection. */
+struct Address {
+    udp::endpoint Udp;
+    uint64_t WebSocket = 0; // The connection's number; 0 for UDP
+
+    bool operator==(const Address& other) const {
+        return (Udp == other.Udp) && (WebSocket == other.WebSocket);
+    }
+    bool operator!=(const Address& other) const {
+        return !(*this == other);
+    }
+    bool operator<(const Address& other) const {
+        return std::tie(WebSocket, Udp) < std::tie(other.WebSocket, other.Udp);
+    }
+};
+
 struct Client {
     uint64_t Token = 0;
     uint64_t Key = 0; // Shown to the other members, which recognize this client's direct packets by it
-    udp::endpoint Endpoint;
+    Address Endpoint;
     // From KeepAlive: whether the other members may have this client's addresses, and its own on its network
     bool SharesAddresses = false;
     uint32_t LocalAddress = 0;
@@ -130,6 +159,28 @@ std::string ToString(const udp::endpoint& endpoint) {
     return endpoint.address().to_string() + ":" + std::to_string(endpoint.port());
 }
 
+std::string ToString(const Address& address) {
+    return (address.WebSocket != 0) ? "WebSocket " + std::to_string(address.WebSocket) + " from " +
+                                          address.Udp.address().to_string()
+                                    : ToString(address.Udp);
+}
+
+/** A browser's connection. Until its handshake is done, it is an HTTP request. */
+struct WebSocketConnection {
+    WebSocketConnection(asio::io_context& io, uint64_t id) : Socket(io), Id(id) {
+    }
+
+    tcp::socket Socket;
+    uint64_t Id;
+    Address From;
+    bool Open = false;
+    std::vector<uint8_t> Received;
+    std::array<uint8_t, 4096> ReadBuffer;
+    std::deque<std::vector<uint8_t>> Outgoing; // The front one is being written
+    bool Closing = false;                       // Closes once Outgoing has gone out
+    Clock::time_point LastHeard;
+};
+
 std::string ToString(const RoomCode& code) {
     return std::string(code.data(), code.size());
 }
@@ -137,9 +188,16 @@ std::string ToString(const RoomCode& code) {
 class RelayServer {
   public:
     RelayServer(asio::io_context& io, const Options& options)
-        : mOptions(options), mSocket(io, udp::endpoint(udp::v4(), options.Port)), mHousekeeping(io),
-          mDelayTimer(io), mRandom(std::random_device{}()) {
+        : mIo(io), mOptions(options), mSocket(io, udp::endpoint(udp::v4(), options.Port)), mAcceptor(io),
+          mHousekeeping(io), mDelayTimer(io), mRandom(std::random_device{}()) {
         Receive();
+        if (options.WebSocketPort != 0) {
+            mAcceptor.open(tcp::v4());
+            mAcceptor.set_option(tcp::acceptor::reuse_address(true));
+            mAcceptor.bind(tcp::endpoint(tcp::v4(), options.WebSocketPort));
+            mAcceptor.listen();
+            Accept();
+        }
         ScheduleHousekeeping();
     }
 
@@ -149,11 +207,16 @@ class RelayServer {
         writer.WriteHeader(MessageType::RoomClosed);
         writer.Write8((uint8_t) CloseReason::ServerShutdown);
         for (const auto& [token, client] : mClients) {
-            asio::error_code error;
-            mSocket.send_to(asio::buffer(packet, writer.GetSize()), client.Endpoint, 0, error);
+            SendNow(client.Endpoint, packet, writer.GetSize());
         }
         Log("shutting down: closed %zu rooms", mRooms.size());
         mSocket.close();
+        asio::error_code error;
+        mAcceptor.close(error);
+        for (auto& [id, connection] : mWebSockets) {
+            // Lets the RoomClosed messages queued above go out before the connection closes.
+            connection->Socket.shutdown(tcp::socket::shutdown_receive, error);
+        }
         mHousekeeping.cancel();
         mDelayTimer.cancel();
     }
@@ -165,15 +228,160 @@ class RelayServer {
                 return;
             }
             if (!error) {
-                Handle(mReceiveBuffer.data(), size, mSender);
+                Handle(mReceiveBuffer.data(), size, Address{ mSender, 0 });
             }
             Receive();
         });
     }
 
-    void Handle(const uint8_t* data, size_t size, const udp::endpoint& from) {
+    void Accept() {
+        auto connection = std::make_shared<WebSocketConnection>(mIo, ++mLastWebSocketId);
+        mAcceptor.async_accept(connection->Socket, [this, connection](asio::error_code error) {
+            if (error == asio::error::operation_aborted) {
+                return;
+            }
+            if (!error && (mWebSockets.size() < kMaxClients)) {
+                asio::error_code ignored;
+                connection->Socket.set_option(tcp::no_delay(true), ignored);
+                const tcp::endpoint remote = connection->Socket.remote_endpoint(ignored);
+                connection->From = Address{ udp::endpoint(remote.address(), remote.port()), connection->Id };
+                connection->LastHeard = Clock::now();
+                mWebSockets[connection->Id] = connection;
+                ReadWebSocket(connection);
+            }
+            Accept();
+        });
+    }
+
+    void ReadWebSocket(const std::shared_ptr<WebSocketConnection>& connection) {
+        connection->Socket.async_read_some(
+            asio::buffer(connection->ReadBuffer), [this, connection](asio::error_code error, size_t size) {
+                if (error) {
+                    CloseWebSocket(connection->Id, "disconnected");
+                    return;
+                }
+                connection->LastHeard = Clock::now();
+                connection->Received.insert(connection->Received.end(), connection->ReadBuffer.begin(),
+                                            connection->ReadBuffer.begin() + (std::ptrdiff_t) size);
+                if (HandleWebSocketData(*connection)) {
+                    ReadWebSocket(connection);
+                } else {
+                    CloseWebSocket(connection->Id, "closed");
+                }
+            });
+    }
+
+    /** Answers the handshake, then handles each complete message. @returns false when the connection should close. */
+    bool HandleWebSocketData(WebSocketConnection& connection) {
+        if (!connection.Open) {
+            const std::string text(connection.Received.begin(), connection.Received.end());
+            const size_t end = text.find("\r\n\r\n");
+            if (end == std::string::npos) {
+                return text.size() < WebSocket::kMaxHandshakeSize;
+            }
+            bool accepted = false;
+            const std::string answer = WebSocket::AnswerHandshake(text.substr(0, end + 4), &accepted);
+            QueueWebSocket(connection, std::vector<uint8_t>(answer.begin(), answer.end()));
+            connection.Received.erase(connection.Received.begin(),
+                                      connection.Received.begin() + (std::ptrdiff_t) (end + 4));
+            if (!accepted) {
+                return false;
+            }
+            connection.Open = true;
+        }
+        WebSocket::Frame frame;
+        while (true) {
+            const WebSocket::ParseResult result = WebSocket::ParseClientFrame(connection.Received, &frame);
+            if (result == WebSocket::ParseResult::NeedMore) {
+                return true;
+            }
+            // Relay messages are small: browsers send them whole, never in fragments.
+            if ((result == WebSocket::ParseResult::Malformed) || !frame.Final) {
+                return false;
+            }
+            switch (frame.Op) {
+                case WebSocket::Opcode::Binary:
+                    Handle(frame.Payload.data(), frame.Payload.size(), connection.From);
+                    // Handling it may have closed this connection (a full queue).
+                    if (mWebSockets.count(connection.Id) == 0) {
+                        return false;
+                    }
+                    break;
+                case WebSocket::Opcode::Ping:
+                    QueueWebSocket(connection, WebSocket::MakeServerFrame(WebSocket::Opcode::Pong, frame.Payload.data(),
+                                                                          frame.Payload.size()));
+                    break;
+                case WebSocket::Opcode::Close:
+                    QueueWebSocket(connection, WebSocket::MakeServerFrame(WebSocket::Opcode::Close, nullptr, 0));
+                    return false;
+                default:
+                    break;
+            }
+        }
+    }
+
+    void QueueWebSocket(WebSocketConnection& connection, std::vector<uint8_t> data) {
+        if (connection.Closing) {
+            return;
+        }
+        if (connection.Outgoing.size() >= kMaxWebSocketQueue) {
+            CloseWebSocket(connection.Id, "too slow to read");
+            return;
+        }
+        connection.Outgoing.push_back(std::move(data));
+        if (connection.Outgoing.size() == 1) {
+            WriteWebSocket(mWebSockets.at(connection.Id));
+        }
+    }
+
+    void WriteWebSocket(const std::shared_ptr<WebSocketConnection>& connection) {
+        asio::async_write(connection->Socket, asio::buffer(connection->Outgoing.front()),
+                          [this, connection](asio::error_code error, size_t) {
+                              if (error) {
+                                  CloseWebSocket(connection->Id, "disconnected");
+                                  return;
+                              }
+                              connection->Outgoing.pop_front();
+                              if (!connection->Outgoing.empty()) {
+                                  WriteWebSocket(connection);
+                              } else if (connection->Closing) {
+                                  asio::error_code ignored;
+                                  connection->Socket.close(ignored);
+                              }
+                          });
+    }
+
+    /** Ends a browser's connection, and its place in a room: it cannot come back on another connection. */
+    void CloseWebSocket(uint64_t id, const char* reason) {
+        const auto it = mWebSockets.find(id);
+        if (it == mWebSockets.end()) {
+            return;
+        }
+        const std::shared_ptr<WebSocketConnection> connection = it->second;
+        mWebSockets.erase(it);
+        const Address from = connection->From;
+        std::vector<uint64_t> tokens;
+        for (const auto& [token, client] : mClients) {
+            if (client.Endpoint == from) {
+                tokens.push_back(token);
+            }
+        }
+        for (uint64_t token : tokens) {
+            RemoveClient(token, reason);
+        }
+        // Whatever is still queued (an answer to a bad handshake, a close frame) goes out before the socket closes:
+        // the write in progress closes it when done.
+        connection->Closing = true;
+        asio::error_code error;
+        connection->Socket.shutdown(tcp::socket::shutdown_receive, error);
+        if (connection->Outgoing.empty()) {
+            connection->Socket.close(error);
+        }
+    }
+
+    void Handle(const uint8_t* data, size_t size, const Address& from) {
         const Clock::time_point now = Clock::now();
-        AddressLimits& limits = mLimits[from.address()];
+        AddressLimits& limits = mLimits[from.Udp.address()];
         if (mOptions.RateLimits && !limits.Packets.Take(kPacketsPerSecond, kPacketBurst, now)) {
             return;
         }
@@ -210,7 +418,7 @@ class RelayServer {
     }
 
     // A repeated Create or Join (its reply was lost) gets the same reply.
-    bool AnswerRepeatedRequest(const udp::endpoint& from, uint32_t request) {
+    bool AnswerRepeatedRequest(const Address& from, uint32_t request) {
         const auto it = mRequests.find({ from, request });
         if (it == mRequests.end()) {
             return false;
@@ -219,7 +427,7 @@ class RelayServer {
         return true;
     }
 
-    void HandleCreate(ByteReader& reader, const udp::endpoint& from, AddressLimits& limits, Clock::time_point now) {
+    void HandleCreate(ByteReader& reader, const Address& from, AddressLimits& limits, Clock::time_point now) {
         const uint32_t request = reader.Read32();
         Room room;
         reader.ReadBytes(room.Build.data(), room.Build.size());
@@ -253,7 +461,7 @@ class RelayServer {
         BroadcastRoomState(added);
     }
 
-    void HandleJoin(ByteReader& reader, const udp::endpoint& from, AddressLimits& limits, Clock::time_point now) {
+    void HandleJoin(ByteReader& reader, const Address& from, AddressLimits& limits, Clock::time_point now) {
         const uint32_t request = reader.Read32();
         RoomCode code;
         reader.ReadBytes(code.data(), code.size());
@@ -300,7 +508,7 @@ class RelayServer {
         BroadcastRoomState(room);
     }
 
-    void HandleRelay(ByteReader& reader, const udp::endpoint& from, Clock::time_point now) {
+    void HandleRelay(ByteReader& reader, const Address& from, Clock::time_point now) {
         const uint64_t token = reader.Read64();
         const uint8_t destination = reader.Read8();
         const size_t payloadSize = reader.GetRemainingSize();
@@ -326,7 +534,7 @@ class RelayServer {
         }
     }
 
-    void HandleKeepAlive(ByteReader& reader, const udp::endpoint& from, Clock::time_point now) {
+    void HandleKeepAlive(ByteReader& reader, const Address& from, Clock::time_point now) {
         const uint64_t token = reader.Read64();
         const uint32_t echo = reader.Read32();
         const uint8_t flags = reader.Read8();
@@ -348,7 +556,7 @@ class RelayServer {
     }
 
     /** Answers with the joinable rooms of the asker's build and content, newest first. */
-    void HandleListRooms(ByteReader& reader, const udp::endpoint& from, AddressLimits& limits, Clock::time_point now) {
+    void HandleListRooms(ByteReader& reader, const Address& from, AddressLimits& limits, Clock::time_point now) {
         const uint32_t request = reader.Read32();
         BuildId build;
         reader.ReadBytes(build.data(), build.size());
@@ -385,7 +593,7 @@ class RelayServer {
     }
 
     /** Looks up the sender of a message and notes that it is alive. Unknown tokens get an error reply. */
-    Client* FindClient(uint64_t token, const udp::endpoint& from, Clock::time_point now) {
+    Client* FindClient(uint64_t token, const Address& from, Clock::time_point now) {
         const auto it = mClients.find(token);
         if (it == mClients.end()) {
             SendError(from, 0, ErrorCode::UnknownClient);
@@ -401,7 +609,7 @@ class RelayServer {
         return &client;
     }
 
-    Client& AddClient(Room& room, uint8_t slot, const udp::endpoint& from, uint32_t request, Clock::time_point now) {
+    Client& AddClient(Room& room, uint8_t slot, const Address& from, uint32_t request, Clock::time_point now) {
         uint64_t token;
         do {
             token = mRandom();
@@ -466,7 +674,7 @@ class RelayServer {
         Send(client.Endpoint, packet, writer.GetSize());
     }
 
-    void SendError(const udp::endpoint& to, uint32_t request, ErrorCode error) {
+    void SendError(const Address& to, uint32_t request, ErrorCode error) {
         uint8_t packet[kHeaderSize + 4 + 1];
         ByteWriter writer(packet, sizeof(packet));
         writer.WriteHeader(MessageType::Error);
@@ -493,10 +701,12 @@ class RelayServer {
                 continue;
             }
             const Client& member = mClients.at(token);
-            const bool shared = member.SharesAddresses && member.Endpoint.address().is_v4();
+            // A browser has no address others could reach it at: it connects to them with WebRTC instead.
+            const udp::endpoint& endpoint = member.Endpoint.Udp;
+            const bool shared = member.SharesAddresses && (member.Endpoint.WebSocket == 0) && endpoint.address().is_v4();
             writer.Write64(member.Key);
-            writer.Write32(shared ? member.Endpoint.address().to_v4().to_uint() : 0);
-            writer.Write16(shared ? member.Endpoint.port() : 0);
+            writer.Write32(shared ? endpoint.address().to_v4().to_uint() : 0);
+            writer.Write16(shared ? endpoint.port() : 0);
             writer.Write32(shared ? member.LocalAddress : 0);
             writer.Write16(shared ? member.LocalPort : 0);
         }
@@ -511,13 +721,12 @@ class RelayServer {
         }
     }
 
-    void Send(const udp::endpoint& to, const uint8_t* data, size_t size) {
+    void Send(const Address& to, const uint8_t* data, size_t size) {
         if ((mOptions.LossPercent > 0) && (mRandom() % 100 < mOptions.LossPercent)) {
             return;
         }
         if ((mOptions.DelayMs == 0) && (mOptions.JitterMs == 0)) {
-            asio::error_code error;
-            mSocket.send_to(asio::buffer(data, size), to, 0, error);
+            SendNow(to, data, size);
             return;
         }
         // Jitter reorders packets, as real networks do.
@@ -530,6 +739,19 @@ class RelayServer {
         }
     }
 
+    /** Sends without the testing delay or loss: as a datagram, or as one binary WebSocket message. */
+    void SendNow(const Address& to, const uint8_t* data, size_t size) {
+        if (to.WebSocket == 0) {
+            asio::error_code error;
+            mSocket.send_to(asio::buffer(data, size), to.Udp, 0, error);
+            return;
+        }
+        const auto it = mWebSockets.find(to.WebSocket);
+        if ((it != mWebSockets.end()) && it->second->Open) {
+            QueueWebSocket(*it->second, WebSocket::MakeServerFrame(WebSocket::Opcode::Binary, data, size));
+        }
+    }
+
     void ScheduleDelayed() {
         mDelayTimer.expires_at(mDelayed.begin()->first);
         mDelayTimer.async_wait([this](asio::error_code error) {
@@ -538,10 +760,9 @@ class RelayServer {
             }
             const Clock::time_point now = Clock::now();
             while (!mDelayed.empty() && (mDelayed.begin()->first <= now)) {
-                const DelayedPacket& packet = mDelayed.begin()->second;
-                asio::error_code sendError;
-                mSocket.send_to(asio::buffer(packet.Data), packet.To, 0, sendError);
+                const DelayedPacket packet = mDelayed.begin()->second;
                 mDelayed.erase(mDelayed.begin());
+                SendNow(packet.To, packet.Data.data(), packet.Data.size());
             }
             if (!mDelayed.empty()) {
                 ScheduleDelayed();
@@ -565,6 +786,15 @@ class RelayServer {
             for (uint64_t token : timedOut) {
                 RemoveClient(token, "timed out");
             }
+            std::vector<uint64_t> idle;
+            for (const auto& [id, connection] : mWebSockets) {
+                if (now - connection->LastHeard > kWebSocketIdleTimeout) {
+                    idle.push_back(id);
+                }
+            }
+            for (uint64_t id : idle) {
+                CloseWebSocket(id, "idle");
+            }
             for (auto it = mLimits.begin(); it != mLimits.end();) {
                 const Clock::time_point lastUse = std::max(
                     { it->second.Packets.GetLastUse(), it->second.Creates.GetLastUse(), it->second.Joins.GetLastUse() });
@@ -575,12 +805,16 @@ class RelayServer {
     }
 
     struct DelayedPacket {
-        udp::endpoint To;
+        Address To;
         std::vector<uint8_t> Data;
     };
 
+    asio::io_context& mIo;
     Options mOptions;
     udp::socket mSocket;
+    tcp::acceptor mAcceptor;
+    std::unordered_map<uint64_t, std::shared_ptr<WebSocketConnection>> mWebSockets;
+    uint64_t mLastWebSocketId = 0;
     asio::steady_timer mHousekeeping;
     asio::steady_timer mDelayTimer;
     std::mt19937_64 mRandom;
@@ -589,7 +823,7 @@ class RelayServer {
 
     std::unordered_map<std::string, Room> mRooms;
     std::unordered_map<uint64_t, Client> mClients;
-    std::map<std::pair<udp::endpoint, uint32_t>, uint64_t> mRequests;
+    std::map<std::pair<Address, uint32_t>, uint64_t> mRequests;
     std::map<asio::ip::address, AddressLimits> mLimits;
     std::multimap<Clock::time_point, DelayedPacket> mDelayed;
 };
@@ -607,6 +841,8 @@ bool ParseOptions(int argc, char** argv, Options* options) {
         const uint32_t value = (uint32_t) strtoul(argv[++i], nullptr, 10);
         if (arg == "--port") {
             options->Port = (uint16_t) value;
+        } else if (arg == "--ws-port") {
+            options->WebSocketPort = (uint16_t) value;
         } else if (arg == "--delay-ms") {
             options->DelayMs = value;
         } else if (arg == "--jitter-ms") {
@@ -624,10 +860,19 @@ bool ParseOptions(int argc, char** argv, Options* options) {
 
 int main(int argc, char** argv) {
     Options options;
+    // Without --ws-port, WebSockets take the same number as UDP: one address serves both kinds of player.
+    bool webSocketPortGiven = false;
+    for (int i = 1; i < argc; i++) {
+        webSocketPortGiven |= std::string(argv[i]) == "--ws-port";
+    }
     if (!ParseOptions(argc, argv, &options)) {
-        printf("Usage: %s [--port %u] [--delay-ms N] [--jitter-ms N] [--loss PERCENT] [--no-rate-limits]\n", argv[0],
-               kDefaultPort);
+        printf("Usage: %s [--port %u] [--ws-port %u] [--delay-ms N] [--jitter-ms N] [--loss PERCENT] "
+               "[--no-rate-limits]\n",
+               argv[0], kDefaultPort, kDefaultPort);
         return 2;
+    }
+    if (!webSocketPortGiven) {
+        options.WebSocketPort = options.Port;
     }
 
     try {
@@ -635,8 +880,9 @@ int main(int argc, char** argv) {
         RelayServer server(io, options);
         asio::signal_set signals(io, SIGINT, SIGTERM);
         signals.async_wait([&](asio::error_code, int) { server.Shutdown(); });
-        Log("netplay relay listening on UDP port %u (protocol %u, delay %u ms, jitter %u ms, loss %u%%)", options.Port,
-            kVersion, options.DelayMs, options.JitterMs, options.LossPercent);
+        Log("netplay relay listening on UDP port %u and WebSocket port %u (protocol %u, delay %u ms, jitter %u ms, "
+            "loss %u%%)",
+            options.Port, options.WebSocketPort, kVersion, options.DelayMs, options.JitterMs, options.LossPercent);
         io.run();
     } catch (const std::exception& e) {
         Log("error: %s", e.what());

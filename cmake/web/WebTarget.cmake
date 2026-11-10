@@ -28,11 +28,18 @@ target_link_options(${PROJECT_NAME} PRIVATE
   # processor; the sound thread and the logger take the rest.
   -sPTHREAD_POOL_SIZE=navigator.hardwareConcurrency+4
   # The page writes the archives into the file system and keeps settings and saves in the browser's storage.
+  # Netplay: a WebSocket to the relay, WebRTC to the other players (src/port/netplay/RelayLinkWeb.cpp).
+  -lwebsocket.js
+  --js-library ${CMAKE_SOURCE_DIR}/src/port/web/WebRtcLink.js
   -sFORCE_FILESYSTEM=1
   -lidbfs.js
   -sEXPORTED_RUNTIME_METHODS=FS,IDBFS,ENV,addRunDependency,removeRunDependency
   -sEXIT_RUNTIME=0
   -sENVIRONMENT=web,worker)
+
+# The page and the JavaScript library are inputs of the link: changing them relinks.
+set_property(TARGET ${PROJECT_NAME} APPEND PROPERTY LINK_DEPENDS
+  ${CMAKE_SOURCE_DIR}/src/port/web/shell.html ${CMAKE_SOURCE_DIR}/src/port/web/WebRtcLink.js)
 
 target_link_options(${PROJECT_NAME} PRIVATE
   "$<$<CONFIG:Debug>:-sASSERTIONS=2;-gsource-map>"

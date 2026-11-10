@@ -12,7 +12,10 @@ file records how to build and serve it, what was changed to make it run, and wha
 - **Rollback works, without a network** (step 1 of online play, see [Online play](#online-play)): the determinism
   harness's rollback stress run passes on all 24 races of `tools/netplay-stress.sh`, and the same races recorded in
   the browser replay frame for frame on the macOS build.
-- **Does not work**: online play itself; making `mk64.o2r` from a ROM in the browser.
+- **Online play works between browsers**, and with desktop players through the relay (step 2, see
+  [Online play](#online-play)). It needs a relay new enough to accept WebSockets; the public one does not yet.
+- **Does not work**: making `mk64.o2r` from a ROM in the browser; direct connections between a browser and a desktop
+  game (they play through the relay).
 
 ## Building
 
@@ -69,6 +72,20 @@ replays each race on the desktop build, which shows whether the two compute the 
 NATIVE=build-cmake/SpaghettiKart.app/Contents/MacOS/SpaghettiKart node tools/web-check/stress.mjs
 ```
 
+`tools/web-check/netplay.mjs` is a `tools/netplay-sim.py` scenario for the browser: a local relay
+(`build-relay/netplay-relay`) and one headless Chrome per player, each its own process; bots race. Its header lists
+the options (players, mode, relay only, a direct connection that fails, a desktop game as the last player):
+
+```sh
+node tools/web-check/netplay.mjs                                   # 2 browsers, direct over WebRTC
+PLAYERS=4 MODE=battle TRACK=mk:block_fort node tools/web-check/netplay.mjs
+NATIVE=build-cmake/SpaghettiKart.app/Contents/MacOS/SpaghettiKart SPEED=0 node tools/web-check/netplay.mjs
+```
+
+With `SK_FAST` (the default `SPEED=10`), rollbacks and stalls are far above the desktop's: a page receives network
+messages only between calls from the browser, and fast mode runs many game frames in one. At normal speed
+(`SPEED=0`, a full race in about 2.5 minutes) a 2-player race had no stalls and rollbacks of 1 or 2 frames.
+
 ## How it differs from the desktop game
 
 | Part | Desktop | Browser |
@@ -79,7 +96,7 @@ NATIVE=build-cmake/SpaghettiKart.app/Contents/MacOS/SpaghettiKart node tools/web
 | Graphics | Metal, OpenGL or Direct3D | WebGL 2, through libultraship's OpenGL ES path |
 | Files | the settings folder | a folder in memory; `src/port/web/shell.html` copies changes to IndexedDB |
 | `mk64.o2r` | made from a ROM by Torch | loaded by the page; Torch is not built |
-| Online play | relay and UDP | the ONLINE screen says it is not available |
+| Online play | UDP to the relay; to other players directly, punching through routers | a WebSocket to the relay; WebRTC to other browsers |
 
 Everything specific to the browser is behind `__EMSCRIPTEN__` in the code and `SPAGHETTIKART_WEB` in CMake
 (`cmake/web/`, `cmake/dependencies/emscripten.cmake`). The page itself is `src/port/web/shell.html`.
@@ -113,6 +130,9 @@ Everything specific to the browser is behind `__EMSCRIPTEN__` in the code and `S
   would work without the tool, but on every global.
 - **Pointers and `size_t` are 4 bytes.** Anything hashed for the checksum must have the same size on both sides: a
   `size_t` menu index made every frame's checksum differ from the Mac's while every part of it matched.
+- **Two headless Chromes on one computer cannot connect with WebRTC** unless started with
+  `--disable-features=WebRtcHideLocalIpsWithMdns`: Chrome hides each one's local addresses behind `.local` names the
+  other cannot look up (`tools/web-check/netplay.mjs` passes it). Players on different computers do not need it.
 - **Uninitialized memory differs.** The Mac's happened to be zero where the browser's held leftovers: see the
   kiwano pitfall in `docs/NETPLAY.md`.
 
@@ -133,14 +153,33 @@ The plan, in three steps:
 1. **Rollback in the browser, without a network. Done.** Snapshots hold 411 KB of simulation globals (C and C++)
    and the sim arena; the stress run and the browser-to-Mac replay pass on every race (see [Testing](#testing)). The
    replay passing also means a browser and a Mac compute the same game, floating point included, on these races.
-2. **Browser to browser.** A page has no UDP sockets, so neither the relay client (ASIO) nor GekkoNet's transport
-   works; both compile and are never started. The plan is a WebRTC version of `RelayClient`, with data channels set
-   unordered and without retransmits (`ordered: false, maxRetransmits: 0`, the nearest thing to UDP), behind the
-   same interface: GekkoNet sends through an adapter (`GekkoNetAdapter`), so Lobby, NetSession and rollback stay as
-   they are. The relay would add a WebSocket endpoint for the room list and to pass WebRTC's connection offers
-   along; players whose routers cannot connect directly would go through a TURN server (coturn, beside the relay).
-3. **Browser to desktop.** The desktop game would need WebRTC too (libdatachannel). Step 1's replays make this look
-   possible; desync recovery between the two would not work, as it copies raw snapshots, pointers included, and
-   pointers are 4 bytes in the browser.
+2. **Browser to browser. Done.** `RelayClient` moves its packets through a `RelayLink` (`src/port/netplay/RelayLink.h`):
+   UDP on the desktop (`RelayLinkUdp.cpp`, the code that was in `RelayClient.cpp`), and in a browser
+   (`RelayLinkWeb.cpp`) a WebSocket to the relay plus a WebRTC data channel to each other browser, unordered and
+   without retransmits (`ordered: false, maxRetransmits: 0`, the nearest thing to UDP; `src/port/web/WebRtcLink.js`).
+   Lobby, NetSession, GekkoNet and rollback are unchanged.
+   - The relay accepts WebSockets on TCP, on the same port number as its UDP (`tools/netplay-relay/WebSocket.h`), and
+     each binary message is one datagram of the usual protocol. So the relay barely knows the difference, and browser
+     and desktop players can share a room.
+   - WebRTC's setup messages (offer, answer, candidates) travel as a third payload channel through the relay
+     (`kSignalChannel` in `RelayClient.cpp`), in parts when longer than one payload. The lower slot makes the offer.
+     A public STUN server (`stun.l.google.com`, `kIceServers` in `RelayLinkWeb.cpp`) gives each browser its public
+     address. Players whose routers still cannot connect stay on the relay; there is no TURN server.
+   - A ping over the channel every 500 ms gives the round trip (for the automatic input delay) and notices a lost
+     connection after 1.5 s, as on the desktop.
+   - Checked with `tools/web-check/netplay.mjs`: 2 and 4 browsers, VS, Battle and Grand Prix, relay only, and a direct
+     connection blocked mid-race; all in sync.
+3. **Browser to desktop.** Already works through the relay (checked: a browser host and a desktop guest, a full race
+   in sync). What is missing is a direct connection between the two: the desktop game would need WebRTC
+   (libdatachannel). Desync recovery between the two would not work either: it copies raw snapshots, pointers
+   included, and pointers are 4 bytes in the browser.
+
+Still open for playing online from a browser:
+
+- **The public relay** (`netkart64.duckdns.org:7777`) needs the new relay, run with `-p 7777:7777/tcp` as well.
+- **A page served over HTTPS** may only open `wss://` WebSockets, so the relay would need a proxy that adds TLS in
+  front of its TCP port (the relay address then starts with `wss://`). Pages on `http://localhost` can use `ws://`.
+- Network messages reach a page only between frames, so a WebRTC round trip on one computer measures about 30 ms
+  instead of 1. Rollback absorbs it; receiving in a worker would not have to wait.
 
 Desync recovery between browsers needs no fixed addresses: every copy of the page has the same memory layout.

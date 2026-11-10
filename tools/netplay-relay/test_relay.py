@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
-"""Protocol tests for the netplay relay. Starts the relay binary on a free port and talks to it over UDP.
+"""Protocol tests for the netplay relay. Starts the relay binary on a free port and talks to it over UDP, and over a
+WebSocket as a browser would.
 
 Usage: test_relay.py <path to netplay-relay>
 """
+import base64
+import hashlib
+import os
 import socket
 import struct
 import subprocess
@@ -104,6 +108,104 @@ class Peer:
             return slot, mask, members
 
 
+class WebSocketPeer(Peer):
+    """A browser's connection: the same messages, each in one binary WebSocket message over TCP."""
+
+    def __init__(self, port):
+        super().__init__(port)
+        self.sock = socket.create_connection(("127.0.0.1", port), timeout=1.0)
+        key = base64.b64encode(os.urandom(16)).decode()
+        self.sock.sendall((f"GET / HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nUpgrade: websocket\r\n"
+                           f"Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n")
+                          .encode())
+        answer = b""
+        while b"\r\n\r\n" not in answer:
+            answer += self.sock.recv(1024)
+        expected = base64.b64encode(hashlib.sha1((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()).digest())
+        assert answer.startswith(b"HTTP/1.1 101"), "the relay accepts the WebSocket"
+        assert b"Sec-WebSocket-Accept: " + expected in answer, "with the accept key RFC 6455 asks for"
+        self.pending = answer.split(b"\r\n\r\n", 1)[1]
+
+    def send_frame(self, opcode, data):
+        mask = os.urandom(4)
+        length = bytes([0x80 | len(data)]) if len(data) < 126 else bytes([0x80 | 126]) + struct.pack(">H", len(data))
+        masked = bytes(b ^ mask[i % 4] for i, b in enumerate(data))
+        self.sock.sendall(bytes([0x80 | opcode]) + length + mask + masked)
+
+    def send(self, data):
+        self.send_frame(0x2, data)
+
+    def read_exact(self, size):
+        while len(self.pending) < size:
+            chunk = self.sock.recv(4096)
+            if not chunk:
+                raise ConnectionError("closed")
+            self.pending += chunk
+        data, self.pending = self.pending[:size], self.pending[size:]
+        return data
+
+    def read_frame(self):
+        """@returns (opcode, payload) of the next frame from the relay, which sends them unmasked."""
+        first, second = self.read_exact(2)
+        assert second & 0x80 == 0, "server frames are not masked"
+        length = second & 0x7F
+        if length == 126:
+            length = struct.unpack(">H", self.read_exact(2))[0]
+        return first & 0x0F, self.read_exact(length)
+
+    def receive(self, kind):
+        deadline = time.time() + 1.0
+        while time.time() < deadline:
+            opcode, data = self.read_frame()
+            if opcode != 0x2:
+                continue
+            magic, version, got = struct.unpack_from("<HBB", data)
+            assert (magic, version) == (MAGIC, VERSION)
+            if got == kind:
+                return data[4:]
+        raise AssertionError(f"no message of type {kind:#x}")
+
+
+def test_websockets(port):
+    page = socket.create_connection(("127.0.0.1", port), timeout=1.0)
+    page.sendall(b"GET / HTTP/1.1\r\nHost: relay\r\n\r\n")
+    assert page.recv(1024).startswith(b"HTTP/1.1 400"), "a plain HTTP request is turned away"
+    page.close()
+
+    browser = WebSocketPeer(port)
+    browser.create(name=b"Browser")
+    assert browser.slot == 0, "a browser can host"
+    desktop = Peer(port)
+    assert desktop.list_rooms(request=20)[0][:2] == (browser.code, b"Browser"), "and its room is listed over UDP"
+    desktop.join(browser.code, request=21)
+    desktop.joined(desktop.receive(JOINED))
+    desktop.relay(0, b"to the browser")
+    assert browser.receive(RELAYED) == b"\x01to the browser", "UDP reaches a WebSocket member"
+    browser.relay(1, b"to the desktop")
+    assert desktop.receive(RELAYED) == b"\x00to the desktop", "and the other way"
+    browser.room_state(echo=3, share=True, local=(0x0A000003, 5000))
+    members = desktop.room_state(echo=4)[2]
+    assert members[0][1:] == ((0, 0), (0, 0)), "a browser has no address to share, even when it asks"
+
+    browser.send_frame(0x9, b"ping")
+    while True:
+        opcode, payload = browser.read_frame()
+        if opcode == 0xA:
+            break
+    assert payload == b"ping", "pings are answered"
+
+    guest = WebSocketPeer(port)
+    guest.join(browser.code, request=22)
+    guest.joined(guest.receive(JOINED))
+    assert guest.slot == 2
+    guest.sock.close()
+    time.sleep(0.2)
+    assert desktop.room_state(echo=5)[:2] == (1, 0b011), "a closed WebSocket frees its slot at once"
+    browser.sock.close()
+    assert desktop.receive(ROOM_CLOSED) == bytes([HOST_LEFT]), "and a browser host's room closes with it"
+    print("relay WebSocket tests: PASS")
+
+
 def main():
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
         probe.bind(("127.0.0.1", 0))
@@ -174,6 +276,7 @@ def main():
         guest.relay(0, b"x")
         assert guest.error() == UNKNOWN_CLIENT
         print("relay protocol tests: PASS")
+        test_websockets(port)
     finally:
         relay.terminate()
         relay.wait()

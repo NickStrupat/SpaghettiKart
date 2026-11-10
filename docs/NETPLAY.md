@@ -215,12 +215,15 @@ helpers. Game Select's "Z ONLINE" button is the port's own art (`tools/make-onli
 
 ### Relay, lobby and direct connections
 
-- `tools/netplay-relay/`: a standalone UDP server (C++20, standalone ASIO, Dockerfile). Wire format in
+- `tools/netplay-relay/`: a standalone UDP server (C++20, standalone ASIO, Dockerfile), which also accepts browsers'
+  WebSockets on the same port number over TCP (`WebSocket.h`, see `docs/WEB.md`). Wire format in
   `RelayProtocol.h`, shared with the game. Rooms by 6-character code, listed (`ListRooms`, protocol 3) with the
   host's name to clients of the same build; the relay forwards packets and checks the build id (commit plus a hash of
   local changes) and a hash of the game files.
 - `RelayClient.cpp`: the game's side, two channels: lobby messages and GekkoNet packets (tagged per race, so stragglers
-  from an earlier race are dropped).
+  from an earlier race are dropped), plus a third the browser build sets up WebRTC connections with. It moves packets
+  through a `RelayLink` (`RelayLink.h`): UDP on the desktop (`RelayLinkUdp.cpp`), a WebSocket and WebRTC in a browser
+  (`RelayLinkWeb.cpp`).
 - `Lobby.cpp`: no acknowledgements. Every member re-sends its full state every 250 ms; the host re-sends the room's
   settings and the race to run. A lost packet is replaced by the next one.
 - **Direct connections.** The relay tells each member where the others are (the address it sees, and the address each

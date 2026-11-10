@@ -19,7 +19,7 @@ FetchContent_MakeAvailable(asio)
 
 find_package(Threads REQUIRED)
 
-add_executable(netplay-relay main.cpp RelayProtocol.h)
+add_executable(netplay-relay main.cpp RelayProtocol.h WebSocket.h)
 target_include_directories(netplay-relay PRIVATE ${asio_SOURCE_DIR}/asio/include)
 target_compile_definitions(netplay-relay PRIVATE ASIO_STANDALONE)
 target_link_libraries(netplay-relay PRIVATE Threads::Threads)
