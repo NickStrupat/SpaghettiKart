@@ -18,6 +18,8 @@
 //   NATIVE=<game executable>   make one player a desktop game instead of a browser
 //   NATIVE_PLAYER=<n>   which one (default: the last; 0 makes the desktop game the host)
 //   PAGE=http://127.0.0.1:8064/   RELAY=build-relay/netplay-relay
+//   RELAY_ADDRESS=<address>   use this relay instead of starting one, such as wss://netkart64.duckdns.org/ (its rate
+//                   limits then apply: a few runs a minute at most)
 //   CHROME_ARGS=... more command-line switches for each Chrome
 //   VERBOSE=1       print every console line of the browsers as it comes, not only the netplay summary
 // Prints each player's netplay log lines and exit code. Exits with 0 when every player finished in sync.
@@ -37,15 +39,19 @@ const nativePlayer = native ? Number(process.env.NATIVE_PLAYER ?? players - 1) :
 const kTimeoutMs = 600 * 1000;
 const port = 20000 + Math.floor(Math.random() * 20000);
 
-const relay = spawn(relayPath, ['--port', String(port), '--no-rate-limits'], { stdio: ['ignore', 'pipe', 'inherit'] });
+const relayAddress = process.env.RELAY_ADDRESS || `127.0.0.1:${port}`;
 let relayLog = '';
-relay.stdout.on('data', (data) => { relayLog += data; });
-await new Promise((resolve) => setTimeout(resolve, 300));
+const relay = process.env.RELAY_ADDRESS ? null
+  : spawn(relayPath, ['--port', String(port), '--no-rate-limits'], { stdio: ['ignore', 'pipe', 'inherit'] });
+if (relay) {
+  relay.stdout.on('data', (data) => { relayLog += data; });
+  await new Promise((resolve) => setTimeout(resolve, 300));
+}
 
 function settings(index, roomCode) {
   const values = {
     SK_FAST: process.env.SPEED || '10',
-    SK_NETPLAY_RELAY: `127.0.0.1:${port}`,
+    SK_NETPLAY_RELAY: relayAddress,
     SK_NETPLAY_HOST: index === 0 ? '1' : '0',
     SK_NETPLAY_PLAYERS: String(players),
     SK_NETPLAY_RACES: '1',
@@ -175,7 +181,7 @@ await Promise.all(finished);
 for (const browser of browsers) {
   await browser.close();
 }
-relay.kill();
+relay?.kill();
 
 const kInteresting = /WebRTC|Direct connection|Segment \d+ (started|ended)|DESYNC|desync|FAIL|finished|lost|error/i;
 let ok = roomCode !== '';

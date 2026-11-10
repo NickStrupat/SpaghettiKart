@@ -21,7 +21,19 @@ docker run -d --name relay -p 7777:7777/udp -p 7777:7777/tcp --restart unless-st
 
 Then, in the game, open **Enhancements > Netplay > Open Netplay Lobby** and enter the relay's `host:port` under **Relay server**.
 
-Open UDP and TCP port 7777 in the server's firewall (TCP only matters for browsers). A page served over HTTPS may only open secure WebSockets (`wss://`): put a proxy that adds TLS in front of the TCP port, and give players the `wss://` address. Each player needs about 10 KB/s in each direction while racing, so a small VPS can carry many rooms. Most races don't go through the relay at all; see below.
+Open UDP and TCP port 7777 in the server's firewall (TCP only matters for browsers).
+
+A page served over HTTPS may only open secure WebSockets (`wss://`). Put a proxy that adds TLS in front of the relay's TCP port, on the standard HTTPS port of the same host name: on an HTTPS page the game turns a relay address `host:port` into `wss://host/`. Start the relay with `--trusted-proxy` set to the network the proxy connects from, so that it takes each player's address from the proxy's `X-Forwarded-For` header; otherwise every browser player counts as the proxy for the rate limits below. With Traefik in Docker, for example:
+
+```sh
+docker run -d --name relay --network proxy -p 7777:7777/udp -p 7777:7777/tcp --restart unless-stopped \
+  --label traefik.enable=true \
+  --label 'traefik.http.routers.relay.rule=Host(`relay.example.org`)' \
+  --label traefik.http.routers.relay.entrypoints=websecure \
+  --label traefik.http.routers.relay.tls.certresolver=le \
+  --label traefik.http.services.relay.loadbalancer.server.port=7777 \
+  spaghettikart-relay --port 7777 --trusted-proxy 172.19.0.0/16   # the proxy network's subnet
+``` Each player needs about 10 KB/s in each direction while racing, so a small VPS can carry many rooms. Most races don't go through the relay at all; see below.
 
 The game and the relay must speak the same protocol version: after updating the game, rebuild the relay too. A game that gets no answer says so.
 
@@ -45,6 +57,7 @@ Direct connections share each player's IP address with the others in the room. A
 |---|---|
 | `--port N` | UDP port to listen on (default 7777) |
 | `--ws-port N` | TCP port for browsers' WebSockets (default: the same number as `--port`; 0 turns them off) |
+| `--trusted-proxy CIDR` | The network a TLS proxy forwards WebSockets from (such as `172.19.0.0/16`, or one address): their player's address is the last one in `X-Forwarded-For` |
 | `--delay-ms N` | Delays every packet the relay sends by N ms |
 | `--jitter-ms N` | Adds a random 0–N ms on top of the delay; this reorders packets |
 | `--loss P` | Drops P% of the packets the relay sends |

@@ -188,8 +188,12 @@ The plan, in three steps:
 
 Still open for playing online from a browser:
 
-- **A page served over HTTPS** may only open `wss://` WebSockets, so the relay would need a proxy that adds TLS in
-  front of its TCP port (the relay address then starts with `wss://`). Pages on `http://localhost` can use `ws://`.
+- **Pages served over HTTPS** may only open `wss://` WebSockets. On such a page the game turns the relay address
+  `host:port` into `wss://host/`: a proxy that adds TLS on the standard port of the relay's host
+  (`tools/netplay-relay/README.md`). The public relay has one since 2026-11-10 (Traefik on its computer), so
+  `wss://netkart64.duckdns.org/` works and the default relay address works from HTTPS pages. Pages on
+  `http://localhost` use `ws://host:port/` directly. `RELAY_ADDRESS=wss://netkart64.duckdns.org/` makes
+  `tools/web-check/netplay.mjs` race through it.
 - Network messages reach a page only between frames, so a WebRTC round trip on one computer measures about 30 ms
   instead of 1. Rollback absorbs it; receiving in a worker would not have to wait.
 

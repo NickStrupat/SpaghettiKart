@@ -111,13 +111,13 @@ class Peer:
 class WebSocketPeer(Peer):
     """A browser's connection: the same messages, each in one binary WebSocket message over TCP."""
 
-    def __init__(self, port):
+    def __init__(self, port, extra_headers=""):
         super().__init__(port)
         self.sock = socket.create_connection(("127.0.0.1", port), timeout=1.0)
         key = base64.b64encode(os.urandom(16)).decode()
         self.sock.sendall((f"GET / HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nUpgrade: websocket\r\n"
-                           f"Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n")
-                          .encode())
+                           f"Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n"
+                           f"{extra_headers}\r\n").encode())
         answer = b""
         while b"\r\n\r\n" not in answer:
             answer += self.sock.recv(1024)
@@ -203,6 +203,10 @@ def test_websockets(port):
     assert desktop.room_state(echo=5)[:2] == (1, 0b011), "a closed WebSocket frees its slot at once"
     browser.sock.close()
     assert desktop.receive(ROOM_CLOSED) == bytes([HOST_LEFT]), "and a browser host's room closes with it"
+
+    # The relay runs with --trusted-proxy 127.0.0.1: these come from "the proxy".
+    proxied = WebSocketPeer(port, "X-Forwarded-For: 198.51.100.1, 203.0.113.7\r\n")
+    proxied.create(request=30, name=b"Proxied")
     print("relay WebSocket tests: PASS")
 
 
@@ -210,7 +214,8 @@ def main():
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
-    relay = subprocess.Popen([sys.argv[1], "--port", str(port)], stdout=subprocess.PIPE, text=True)
+    relay = subprocess.Popen([sys.argv[1], "--port", str(port), "--trusted-proxy", "127.0.0.1"], stdout=subprocess.PIPE,
+                             text=True)
     assert "listening" in relay.stdout.readline(), "relay started"
     try:
         host = Peer(port)
@@ -280,7 +285,11 @@ def main():
     finally:
         relay.terminate()
         relay.wait()
-        print(relay.stdout.read(), end="")
+        log = relay.stdout.read()
+        print(log, end="")
+    assert "created by WebSocket" in log and "from 203.0.113.7" in log, \
+        "a WebSocket from the trusted proxy counts as the last address in X-Forwarded-For"
+    print("relay proxy test: PASS")
 
 
 if __name__ == "__main__":

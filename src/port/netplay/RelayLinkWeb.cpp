@@ -111,10 +111,14 @@ class RelayLinkWeb : public RelayLink {
         if ((address.rfind("ws://", 0) == 0) || (address.rfind("wss://", 0) == 0)) {
             return address;
         }
+        // A page served over HTTPS may only open secure WebSockets, which the relay leaves to a proxy that adds TLS on
+        // the standard port of its host (tools/netplay-relay/README.md): host:port means wss://host/ there.
+        if (sk_page_is_secure()) {
+            return "wss://" + address.substr(0, address.find(':')) + "/";
+        }
         const std::string hostAndPort =
             (address.find(':') == std::string::npos) ? address + ":" + std::to_string(kDefaultPort) : address;
-        // A page served over HTTPS may only open secure WebSockets: the relay then needs a proxy that adds TLS.
-        return (sk_page_is_secure() ? "wss://" : "ws://") + hostAndPort + "/";
+        return "ws://" + hostAndPort + "/";
     }
 
     void Fail(const std::string& error) {

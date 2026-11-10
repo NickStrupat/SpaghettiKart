@@ -1,11 +1,15 @@
 /**
  * Netplay relay server: lists rooms, matches players by room code and forwards their packets.
  *
- *   netplay-relay [--port 7777] [--ws-port 7777] [--delay-ms N] [--jitter-ms N] [--loss PERCENT] [--no-rate-limits]
+ *   netplay-relay [--port 7777] [--ws-port 7777] [--trusted-proxy CIDR] [--delay-ms N] [--jitter-ms N] [--loss PERCENT]
+ *                 [--no-rate-limits]
  *
  * The desktop game talks to it over UDP on --port. Browsers, which cannot send UDP, connect with a WebSocket on TCP
  * port --ws-port (the same number by default; 0 turns WebSockets off) and send the same messages, one per binary
- * WebSocket message (WebSocket.h). Players of both kinds can share a room.
+ * WebSocket message (WebSocket.h). Players of both kinds can share a room. Behind a proxy that adds TLS (pages served
+ * over HTTPS need wss://), WebSockets arrive from the proxy's address: --trusted-proxy names the proxy's network, whose
+ * connections are taken to come from the last address in their X-Forwarded-For header, so that the per-address limits
+ * apply to each player rather than to the proxy.
  * The delay, jitter and loss options degrade every packet the relay sends, to test rollback on one machine.
  * --no-rate-limits is for tests that run several fast-forwarded games from one address.
  * Protocol: see RelayProtocol.h.
@@ -68,6 +72,9 @@ struct Options {
     uint32_t JitterMs = 0;
     uint32_t LossPercent = 0;
     bool RateLimits = true;
+    // --trusted-proxy: the network a TLS proxy forwards WebSockets from; prefix length -1 when there is none
+    asio::ip::address_v4 TrustedProxy;
+    int TrustedProxyBits = -1;
 };
 
 /** Where a client is: a UDP endpoint, or a browser's WebSocket connection. */
@@ -287,6 +294,7 @@ class RelayServer {
             if (!accepted) {
                 return false;
             }
+            TakeForwardedAddress(connection, text.substr(0, end + 4));
             connection.Open = true;
         }
         WebSocket::Frame frame;
@@ -318,6 +326,35 @@ class RelayServer {
                     break;
             }
         }
+    }
+
+    /** For a connection from the trusted proxy: the player's own address, the last the proxy put in X-Forwarded-For. */
+    void TakeForwardedAddress(WebSocketConnection& connection, const std::string& request) {
+        // From anywhere else, an address someone sent would be theirs to choose.
+        if (!IsTrustedProxy(connection.From.Udp.address())) {
+            return;
+        }
+        const std::optional<std::string> forwarded = WebSocket::FindHeader(request, "X-Forwarded-For");
+        if (!forwarded.has_value()) {
+            return;
+        }
+        std::string last = forwarded->substr(forwarded->rfind(',') + 1);
+        last.erase(0, last.find_first_not_of(' '));
+        last.erase(last.find_last_not_of(' ') + 1);
+        asio::error_code error;
+        const asio::ip::address player = asio::ip::make_address(last, error);
+        if (!error) {
+            connection.From.Udp = udp::endpoint(player, connection.From.Udp.port());
+        }
+    }
+
+    bool IsTrustedProxy(const asio::ip::address& address) const {
+        if ((mOptions.TrustedProxyBits < 0) || !address.is_v4()) {
+            return false;
+        }
+        const uint32_t mask =
+            (mOptions.TrustedProxyBits == 0) ? 0 : ~uint32_t(0) << (32 - mOptions.TrustedProxyBits);
+        return (address.to_v4().to_uint() & mask) == (mOptions.TrustedProxy.to_uint() & mask);
     }
 
     void QueueWebSocket(WebSocketConnection& connection, std::vector<uint8_t> data) {
@@ -835,6 +872,18 @@ bool ParseOptions(int argc, char** argv, Options* options) {
             options->RateLimits = false;
             continue;
         }
+        if ((arg == "--trusted-proxy") && (i + 1 < argc)) {
+            // An IPv4 network, such as 172.19.0.0/16, or one address.
+            const std::string value = argv[++i];
+            const size_t slash = value.find('/');
+            asio::error_code error;
+            options->TrustedProxy = asio::ip::make_address_v4(value.substr(0, slash), error);
+            options->TrustedProxyBits = (slash == std::string::npos) ? 32 : atoi(value.c_str() + slash + 1);
+            if (error || (options->TrustedProxyBits < 0) || (options->TrustedProxyBits > 32)) {
+                return false;
+            }
+            continue;
+        }
         if ((arg == "--help") || (arg == "-h") || (i + 1 >= argc)) {
             return false;
         }
@@ -866,8 +915,8 @@ int main(int argc, char** argv) {
         webSocketPortGiven |= std::string(argv[i]) == "--ws-port";
     }
     if (!ParseOptions(argc, argv, &options)) {
-        printf("Usage: %s [--port %u] [--ws-port %u] [--delay-ms N] [--jitter-ms N] [--loss PERCENT] "
-               "[--no-rate-limits]\n",
+        printf("Usage: %s [--port %u] [--ws-port %u] [--trusted-proxy CIDR] [--delay-ms N] [--jitter-ms N] "
+               "[--loss PERCENT] [--no-rate-limits]\n",
                argv[0], kDefaultPort, kDefaultPort);
         return 2;
     }
