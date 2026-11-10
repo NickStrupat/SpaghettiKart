@@ -13,7 +13,8 @@ file records how to build and serve it, what was changed to make it run, and wha
   harness's rollback stress run passes on all 24 races of `tools/netplay-stress.sh`, and the same races recorded in
   the browser replay frame for frame on the macOS build.
 - **Online play works between browsers**, and with desktop players through the relay (step 2, see
-  [Online play](#online-play)). It needs a relay new enough to accept WebSockets; the public one does not yet.
+  [Online play](#online-play)). It needs a relay new enough to accept WebSockets, as the public one does since
+  2026-11-10.
 - **Does not work**: making `mk64.o2r` from a ROM in the browser; direct connections between a browser and a desktop
   game (they play through the relay).
 
@@ -176,7 +177,6 @@ The plan, in three steps:
 
 Still open for playing online from a browser:
 
-- **The public relay** (`netkart64.duckdns.org:7777`) needs the new relay, run with `-p 7777:7777/tcp` as well.
 - **A page served over HTTPS** may only open `wss://` WebSockets, so the relay would need a proxy that adds TLS in
   front of its TCP port (the relay address then starts with `wss://`). Pages on `http://localhost` can use `ws://`.
 - Network messages reach a page only between frames, so a WebRTC round trip on one computer measures about 30 ms
