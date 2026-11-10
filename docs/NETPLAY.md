@@ -365,6 +365,9 @@ Each of these cost a debugging round.
 
 - Desync recovery between two Macs: tested only between copies on one Mac. The two Macs run different macOS versions,
   whose memory layouts could differ; a failed recovery ends the race as before, with the reason in the log.
+- Desync recovery fails about 1 time in 8 on one Mac ("this game's state is too far from the host's"), and a
+  connection silent for over 5 s ends the race with no rejoin. `NETPLAY-DESYNC.md` has the causes, the measurements
+  and the direction chosen.
 
 - Direct connections across two real home networks. Routers that use a new public port per destination (symmetric
   NAT, common on mobile networks) stay on the relay.
