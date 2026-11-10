@@ -112,3 +112,43 @@ option(BUILD_NAUDIO "Build with NAudio support" ON)
 if(NOT SPAGHETTIKART_WEB)
   add_subdirectory(torch)
 endif()
+
+# =================== libdatachannel (netplay: WebRTC to browsers) ===================
+# The desktop game answers browsers' WebRTC connections (src/port/netplay/WebRtcTransportDesktop.cpp); browsers have
+# WebRTC built in. Static, with mbedTLS rather than OpenSSL so that everything is built here for the app's macOS
+# version, and without its WebSocket and media parts.
+function(add_libdatachannel)
+  set(BUILD_SHARED_LIBS OFF)
+  set(ENABLE_PROGRAMS OFF)
+  set(ENABLE_TESTING OFF)
+  FetchContent_Declare(
+    mbedtls
+    GIT_REPOSITORY https://github.com/Mbed-TLS/mbedtls.git
+    GIT_TAG v3.6.7
+    GIT_SHALLOW TRUE)
+  FetchContent_MakeAvailable(mbedtls)
+  # libdatachannel's DTLS code needs DTLS-SRTP, which mbedTLS leaves out by default. Public: whatever includes mbedTLS's
+  # headers must see the same configuration.
+  target_compile_definitions(mbedcrypto PUBLIC
+    "MBEDTLS_USER_CONFIG_FILE=\"${CMAKE_SOURCE_DIR}/cmake/mbedtls/mbedtls_user_config.h\"")
+  # The name libdatachannel looks for. Imported, so that its install rules, which this build never runs, accept it.
+  add_library(MbedTLS::MbedTLS INTERFACE IMPORTED GLOBAL)
+  set_target_properties(MbedTLS::MbedTLS PROPERTIES INTERFACE_LINK_LIBRARIES "mbedtls;mbedx509;mbedcrypto")
+
+  set(USE_MBEDTLS ON)
+  set(NO_WEBSOCKET ON)
+  set(NO_MEDIA ON)
+  set(NO_EXAMPLES ON)
+  set(NO_TESTS ON)
+  FetchContent_Declare(
+    libdatachannel
+    GIT_REPOSITORY https://github.com/paullouisageneau/libdatachannel.git
+    GIT_TAG v0.24.6
+    GIT_SHALLOW TRUE
+    GIT_SUBMODULES deps/plog deps/usrsctp deps/libjuice)
+  FetchContent_MakeAvailable(libdatachannel)
+endfunction()
+if(NOT SPAGHETTIKART_WEB)
+  add_libdatachannel()
+  target_link_libraries(${PROJECT_NAME} PRIVATE LibDataChannel::LibDataChannelStatic)
+endif()

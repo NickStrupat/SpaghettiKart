@@ -35,7 +35,7 @@ Once players are in a room, their games try to reach each other directly (UDP ho
 
 Lobby messages always go through the relay. Routers that give every destination a different public port (symmetric NAT, common on mobile networks) block direct connections; those players stay on the relay.
 
-Browsers connect to each other with WebRTC data channels instead, set up through messages the relay passes along like any other (and a public STUN server, which tells each browser its public address). A browser and a desktop game cannot connect directly yet: their traffic goes through the relay.
+Browsers connect with WebRTC data channels instead, to each other and to desktop games, set up through messages the relay passes along like any other (and a public STUN server, which tells each side its public address). Desktop games still punch to each other.
 
 Direct connections share each player's IP address with the others in the room. A player can turn them off with **Connect directly to other players** in the netplay window; the relay then keeps that player's addresses to itself.
 

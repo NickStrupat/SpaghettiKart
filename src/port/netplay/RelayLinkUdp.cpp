@@ -1,5 +1,6 @@
-// The desktop game's RelayLink (RelayLink.h): one UDP socket for the relay and for direct connections. A browser has
-// no UDP and uses RelayLinkWeb.cpp instead.
+// The desktop game's RelayLink (RelayLink.h): one UDP socket for the relay and for direct connections to other desktop
+// games, and WebRTC for direct connections to browsers (WebRtcPeers.h), which have no UDP. The browser build uses
+// RelayLinkWeb.cpp instead.
 #ifndef __EMSCRIPTEN__
 
 // asio first: on Windows it must include winsock2.h before anything includes windows.h.
@@ -17,6 +18,7 @@
 #include <future>
 
 #include "NetLog.h"
+#include "WebRtcPeers.h"
 
 using namespace RelayProtocol;
 using asio::ip::udp;
@@ -75,7 +77,8 @@ ResolveResult Resolve(const std::string& address) {
 
 class RelayLinkUdp : public RelayLink {
   public:
-    explicit RelayLinkUdp(const Callbacks& callbacks) : mCallbacks(callbacks) {
+    explicit RelayLinkUdp(const Callbacks& callbacks)
+        : mCallbacks(callbacks), mRtc(WebRtcPeers::Role::Desktop, { callbacks.FromMember, callbacks.SendSignal }) {
     }
 
     void Open(const std::string& relayAddress) override {
@@ -96,6 +99,7 @@ class RelayLinkUdp : public RelayLink {
     }
 
     void Receive() override {
+        mRtc.Receive();
         if (mState == State::Connecting) {
             FinishOpening();
         }
@@ -129,6 +133,7 @@ class RelayLinkUdp : public RelayLink {
     }
 
     void SetMembers(s32 ownSlot, u64 ownKey, const Members& members) override {
+        mRtc.SetMembers(ownSlot, members);
         mSlot = ownSlot;
         mKey = ownKey;
         for (s32 slot = 0; slot < (s32) kMaxSlots; slot++) {
@@ -158,6 +163,7 @@ class RelayLinkUdp : public RelayLink {
 
     /** Punches towards every member not reached directly yet, keeps the reached ones open, and notices lost ones. */
     void UpdateDirect(bool allowed) override {
+        mRtc.Update(allowed);
         mAllowed = allowed;
         if (!allowed) {
             for (s32 slot = 0; slot < (s32) kMaxSlots; slot++) {
@@ -197,15 +203,16 @@ class RelayLinkUdp : public RelayLink {
     }
 
     bool HasDirect(u8 slot) const override {
-        return mAllowed && (slot < kMaxSlots) && mPeers[slot].HasDirect;
+        return HasPunchedDirect(slot) || mRtc.HasDirect(slot);
     }
 
     s32 GetDirectPingMs(u8 slot) const override {
-        return HasDirect(slot) ? mPeers[slot].PingMs : -1;
+        return HasPunchedDirect(slot) ? mPeers[slot].PingMs : mRtc.GetPingMs(slot);
     }
 
     void SendDirect(u8 slot, const u8* data, size_t size) override {
-        if (!HasDirect(slot)) {
+        if (!HasPunchedDirect(slot)) {
+            mRtc.Send(slot, data, size);
             return;
         }
         u8 packet[kMaxPacketSize];
@@ -219,11 +226,17 @@ class RelayLinkUdp : public RelayLink {
         }
     }
 
-    void HandleSignal(u8, const u8*, size_t) override {
-        // UDP members connect by punching, which needs no messages through the relay.
+    void HandleSignal(u8 slot, const u8* data, size_t size) override {
+        // Only browsers send these: desktop games connect to each other by punching.
+        mRtc.HandleSignal(slot, data, size);
     }
 
   private:
+    /** @returns true while punching reached this member, a desktop game. */
+    bool HasPunchedDirect(u8 slot) const {
+        return mAllowed && (slot < kMaxSlots) && mPeers[slot].HasDirect;
+    }
+
     void FinishOpening() {
         if (mResolving.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
             return;
@@ -352,6 +365,7 @@ class RelayLinkUdp : public RelayLink {
     }
 
     Callbacks mCallbacks;
+    WebRtcPeers mRtc; // Direct connections to browsers
     State mState = State::Connecting;
     std::string mError;
     std::future<ResolveResult> mResolving;

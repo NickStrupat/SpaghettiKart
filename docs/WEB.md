@@ -12,11 +12,11 @@ file records how to build and serve it, what was changed to make it run, and wha
 - **Rollback works, without a network** (step 1 of online play, see [Online play](#online-play)): the determinism
   harness's rollback stress run passes on all 24 races of `tools/netplay-stress.sh`, and the same races recorded in
   the browser replay frame for frame on the macOS build.
-- **Online play works between browsers**, and with desktop players through the relay (step 2, see
-  [Online play](#online-play)). It needs a relay new enough to accept WebSockets, as the public one does since
+- **Online play works between browsers and with desktop players**, connecting directly over WebRTC (steps 2 and 3,
+  see [Online play](#online-play)). It needs a relay new enough to accept WebSockets, as the public one does since
   2026-11-10.
-- **Does not work**: making `mk64.o2r` from a ROM in the browser; direct connections between a browser and a desktop
-  game (they play through the relay).
+- **Does not work**: making `mk64.o2r` from a ROM in the browser; desync recovery when a browser and a desktop game
+  share a room.
 
 ## Building
 
@@ -159,21 +159,32 @@ The plan, in three steps:
    (`RelayLinkWeb.cpp`) a WebSocket to the relay plus a WebRTC data channel to each other browser, unordered and
    without retransmits (`ordered: false, maxRetransmits: 0`, the nearest thing to UDP; `src/port/web/WebRtcLink.js`).
    Lobby, NetSession, GekkoNet and rollback are unchanged.
+   - Who offers, and the peer logic both sides share, are in `WebRtcPeers.cpp` since step 3.
    - The relay accepts WebSockets on TCP, on the same port number as its UDP (`tools/netplay-relay/WebSocket.h`), and
      each binary message is one datagram of the usual protocol. So the relay barely knows the difference, and browser
      and desktop players can share a room.
    - WebRTC's setup messages (offer, answer, candidates) travel as a third payload channel through the relay
-     (`kSignalChannel` in `RelayClient.cpp`), in parts when longer than one payload. The lower slot makes the offer.
-     A public STUN server (`stun.l.google.com`, `kIceServers` in `RelayLinkWeb.cpp`) gives each browser its public
-     address. Players whose routers still cannot connect stay on the relay; there is no TURN server.
+     (`kSignalChannel` in `RelayClient.cpp`), in parts when longer than one payload. Between browsers the lower slot
+     makes the offer. A public STUN server (`stun.l.google.com`, `kIceServers` in `WebRtcPeers.cpp`) gives each side
+     its public address. Players whose routers still cannot connect stay on the relay; there is no TURN server.
    - A ping over the channel every 500 ms gives the round trip (for the automatic input delay) and notices a lost
      connection after 1.5 s, as on the desktop.
    - Checked with `tools/web-check/netplay.mjs`: 2 and 4 browsers, VS, Battle and Grand Prix, relay only, and a direct
-     connection blocked mid-race; all in sync.
-3. **Browser to desktop.** Already works through the relay (checked: a browser host and a desktop guest, a full race
-   in sync). What is missing is a direct connection between the two: the desktop game would need WebRTC
-   (libdatachannel). Desync recovery between the two would not work either: it copies raw snapshots, pointers
-   included, and pointers are 4 bytes in the browser.
+     connection blocked 3 s into a race, which then went on through the relay; all in sync.
+3. **Browser to desktop. Done.** The desktop game has WebRTC too: libdatachannel 0.24 with mbedTLS, built from source
+   with the game, statically (`cmake/dependencies/common.cmake`; mbedTLS needs DTLS-SRTP turned on,
+   `cmake/mbedtls/mbedtls_user_config.h`). `WebRtcTransportDesktop.cpp` gives it the same small API the browser's
+   `WebRtcLink.js` has (`WebRtcTransport.h`), and `RelayLinkUdp.cpp` runs `WebRtcPeers` next to its UDP punching.
+   - The relay protocol did not change. A desktop game never offers: it keeps punching to other desktops, which
+     never start WebRTC, and answers browsers. A browser offers to every member the relay shows an address for: only
+     desktop games that share their addresses. A desktop game with direct connections off ignores offers, so its
+     address stays private, as with punching.
+   - Checked with `tools/web-check/netplay.mjs` (`NATIVE=`, `NATIVE_PLAYER=`): a browser host with a desktop guest, a
+     desktop host with a browser guest, two browsers and a desktop game in one room (every pair direct), and the
+     desktop's direct connection blocked 3 s into a race; all in sync. `netplay-sim.py`: 23 of 23, and desktop games
+     with no browser in the room start no WebRTC at all.
+   - Desync recovery would not work between the two: it copies raw snapshots, pointers included, and pointers are 4
+     bytes in the browser.
 
 Still open for playing online from a browser:
 
