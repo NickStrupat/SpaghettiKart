@@ -332,6 +332,9 @@ bool GameEngine::GenAssetFile() {
 #endif
 }
 
+// The game itself runs at 30 FPS; the port interpolates up to this by default.
+static constexpr int kDefaultFps = 60;
+
 uint32_t GameEngine::GetInterpolationFPS() {
     if (CVarGetInteger("gMatchRefreshRate", 0)) {
         return Ship::Context::GetRawInstance()->GetWindow()->GetCurrentRefreshRate();
@@ -339,10 +342,10 @@ uint32_t GameEngine::GetInterpolationFPS() {
     } else if (CVarGetInteger("gVsyncEnabled", 1) ||
                !Ship::Context::GetRawInstance()->GetWindow()->CanDisableVerticalSync()) {
         return std::min<uint32_t>(Ship::Context::GetRawInstance()->GetWindow()->GetCurrentRefreshRate(),
-                                  CVarGetInteger("gInterpolationFPS", 30));
+                                  CVarGetInteger("gInterpolationFPS", kDefaultFps));
     }
 
-    return CVarGetInteger("gInterpolationFPS", 30);
+    return CVarGetInteger("gInterpolationFPS", kDefaultFps);
 }
 
 uint32_t GameEngine::GetInterpolationFrameCount() {

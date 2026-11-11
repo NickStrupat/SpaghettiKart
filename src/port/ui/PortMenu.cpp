@@ -268,8 +268,9 @@ void PortMenu::AddSettings() {
     AddWidget(path, "Current FPS: %d", WIDGET_CVAR_SLIDER_INT)
         .CVar("gInterpolationFPS")
         .Callback([](WidgetInfo& info) {
+            constexpr int32_t kOriginalFps = 30;
             int32_t defaultValue = std::static_pointer_cast<IntSliderOptions>(info.options)->defaultValue;
-            if (CVarGetInteger(info.cVar, defaultValue) == defaultValue) {
+            if (CVarGetInteger(info.cVar, defaultValue) == kOriginalFps) {
                 info.name = "Current FPS: Original (%d)";
             } else {
                 info.name = "Current FPS: %d";
@@ -279,7 +280,7 @@ void PortMenu::AddSettings() {
             if (mPortMenu->disabledMap.at(DISABLE_FOR_MATCH_REFRESH_RATE_ON).active)
                 info.activeDisables.push_back(DISABLE_FOR_MATCH_REFRESH_RATE_ON);
         })
-        .Options(IntSliderOptions().Tooltip(tooltip).Min(30).Max(maxFps).DefaultValue(30));
+        .Options(IntSliderOptions().Tooltip(tooltip).Min(30).Max(maxFps).DefaultValue(60));
     AddWidget(path, "Match Refresh Rate", WIDGET_CVAR_CHECKBOX)
         .CVar("gMatchRefreshRate")
         .Options(CheckboxOptions().Tooltip("Matches interpolation value to the refresh rate of your display."));
