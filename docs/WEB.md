@@ -65,6 +65,13 @@ when it has no archive.
 - Torch is a submodule this fork does not own: `tools/web/extractor/CMakeLists.txt` works around what it needs here
   (a missing `<cstdlib>`, a thread check its link flags break).
 
+## Full screen
+
+A button in the page's bottom-right corner (`shell.html`) makes it full screen where the browser allows the Fullscreen
+API: desktop browsers and iPad. Safari on an iPhone allows it for videos only, so there the button shows how: Share > Add to Home
+Screen: `manifest.webmanifest` and the `apple-mobile-web-app-*` tags open the page as an app without the browser's bars.
+Picture in picture is not possible: it is for videos, and iOS stops a page's drawing and game loop when it is left.
+
 ## Testing
 
 `tools/web-check/check.mjs` loads the page in a headless Chrome of its own (not the browser anyone has open),

@@ -5,8 +5,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SpaghettiKart</title>
-<!-- No icon: keeps the browser from asking the server for one. -->
-<link rel="icon" href="data:,">
+<link rel="icon" href="icon.png">
+<!-- "Add to Home Screen" opens the page like an app, without the browser's bars: the way to full screen on an iPhone,
+     where Safari allows the Fullscreen API for videos only. -->
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="SpaghettiKart">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="theme-color" content="#000000">
 <style>
   html, body { margin: 0; height: 100%; height: 100dvh; background: #000; color: #ddd; font: 16px system-ui, sans-serif; overflow: hidden; }
   /* The game sizes its picture to the canvas, which fills the window. */
@@ -23,12 +31,23 @@
              justify-content: center; text-align: center; padding: 16px; pointer-events: none; }
   #status { white-space: pre-wrap; max-width: 40em; }
   #status:empty { display: none; }
+  /* Small and faint, in the corner the game's screens use least; gone once the page is full screen. */
+  #fullscreen { position: fixed; right: 8px; bottom: 8px; width: 40px; height: 40px; padding: 0; border: 0;
+                border-radius: 8px; background: rgba(0, 0, 0, 0.45); color: #fff; font-size: 24px; line-height: 40px;
+                opacity: 0.5; cursor: pointer; }
+  #fullscreen:hover, #fullscreen:focus-visible { opacity: 1; }
+  #fullscreen[hidden] { display: none; }
+  #hint { position: fixed; right: 8px; bottom: 56px; max-width: 18em; padding: 12px 14px; border-radius: 8px;
+          background: rgba(0, 0, 0, 0.85); color: #fff; font-size: 15px; line-height: 1.4; }
+  #hint[hidden] { display: none; }
   #picker { pointer-events: auto; }
   #picker[hidden] { display: none; }
 </style>
 </head>
 <body>
 <canvas id="canvas" tabindex="-1" oncontextmenu="event.preventDefault()"></canvas>
+<button id="fullscreen" type="button" title="Full screen" aria-label="Full screen" hidden>&#x26F6;</button>
+<div id="hint" hidden>For full screen: tap the Share button in Safari, then Add to Home Screen, and open the game from its icon.</div>
 <div id="overlay">
   <div id="status">Loading…</div>
   <input id="picker" type="file" accept=".z64,.n64,.v64,.zip" hidden>
@@ -373,6 +392,35 @@ var Module = {
     showStatus(`The game stopped: ${what}\nThe browser's console has the details.`);
   },
 };
+// The full-screen button: where the browser allows the Fullscreen API (desktop, iPad) it makes the page full screen.
+// Safari on an iPhone does not, so there it explains how to install the page as an app, which has no browser bars. The
+// button is gone once the page is full screen or installed.
+const fullscreenButton = document.getElementById('fullscreen');
+const hintElement = document.getElementById('hint');
+const fullscreenRoot = document.documentElement;
+const fullscreenEnabled = document.fullscreenEnabled || document.webkitFullscreenEnabled;
+const isApple = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const inFullscreen = () => !!(document.fullscreenElement || document.webkitFullscreenElement) ||
+                           matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches ||
+                           navigator.standalone === true;
+function updateFullscreenButton() {
+  fullscreenButton.hidden = inFullscreen() || !(fullscreenEnabled || isApple);
+  hintElement.hidden = hintElement.hidden || fullscreenButton.hidden;
+}
+fullscreenButton.addEventListener('click', () => {
+  if (fullscreenEnabled) {
+    (fullscreenRoot.requestFullscreen || fullscreenRoot.webkitRequestFullscreen).call(fullscreenRoot);
+  } else {
+    hintElement.hidden = !hintElement.hidden;
+  }
+  // The key or tap that pressed the button belongs to the page, not the game.
+  fullscreenButton.blur();
+});
+hintElement.addEventListener('click', () => { hintElement.hidden = true; });
+document.addEventListener('fullscreenchange', updateFullscreenButton);
+document.addEventListener('webkitfullscreenchange', updateFullscreenButton);
+updateFullscreenButton();
+
 // iOS Safari interrupts a page's sound when the player leaves the browser, and lets the page resume it only from inside
 // a touch or key event (SDL resumes it itself only in browsers without user activation). A tap or key press anywhere
 // brings it back; coming back to the page tries too, which works where the browser allows it.
