@@ -422,22 +422,39 @@ document.addEventListener('webkitfullscreenchange', updateFullscreenButton);
 updateFullscreenButton();
 
 // iOS Safari interrupts a page's sound when the player leaves the browser, and lets the page resume it only from inside
-// a touch or key event (SDL resumes it itself only in browsers without user activation). A tap or key press anywhere
-// brings it back; coming back to the page tries too, which works where the browser allows it.
+// a touch or key event (SDL resumes it itself only in browsers without user activation). Coming back to the page tries
+// at once and then again for a few seconds, as the sound is often not ready to resume the first time; a tap or key
+// press anywhere resumes it for sure.
+let audioRetry = 0;
 function resumeAudio() {
   const context = Module['SDL2'] && Module['SDL2'].audioContext;
   if (context && context.state !== 'running') {
     context.resume().catch(() => {});
   }
 }
+function resumeAudioForAWhile() {
+  clearInterval(audioRetry);
+  let tries = 0;
+  resumeAudio();
+  audioRetry = setInterval(() => {
+    const context = Module['SDL2'] && Module['SDL2'].audioContext;
+    if ((context && context.state === 'running') || ++tries > 20) {
+      clearInterval(audioRetry);
+    } else {
+      resumeAudio();
+    }
+  }, 500);
+}
 for (const type of ['touchend', 'click', 'keydown']) {
   document.addEventListener(type, resumeAudio, true);
 }
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
-    resumeAudio();
+    resumeAudioForAWhile();
   }
 });
+window.addEventListener('pageshow', resumeAudioForAWhile);
+window.addEventListener('focus', resumeAudioForAWhile);
 window.addEventListener('error', (event) => {
   if (statusElement.textContent === '') {
     showStatus(`The game stopped: ${event.message}\nThe browser's console has the details.`);
