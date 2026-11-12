@@ -1067,6 +1067,7 @@ static void WebFrame() {
     if (sFast) {
         const double start = emscripten_get_now();
         do {
+            SimState_EndDisplay();
             push_frame();
         } while ((emscripten_get_now() - start < kFastBudgetMs) && !Harness_IsFinished() && !Netplay_IsFinished());
         return;
@@ -1076,6 +1077,9 @@ static void WebFrame() {
         return;
     }
     if (!GameEngine::DrawPendingFrame()) {
+        // Every picture of the last frame is drawn: netplay can undo the state changes of drawing it
+        // (see race_logic_loop() in main.c, which does it on the desktop).
+        SimState_EndDisplay();
         push_frame();
     }
     const double interval = 1000.0 / GameEngine::GetDrawRate();

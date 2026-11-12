@@ -1338,8 +1338,11 @@ void thread5_iteration(void) {
     // call_render_hook();
 
     end_master_display_list();
-    // The display list has run: netplay can undo the state changes of drawing it.
+    // The display list has run: netplay can undo the state changes of drawing it. The browser build draws the
+    // interpolated pictures on later refreshes, from the same display list, so its main loop undoes them instead.
+#ifndef __EMSCRIPTEN__
     SimState_EndDisplay();
+#endif
     display_and_vsync();
 }
 
