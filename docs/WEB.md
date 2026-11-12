@@ -59,7 +59,7 @@ when it has no archive.
 
 - `src/port/web/shell.html` puts the ROM in `.z64` byte order and checks its SHA-1 against the US version's; then
   `src/port/web/ExtractWorker.js` runs Torch on a worker, so the page keeps drawing its message. The archive is kept
-  in the browser's storage, as before; the ROM is not. An `mk64.o2r` from the desktop version is accepted too.
+  in the browser's storage, as before; the ROM is not. A zipped ROM is unpacked in the browser.
 - The archive is not byte for byte the desktop's (the zip's dates differ), but every file's name, size and CRC
   match, which is what netplay's content check compares (`NetplayIdentity.h`).
 - Torch is a submodule this fork does not own: `tools/web/extractor/CMakeLists.txt` works around what it needs here

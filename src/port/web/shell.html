@@ -23,7 +23,7 @@
 <canvas id="canvas" tabindex="-1" oncontextmenu="event.preventDefault()"></canvas>
 <div id="overlay">
   <div id="status">Loading…</div>
-  <input id="picker" type="file" accept=".z64,.n64,.v64,.o2r" hidden>
+  <input id="picker" type="file" accept=".z64,.n64,.v64,.zip" hidden>
 </div>
 <script>
 const statusElement = document.getElementById('status');
@@ -31,7 +31,7 @@ const pickerElement = document.getElementById('picker');
 
 // The game's files: the two archives it reads everything from. spaghetti.o2r is the port's own and must be next to
 // this page. mk64.o2r holds the game's own data: when the server has none, the player is asked for their ROM, which
-// ExtractWorker.js turns into it here (or for an mk64.o2r the desktop version made).
+// ExtractWorker.js turns into it here.
 const kGameArchive = 'mk64.o2r';
 const kPortArchive = 'spaghetti.o2r';
 // The one ROM the archive maker knows: Mario Kart 64 (US), by the SHA-1 of its .z64 form (as src/port/GameExtractor.cpp).
@@ -174,16 +174,89 @@ function extractArchive(rom) {
   });
 }
 
-/** The game's archive from what the player picks: their ROM, made into one here, or an mk64.o2r. */
+/**
+ * Whether these bytes are a game archive: a zip file whose directory lists mods.toml, which names the archive for the
+ * game. Any other zip (a zipped ROM, say) would start the game without its data and stop it on a dependency error.
+ */
+function isGameArchive(bytes) {
+  if (bytes.length < 22 || bytes[0] !== 0x50 || bytes[1] !== 0x4b) {
+    return false;
+  }
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  // The end-of-directory record is in the last 64 KB, behind an optional comment.
+  for (let at = bytes.length - 22; at >= Math.max(0, bytes.length - 22 - 0xffff); at--) {
+    if (view.getUint32(at, true) === 0x06054b50) {
+      const size = view.getUint32(at + 12, true);
+      const start = view.getUint32(at + 16, true);
+      if (start + size > bytes.length) {
+        return false;
+      }
+      const directory = new TextDecoder('latin1').decode(bytes.subarray(start, start + size));
+      return directory.includes('mods.toml');
+    }
+  }
+  return false;
+}
+
+/**
+ * The biggest file in a zip, which is the ROM in a zipped dump; null when these bytes are no zip or hold nothing
+ * the browser can unpack (it does stored and deflated files).
+ */
+async function romFromZip(bytes) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let end = -1;
+  for (let at = bytes.length - 22; at >= Math.max(0, bytes.length - 22 - 0xffff); at--) {
+    if (view.getUint32(at, true) === 0x06054b50) {
+      end = at;
+      break;
+    }
+  }
+  if (end < 0) {
+    return null;
+  }
+  let best = null;
+  let at = view.getUint32(end + 16, true);
+  for (let n = view.getUint16(end + 10, true); n > 0 && at + 46 <= bytes.length; n--) {
+    if (view.getUint32(at, true) !== 0x02014b50) {
+      return null;
+    }
+    const entry = {
+      method: view.getUint16(at + 10, true),
+      packed: view.getUint32(at + 20, true),
+      size: view.getUint32(at + 24, true),
+      header: view.getUint32(at + 42, true),
+    };
+    if ((best === null || entry.size > best.size) && (entry.method === 0 || entry.method === 8)) {
+      best = entry;
+    }
+    at += 46 + view.getUint16(at + 28, true) + view.getUint16(at + 30, true) + view.getUint16(at + 32, true);
+  }
+  if (best === null || view.getUint32(best.header, true) !== 0x04034b50) {
+    return null;
+  }
+  const start = best.header + 30 + view.getUint16(best.header + 26, true) + view.getUint16(best.header + 28, true);
+  const data = bytes.subarray(start, start + best.packed);
+  if (best.method === 0) {
+    return data;
+  }
+  const stream = new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+/** The game's archive, made here from the ROM the player picks. */
 async function askForGameArchive() {
   let problem = '';
   for (;;) {
-    showStatus(`${problem}Choose your Mario Kart 64 ROM (US version; .z64, .n64 or .v64). The game's files are made ` +
+    showStatus(`${problem}Choose your Mario Kart 64 ROM (US version; .z64, .n64 or .v64, or a zip of one). The game's files are made ` +
                'from it right here and kept in this browser; nothing is uploaded.');
-    const file = await pickFile();
-    // An archive is a zip file.
+    let file = await pickFile();
     if (file[0] === 0x50 && file[1] === 0x4b) {
-      return file;
+      // A zipped dump: the ROM is what is inside.
+      try {
+        file = (await romFromZip(file)) || file;
+      } catch (error) {
+        console.error(error);
+      }
     }
     const rom = toZ64(file);
     if (rom === null) {
@@ -230,6 +303,11 @@ async function prepareGameFolder() {
   if (gameArchive === null) {
     try {
       gameArchive = FS.readFile(keptPath);
+      if (!isGameArchive(gameArchive)) {
+        // Kept by an earlier visit, but no game archive: the ROM is asked for again.
+        console.error('The kept mk64.o2r is not a game archive; discarding it.');
+        gameArchive = null;
+      }
     } catch (error) {
       // Not kept yet: asked for below.
     }
