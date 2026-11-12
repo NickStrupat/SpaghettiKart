@@ -456,6 +456,13 @@ document.addEventListener('visibilitychange', () => {
 window.addEventListener('pageshow', resumeAudioForAWhile);
 window.addEventListener('focus', resumeAudioForAWhile);
 window.addEventListener('error', (event) => {
+  // "Script error." with no error object is the browser hiding the details of an error from another origin or a
+  // worker, which Safari raises on coming back to the page while the game goes on: not a reason to say it stopped.
+  // A game that did stop reports it through onAbort.
+  if (!event.error && (!event.message || event.message === 'Script error.')) {
+    console.warn('Ignored a script error with no details.');
+    return;
+  }
   if (statusElement.textContent === '') {
     showStatus(`The game stopped: ${event.message}\nThe browser's console has the details.`);
   }
