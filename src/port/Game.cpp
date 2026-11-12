@@ -1035,17 +1035,47 @@ void CM_ThrowRuntimeError(const char* fmt, ...) {
 #include <emscripten.h>
 
 /**
+ * Runs one game frame, from the browser's main loop.
+ * @param drawn Whether its pictures are drawn: a main loop that has fallen behind only simulates the frames it runs
+ *        to catch up.
+ */
+static void RunWebGameFrame(bool drawn) {
+    // Every picture of the last frame is drawn or dropped: netplay can undo the state changes of drawing it
+    // (see race_logic_loop() in main.c, which does it on the desktop).
+    SimState_EndDisplay();
+    GameEngine::SetNextFrameDrawn(drawn);
+    const double start = emscripten_get_now();
+    push_frame();
+    GameEngine::SetNextFrameDrawn(true);
+    // The game's logic and drawing code, with the frame's first picture when it is drawn.
+    GameEngine::DebugNote(drawn ? "game frame" : "game frame (not drawn)", emscripten_get_now() - start);
+}
+
+/**
  * The browser build's main loop: the browser calls this once per screen refresh, and a page shows one picture per
- * call. Draws a picture when the next is due, running a game frame first when the last has none left to draw.
+ * call. Game frames keep to their own clock, 30 a second: when a refresh comes late, or the game takes longer than a
+ * refresh, the next frame runs anyway and the last frame's remaining pictures are dropped, and a loop that has fallen
+ * further behind runs a frame more without drawing it. The game keeps its speed and its sound; only pictures are lost.
+ * Between game frames, the refreshes draw frame interpolation's other pictures.
  */
 static void WebFrame() {
-    // A refresh that comes this much before a picture is due still draws it: refreshes are not evenly spaced, and
-    // waiting for the next one would drop a picture.
+    // A refresh that comes this much before a frame or picture is due still runs or draws it: refreshes are not evenly
+    // spaced, and waiting for the next one would drop it.
     constexpr double kEarlyMs = 2.0;
+    // The game's own rate.
+    constexpr double kGameFrameMs = 1000.0 / 30.0;
+    // At most this many game frames per call: more would only make the next call later still.
+    constexpr int kMaxFramesPerCall = 2;
+    // Further behind than this, the clock starts over instead of catching up: a hidden page gets no calls at all.
+    constexpr double kMaxBehindMs = 4 * kGameFrameMs;
     // SK_FAST (see Engine.cpp): game frames run back to back for this long per call from the browser, which still
     // needs time for itself.
     constexpr double kFastBudgetMs = 12.0;
+    static double sNextGameFrameMs = 0.0;
     static double sNextPictureMs = 0.0;
+    static double sLastCallMs = 0.0;
+    // The time between the browser's calls, averaged: 16.7 ms on most screens, 33.3 ms in an iPhone's Low Power Mode.
+    static double sRefreshMs = 1000.0 / 60.0;
     static const bool sFast = (getenv("SK_FAST") != nullptr) && (atoi(getenv("SK_FAST")) > 0);
 
     if (Harness_IsFinished() || Netplay_IsFinished()) {
@@ -1073,18 +1103,40 @@ static void WebFrame() {
         return;
     }
     const double now = emscripten_get_now();
-    if (now + kEarlyMs < sNextPictureMs) {
+    if (sLastCallMs > 0.0) {
+        const double interval = now - sLastCallMs;
+        GameEngine::DebugNote("browser calls (interval)", interval);
+        // Long gaps are a hidden page or a stall, not the refresh rate.
+        if (interval < 100.0) {
+            sRefreshMs += (interval - sRefreshMs) * 0.1;
+        }
+    }
+    sLastCallMs = now;
+
+    const double pictureMs = 1000.0 / GameEngine::GetDrawRate();
+    if ((sNextGameFrameMs == 0.0) || (now - sNextGameFrameMs > kMaxBehindMs)) {
+        sNextGameFrameMs = now;
+    }
+    if (now + kEarlyMs >= sNextGameFrameMs) {
+        // The in-between pictures need a refresh each; when the refreshes come too slowly for them, only each frame's
+        // own picture is drawn, rather than pictures that show the game later.
+        GameEngine::SetKeyFramesOnly(sRefreshMs > pictureMs * 1.5);
+        for (int i = 0; (i < kMaxFramesPerCall) && (now + kEarlyMs >= sNextGameFrameMs); i++) {
+            sNextGameFrameMs += kGameFrameMs;
+            // When the next frame is due too and runs in this call, this one's pictures would never be shown.
+            const bool nextRunsToo = (i + 1 < kMaxFramesPerCall) && (now + kEarlyMs >= sNextGameFrameMs);
+            RunWebGameFrame(!nextRunsToo);
+            if (Harness_IsFinished() || Netplay_IsFinished()) {
+                break;
+            }
+        }
+        sNextPictureMs = now + pictureMs;
+    } else if ((now + kEarlyMs >= sNextPictureMs) && GameEngine::DrawPendingFrame()) {
+        sNextPictureMs += pictureMs;
+    } else {
         return;
     }
-    if (!GameEngine::DrawPendingFrame()) {
-        // Every picture of the last frame is drawn: netplay can undo the state changes of drawing it
-        // (see race_logic_loop() in main.c, which does it on the desktop).
-        SimState_EndDisplay();
-        push_frame();
-    }
-    const double interval = 1000.0 / GameEngine::GetDrawRate();
-    // Keep to the schedule, unless it fell behind: a hidden page gets no calls, and should not catch up later.
-    sNextPictureMs = (now - sNextPictureMs > interval) ? now + interval : sNextPictureMs + interval;
+    GameEngine::DebugNote("browser calls that drew", emscripten_get_now() - now);
 }
 #endif
 

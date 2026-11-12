@@ -796,6 +796,16 @@ bool race_sim_frame(void) {
 }
 
 /**
+ * @returns whether this frame's picture has to be copied back to the CPU (FB_WriteFramebufferSliceToCPU()). Only the
+ * jumbotrons of Luigi Raceway and Wario Stadium read it, and they show it only in one-player races
+ * (LuigiRaceway::Draw(), WarioStadium::Draw()). The copy makes the CPU wait until the GPU has drawn the whole picture,
+ * on every picture, so everywhere else it is skipped.
+ */
+static bool race_frame_needs_readback(void) {
+    return (gActiveScreenMode == SCREEN_MODE_1P) && (IsLuigiRaceway() || IsWarioStadium());
+}
+
+/**
  * Builds the display list for the race frame produced by race_sim_frame().
  */
 void race_render_frame(void) {
@@ -868,7 +878,9 @@ void race_render_frame(void) {
     // Copies after all the main rendering is complete. This is accurate to hardware.
     // This means things like jumbotron will have the pause menu rendered in it.
     // To avoid that, this line can be moved above func_800591B4.
-    FB_WriteFramebufferSliceToCPU(&gDisplayListHead, gPortFramebuffers[sRenderingFramebuffer], true);
+    if (race_frame_needs_readback()) {
+        FB_WriteFramebufferSliceToCPU(&gDisplayListHead, gPortFramebuffers[sRenderingFramebuffer], true);
+    }
     gDPFullSync(gDisplayListHead++);
     gSPEndDisplayList(gDisplayListHead++);
 }
@@ -933,7 +945,7 @@ void race_render_own_view(s32 playerId) {
     render_own_view_overlay(playerId);
     gOwnViewPlayer = -1;
     func_80093E20();
-    FB_WriteFramebufferSliceToCPU(&gDisplayListHead, gPortFramebuffers[sRenderingFramebuffer], true);
+    // No readback (race_frame_needs_readback()): a split-screen race shows no jumbotron.
     gDPFullSync(gDisplayListHead++);
     gSPEndDisplayList(gDisplayListHead++);
 }

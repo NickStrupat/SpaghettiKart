@@ -19,6 +19,7 @@ details live in the headers under `src/port/netplay/`, which each start with a d
 | Shared console: Game Select, character select and course select in lockstep, then the race | Works, tested by the simulator |
 | Direct connections (UDP hole punching), relay fallback | Works on one machine and between two Macs on one wifi; not yet tried across two home networks |
 | Own view (each player sees and hears only their own player) | Works |
+| Players at different frame rates (Settings > Graphics > Current FPS) | Works: frame interpolation only draws, every game simulates 30 frames a second (`mixed-fps` scenario) |
 | Automatic input delay, connection stats overlay | Works |
 | Sound effects across rollbacks | Works |
 | Platforms | macOS on Apple Silicon only. See [Platforms](#platforms) |
@@ -260,7 +261,7 @@ helpers. Game Select's "Z ONLINE" button is the port's own art (`tools/make-onli
 
 | Tool | What it does |
 |---|---|
-| `tools/netplay-sim.py` | Plays whole races, cups and battles between bot-driven copies of the game through a relay, fast-forwarded (about 70× real time), and checks that every peer stayed in sync and the races ended as expected. Shared-console scenarios drive the menus with scripted buttons and compare every menu frame. 23 scenarios, about 5 minutes. **Run it after any change to netplay, menu or simulation code.** |
+| `tools/netplay-sim.py` | Plays whole races, cups and battles between bot-driven copies of the game through a relay, fast-forwarded (about 70× real time), and checks that every peer stayed in sync and the races ended as expected. Shared-console scenarios drive the menus with scripted buttons and compare every menu frame. 24 scenarios, about 5 minutes. **Run it after any change to netplay, menu or simulation code.** |
 | Determinism harness | `SK_DETERMINISM_RECORD` / `_VERIFY` / `_ROLLBACK=8`: records a race's inputs and per-frame checksums, replays them, or rolls back 8 frames after every frame. See `DeterminismHarness.h`. |
 | `tools/netplay-stress.sh` | The rollback stress run on every track and arena, 4 at a time: 16 versus tracks, 4 battle arenas, 4 Grand Prix courses. Give it an AddressSanitizer build (below) to look for memory errors too. |
 | `tools/netplay-relay/test_relay.py` | Protocol tests for the relay. |

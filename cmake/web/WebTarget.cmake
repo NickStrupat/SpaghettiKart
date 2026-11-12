@@ -82,6 +82,7 @@ add_dependencies(${PROJECT_NAME} WebExtractor)
 add_custom_command(
   TARGET ${PROJECT_NAME} POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/src/port/web/ExtractWorker.js ${WEB_DIR}/
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/src/port/web/AudioOutput.js ${WEB_DIR}/
   COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/src/port/web/manifest.webmanifest ${WEB_DIR}/
   COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/icon.png ${WEB_DIR}/
   VERBATIM)

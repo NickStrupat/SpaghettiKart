@@ -116,13 +116,27 @@ With `SK_FAST` (the default `SPEED=10`), rollbacks and stalls are far above the 
 messages only between calls from the browser, and fast mode runs many game frames in one. At normal speed
 (`SPEED=0`, a full race in about 2.5 minutes) a 2-player race had no stalls and rollbacks of 1 or 2 frames.
 
+### Where the time goes: `?dbg=1`
+
+Opening the page as `index.html?dbg=1` shows a readout in the top-left corner: the browser's sound (state, sample rate,
+latency, how many frames wait in the worklet's ring and how often it ran out) and, for the last second, how often and
+how long the game's parts take: `game frame` (the game's logic and drawing code, with the frame's first picture),
+`game frame (not drawn)` (frames run to catch up), `picture drawn`, `sound wait` (the game waiting for its sound
+thread), `browser calls` (how often the browser calls the game, and how long a call that drew takes), and the
+browser's graphics calls (`gl readPixels` is the framebuffer readback that makes the browser wait for the GPU). The
+instruments cost some time themselves.
+
+Chrome's DevTools can slow the CPU down (`Emulation.setCPUThrottlingRate` through Puppeteer) to see how the page copes
+on a phone: at 16 times slower, a one-player race kept 30 game frames a second and its sound, with one picture each.
+
 ## How it differs from the desktop game
 
 | Part | Desktop | Browser |
 | --- | --- | --- |
 | Main loop | `while` loop in `main()` | the browser calls `WebFrame()` (`src/port/Game.cpp`) once per screen refresh |
-| Frame pacing | libultraship sleeps between pictures | `WebFrame()` skips refreshes until a picture is due |
-| Interpolated pictures | all drawn inside the game frame | one per refresh (`GameEngine::DrawPendingFrame()`) |
+| Frame pacing | libultraship sleeps between pictures | game frames keep to their own 30-a-second clock in `WebFrame()`; when behind, pictures are dropped and frames run without being drawn, never the other way |
+| Interpolated pictures | all drawn inside the game frame | one per refresh (`GameEngine::DrawPendingFrame()`); none when the refreshes come too slowly for them (an iPhone's Low Power Mode allows 30 a second) |
+| Sound | libultraship's player (CoreAudio) | an AudioWorklet (`src/port/audio/WebAudioOutput.h`, `src/port/web/AudioOutput.js`) reads a ring that the game's sound thread fills; SDL's player only where there is no AudioWorklet |
 | Graphics | Metal, OpenGL or Direct3D | WebGL 2, through libultraship's OpenGL ES path |
 | Files | the settings folder | a folder in memory; `src/port/web/shell.html` copies changes to IndexedDB |
 | `mk64.o2r` | made from a ROM by Torch | made from a ROM by Torch in WebAssembly, on a worker |
@@ -147,6 +161,8 @@ Everything specific to the browser is behind `__EMSCRIPTEN__` in the code and `S
   Emscripten warns about at start-up; it is a short wait.
 - **Only the last picture drawn in one call from the browser is shown**, so a game frame cannot draw its
   interpolated pictures in a row as on the desktop.
+- **Sound played from the main thread crackles.** SDL plays it there, from a ScriptProcessor that libultraship's
+  settings make 512 frames long: 11 ms at 48 kHz, less than a game frame takes on a phone. Hence the AudioWorklet.
 - **libultraship is a submodule that this fork does not own.** What it needs to compile with Emscripten is in
   `src/port/web/LibultrashipShim.h`, which the build includes into each of its files, rather than in the submodule.
 - **The sound mixer uses SSE2 intrinsics.** Emscripten translates them (`-msimd128 -msse2`), except the MMX ones.

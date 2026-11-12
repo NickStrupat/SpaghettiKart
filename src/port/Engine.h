@@ -72,7 +72,7 @@ class GameEngine {
     static uint32_t GetInterpolationFPS();
     static uint32_t GetInterpolationFrameCount();
     void StartFrame() const;
-    static void RunCommands(Gfx* pool, const std::vector<std::unordered_map<Mtx*, MtxF>>& mtx_replacements);
+    static void RunCommands(Gfx* pool, std::vector<std::unordered_map<Mtx*, MtxF>>& mtx_replacements);
 #ifdef __EMSCRIPTEN__
     /**
      * Browser build: draws the next picture of the last game frame, if frame interpolation left any to draw. A page
@@ -80,8 +80,20 @@ class GameEngine {
      * @return false when the last game frame has no pictures left: time for the next one.
      */
     static bool DrawPendingFrame();
+    /** Adds one timing, in milliseconds, to the page's ?dbg=1 readout (shell.html). Does nothing without that. */
+    static void DebugNote(const char* name, double ms);
     /** Browser build: how many pictures per second the main loop should draw. */
     static uint32_t GetDrawRate();
+    /**
+     * Browser build: whether the next game frame is drawn at all. A main loop that has fallen behind runs a frame
+     * without drawing it, so the game keeps its speed and its sound and only pictures are lost.
+     */
+    static void SetNextFrameDrawn(bool drawn);
+    /**
+     * Browser build: whether to draw only each game frame's own picture, without the in-between ones of frame
+     * interpolation: for when the browser's refreshes come too slowly to show them.
+     */
+    static void SetKeyFramesOnly(bool keyFramesOnly);
 #endif
     void ProcessFrame(void (*run_one_game_iter)()) const;
     static void Destroy();

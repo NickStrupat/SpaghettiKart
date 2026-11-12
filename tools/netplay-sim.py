@@ -134,6 +134,9 @@ SCENARIOS = [
     Scenario("mixed-settings", "2 players whose games took different ways through the menus (one starts at the title "
              "screen, one skips it), as two computers do", 2, "battle", track="mk:block_fort", series_races=1,
              peer_cvars={0: {"gSkipIntro": 1}}, expect={"races_over": 1}),
+    Scenario("mixed-fps", "2 players, versus, one game drawing 60 pictures a second (frame interpolation) and one the "
+             "game's own 30", 2, "vs", track="mk:wario_stadium", series_races=1,
+             peer_cvars={1: {"gInterpolationFPS": 60}}, expect={"races_over": 1, "finishes": 1}),
     Scenario("sounds", "3 random drivers among traffic, each peer hearing every camera; their sounds must agree "
              "however rollbacks changed them", 3, "vs", track="mk:toads_turnpike", frames=4000,
              peer_env={-1: {"SK_NETPLAY_BOT": "2", "SK_NETPLAY_TEST_SOUND_ROLLBACK_AT": "600"}},

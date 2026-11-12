@@ -44,6 +44,10 @@
 #include <SDL2/SDL.h>
 
 #include <utility>
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#include "port/audio/WebAudioOutput.h"
+#endif
 
 #ifdef __SWITCH__
 #include <ship/port/switch/SwitchImpl.h>
@@ -88,6 +92,8 @@ Gfx* sPendingPool = nullptr;
 std::vector<std::unordered_map<Mtx*, MtxF>> sPendingFrames;
 size_t sNextPendingFrame = 0;
 uint32_t sDrawRate = 30;
+bool sDrawNextFrame = true;
+bool sKeyFramesOnly = false;
 #endif
 
 } // namespace
@@ -214,7 +220,24 @@ GameEngine::GameEngine() {
     gui->AddGuiWindow(std::make_shared<LUS::InputEditorWindow>(CVAR_CONTROLLER_CONFIGURATION_WINDOW_OPEN, "Input Editor"));
     gui->AddGuiWindow(std::make_shared<LUS::GfxDebuggerWindow>(CVAR_GFX_DEBUGGER_WINDOW_OPEN, "GfxDebuggerWindow", ImVec2(520, 600)));
 
-    this->context->Init({assets_path}, {}, 3, { 26800, 512, 1100 }, wnd, controlDeck);
+#ifdef __EMSCRIPTEN__
+    // The browser plays the game's sound from an AudioWorklet (WebAudioOutput.h), so libultraship's player stays
+    // silent. A browser without one gets SDL's, with 2048-frame pieces instead of 512: its sound is played from the
+    // page's main thread, and 512 frames at 48 kHz (11 ms) is shorter than a game frame on a phone. Either way, more
+    // sound waits than on the desktop (76 ms rather than 41), for the game's frames come less regularly in a browser.
+    const bool webAudio = WebAudioOutput::IsSupported();
+    this->context->InitConfiguration();
+    this->context->GetConfig()->SetString("Window.AudioBackend", webAudio ? "null" : "sdl");
+    const Ship::AudioSettings audioSettings = { 26800, webAudio ? 512 : 2048, 2048 };
+#else
+    const Ship::AudioSettings audioSettings = { 26800, 512, 1100 };
+#endif
+    this->context->Init({assets_path}, {}, 3, audioSettings, wnd, controlDeck);
+#ifdef __EMSCRIPTEN__
+    if (webAudio) {
+        WebAudioOutput::Start(audioSettings.SampleRate, audioSettings.DesiredBuffered);
+    }
+#endif
 
 #ifndef __SWITCH__
     Ship::Context::GetRawInstance()->GetLogger()->set_level(
@@ -443,7 +466,7 @@ void GameEngine::StartFrame() const {
 //     Instance->context->GetWindow()->MainLoop(run_one_game_iter);
 // }
 
-void GameEngine::RunCommands(Gfx* pool, const std::vector<std::unordered_map<Mtx*, MtxF>>& mtx_replacements) {
+void GameEngine::RunCommands(Gfx* pool, std::vector<std::unordered_map<Mtx*, MtxF>>& mtx_replacements) {
     auto wnd = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow());
 
     if (wnd == nullptr) {
@@ -467,11 +490,19 @@ void GameEngine::RunCommands(Gfx* pool, const std::vector<std::unordered_map<Mtx
     }
 
 #ifdef __EMSCRIPTEN__
+    if (!sDrawNextFrame || mtx_replacements.empty()) {
+        // The main loop is catching up (SetNextFrameDrawn()).
+        sPendingPool = nullptr;
+        sPendingFrames.clear();
+        sNextPendingFrame = 0;
+        return;
+    }
     // Only the last picture drawn before going back to the browser is shown: draw one, leave the others to the
     // main loop. The gfx pool and what it points to stay as they are until the next game frame.
     sPendingPool = pool;
-    sPendingFrames = mtx_replacements;
-    sNextPendingFrame = 0;
+    sPendingFrames = std::move(mtx_replacements);
+    // Without the in-between pictures, only the newest: the frame's own picture, at 60 FPS.
+    sNextPendingFrame = sKeyFramesOnly ? sPendingFrames.size() - 1 : 0;
     DrawPendingFrame();
 #else
     for (const auto& mtxStack : mtx_replacements) {
@@ -494,14 +525,31 @@ bool GameEngine::DrawPendingFrame() {
     if ((wnd == nullptr) || (sNextPendingFrame >= sPendingFrames.size())) {
         return false;
     }
+    const double start = emscripten_get_now();
     wnd->GetInterpreterWeak().lock()->mInterpolationIndex = sNextPendingFrame;
     wnd->DrawAndRunGraphicsCommands(sPendingPool, sPendingFrames[sNextPendingFrame]);
     sNextPendingFrame++;
+    DebugNote("picture drawn", emscripten_get_now() - start);
     return true;
+}
+
+void GameEngine::DebugNote(const char* name, double ms) {
+    static const bool sOn = EM_ASM_INT({ return window.dbgNote ? 1 : 0; }) != 0;
+    if (sOn) {
+        EM_ASM({ window.dbgNote(UTF8ToString($0), $1); }, name, ms);
+    }
 }
 
 uint32_t GameEngine::GetDrawRate() {
     return sDrawRate;
+}
+
+void GameEngine::SetNextFrameDrawn(bool drawn) {
+    sDrawNextFrame = drawn;
+}
+
+void GameEngine::SetKeyFramesOnly(bool keyFramesOnly) {
+    sKeyFramesOnly = keyFramesOnly;
 }
 #endif
 
@@ -536,7 +584,15 @@ void GameEngine::ProcessGfxCommands(Gfx* pool) {
     // Get matrix replacements for intermediate frames
     while (time + original_fps <= next_original_frame) {
         time += original_fps;
-        if (time != next_original_frame) {
+#ifdef __EMSCRIPTEN__
+        // Pictures the main loop will not draw need no matrices (SetNextFrameDrawn(), SetKeyFramesOnly()).
+        const bool drawn = sDrawNextFrame && (!sKeyFramesOnly || (time + original_fps > next_original_frame));
+#else
+        const bool drawn = true;
+#endif
+        if (!drawn) {
+            mtx_replacements.emplace_back();
+        } else if (time != next_original_frame) {
             mtx_replacements.push_back(FrameInterpolation_Interpolate((float) time / next_original_frame));
         } else {
             mtx_replacements.emplace_back(); // No interpolation for key frames
@@ -579,7 +635,12 @@ void GameEngine::HandleAudioThread() {
         }
         std::unique_lock<std::mutex> Lock(audio.mutex);
 
+#ifdef __EMSCRIPTEN__
+        const bool webAudio = WebAudioOutput::IsActive();
+        int samples_left = webAudio ? WebAudioOutput::Buffered() : AudioPlayerBuffered();
+#else
         int samples_left = AudioPlayerBuffered();
+#endif
         u32 num_audio_samples = samples_left < AudioPlayerGetDesiredBuffered() ? SAMPLES_HIGH : SAMPLES_LOW;
 
         s16 nas_buffer[SAMPLES_PER_FRAME] = { 0 };
@@ -598,7 +659,15 @@ void GameEngine::HandleAudioThread() {
 
         // Fast mode would queue sound faster than it plays.
         if (GetFastDrawInterval() == 0) {
+#ifdef __EMSCRIPTEN__
+            if (webAudio) {
+                WebAudioOutput::Play(mix_buffer, 2 * num_audio_samples);
+            } else {
+                AudioPlayerPlayFrame((u8*) mix_buffer, 2 * num_audio_samples * 4);
+            }
+#else
             AudioPlayerPlayFrame((u8*) mix_buffer, 2 * num_audio_samples * 4);
+#endif
         }
 
         audio.processing = false;
@@ -617,12 +686,18 @@ void GameEngine::StartAudioFrame() {
 }
 
 void GameEngine::EndAudioFrame() {
+#ifdef __EMSCRIPTEN__
+    const double start = emscripten_get_now();
+#endif
     {
         std::unique_lock<std::mutex> Lock(audio.mutex);
         while (audio.processing) {
             audio.cv_from_thread.wait(Lock);
         }
     }
+#ifdef __EMSCRIPTEN__
+    DebugNote("sound wait", emscripten_get_now() - start);
+#endif
 }
 
 void GameEngine::AudioInit() {
