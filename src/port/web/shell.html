@@ -373,6 +373,23 @@ var Module = {
     showStatus(`The game stopped: ${what}\nThe browser's console has the details.`);
   },
 };
+// iOS Safari interrupts a page's sound when the player leaves the browser, and lets the page resume it only from inside
+// a touch or key event (SDL resumes it itself only in browsers without user activation). A tap or key press anywhere
+// brings it back; coming back to the page tries too, which works where the browser allows it.
+function resumeAudio() {
+  const context = Module['SDL2'] && Module['SDL2'].audioContext;
+  if (context && context.state !== 'running') {
+    context.resume().catch(() => {});
+  }
+}
+for (const type of ['touchend', 'click', 'keydown']) {
+  document.addEventListener(type, resumeAudio, true);
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    resumeAudio();
+  }
+});
 window.addEventListener('error', (event) => {
   if (statusElement.textContent === '') {
     showStatus(`The game stopped: ${event.message}\nThe browser's console has the details.`);
