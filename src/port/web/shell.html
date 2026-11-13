@@ -1,5 +1,6 @@
 <!doctype html>
-<!-- The page of the browser build (docs/WEB.md). Emscripten puts the game's script where {{{ SCRIPT }}} is. -->
+<!-- The page of the browser build (docs/WEB.md). Emscripten puts the game's script tag in the template at the end, and
+     the page loads it from there. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -50,7 +51,7 @@
 <div id="hint" hidden>For full screen: tap the Share button in Safari, then Add to Home Screen, and open the game from its icon.</div>
 <div id="overlay">
   <div id="status">Loading…</div>
-  <input id="picker" type="file" accept=".z64,.n64,.v64,.zip" hidden>
+  <input id="picker" type="file" accept=".z64,.n64,.v64,.zip,.o2r" hidden>
 </div>
 <script>
 // ?dbg=1 shows what the game and the browser are doing, in the top-left corner, to find out where the time goes (see
@@ -108,10 +109,18 @@ const kRomSha1 = '579c48e211ae952530ffc8738709f078d5dd215e';
 // The folder the game runs in: libultraship looks for archives, settings and saves in the working directory. It is
 // in memory only.
 const kGameDir = '/game';
-// Kept in the browser's storage (IndexedDB): a copy of what the game wrote to its folder, and the player's own
-// mk64.o2r under kKeptArchives.
+// Kept in the browser's storage (IndexedDB): a copy of what the game wrote to its folder. Pages before 2026-11-12 also
+// kept the player's mk64.o2r there, under kKeptArchives.
 const kSaveDir = '/save';
 const kKeptArchives = '.archives';
+// The player's mk64.o2r is kept in a database of its own, which the page reads and writes before it loads the game
+// (startGame).
+const kArchiveDb = 'SpaghettiKart-archives';
+const kArchiveStore = 'archives';
+// Where pages before 2026-11-12 kept it: Emscripten's IDBFS keeps a folder in a database named after the folder, each
+// file a { timestamp, mode, contents } entry under its path.
+const kOldArchiveStore = 'FILE_DATA';
+const kOldArchivePath = `${kSaveDir}/${kKeptArchives}/${kGameArchive}`;
 // What in the game's folder is not worth keeping: the archives are loaded again, the log is of this run.
 const kNotSaved = new Set([kGameArchive, kPortArchive, 'logs']);
 const kSaveIntervalMs = 3000;
@@ -317,8 +326,13 @@ async function askForGameArchive() {
   let problem = '';
   for (;;) {
     showStatus(`${problem}Choose your Mario Kart 64 ROM (US version; .z64, .n64 or .v64, or a zip of one). The game's files are made ` +
-               'from it right here and kept in this browser; nothing is uploaded.');
+               'from it right here and kept in this browser; nothing is uploaded.\n\n' +
+               'An mk64.o2r made by the desktop game works too, and needs no making.');
     let file = await pickFile();
+    // The archive itself, from the desktop game's folder: nothing to make. Phones short of memory need this.
+    if (isGameArchive(file)) {
+      return file;
+    }
     if (file[0] === 0x50 && file[1] === 0x4b) {
       // A zipped dump: the ROM is what is inside.
       try {
@@ -351,6 +365,108 @@ async function fetchArchive(name) {
   return response.ok ? new Uint8Array(await response.arrayBuffer()) : null;
 }
 
+function requestResult(request) {
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+function openArchiveDb() {
+  const request = indexedDB.open(kArchiveDb, 1);
+  request.onupgradeneeded = () => request.result.createObjectStore(kArchiveStore);
+  return requestResult(request);
+}
+
+/** The mk64.o2r kept in this browser; null when there is none. */
+async function readKeptArchive() {
+  const db = await openArchiveDb();
+  try {
+    return (await requestResult(db.transaction(kArchiveStore).objectStore(kArchiveStore).get(kGameArchive))) || null;
+  } finally {
+    db.close();
+  }
+}
+
+/** Keeps mk64.o2r in this browser, for the next visits. */
+async function keepArchive(bytes) {
+  const db = await openArchiveDb();
+  try {
+    const transaction = db.transaction(kArchiveStore, 'readwrite');
+    transaction.objectStore(kArchiveStore).put(bytes, kGameArchive);
+    await new Promise((resolve, reject) => {
+      transaction.oncomplete = resolve;
+      transaction.onerror = transaction.onabort = () => reject(transaction.error);
+    });
+  } finally {
+    db.close();
+  }
+}
+
+/** The mk64.o2r a page before 2026-11-12 kept, in the game folder's storage; null when there is none. */
+async function readOldKeptArchive() {
+  const request = indexedDB.open(kSaveDir);
+  // No such database yet: it is left for the game to make, as IDBFS expects.
+  request.onupgradeneeded = () => request.transaction.abort();
+  let db;
+  try {
+    db = await requestResult(request);
+  } catch (error) {
+    return null;
+  }
+  try {
+    if (!db.objectStoreNames.contains(kOldArchiveStore)) {
+      return null;
+    }
+    const entry = await requestResult(db.transaction(kOldArchiveStore).objectStore(kOldArchiveStore).get(kOldArchivePath));
+    return entry && entry.contents ? new Uint8Array(entry.contents) : null;
+  } finally {
+    db.close();
+  }
+}
+
+// Whether the player's mk64.o2r is kept in its own database, so that an old page's copy can go (prepareGameFolder).
+let archiveKept = false;
+
+/**
+ * The game's archive: the server's, the one kept in this browser, or one made now from the player's ROM and kept from
+ * then on.
+ */
+async function findGameArchive() {
+  const fromServer = await fetchArchive(kGameArchive);
+  if (fromServer !== null) {
+    return fromServer;
+  }
+  let kept = await readKeptArchive().catch((error) => {
+    console.error('Reading the kept mk64.o2r failed', error);
+    return null;
+  });
+  archiveKept = kept !== null;
+  if (kept === null) {
+    kept = await readOldKeptArchive().catch(() => null);
+  }
+  if (kept !== null && !isGameArchive(kept)) {
+    // Kept by an earlier visit, but no game archive: the ROM is asked for again.
+    console.error('The kept mk64.o2r is not a game archive; discarding it.');
+    kept = null;
+    archiveKept = false;
+  }
+  const archive = kept || await askForGameArchive();
+  if (!archiveKept) {
+    try {
+      await keepArchive(archive);
+      archiveKept = true;
+    } catch (error) {
+      // The game still runs; the next visit asks again.
+      console.error('Keeping mk64.o2r in the browser\'s storage failed', error);
+    }
+  }
+  return archive;
+}
+
+// The game's archive, from findGameArchive until it is in the game's folder.
+let gameArchive = null;
+
 /** Fills the game's folder: saves and settings from the browser's storage, then the two archives. */
 async function prepareGameFolder() {
   FS.mkdir(kGameDir);
@@ -361,34 +477,25 @@ async function prepareGameFolder() {
     copyFile(`${kSaveDir}/${path}`, `${kGameDir}/${path}`);
   }
   savedFiles = listFiles(kGameDir, kNotSaved);
+  // An old page's copy of mk64.o2r, now kept in its own database: 27 MB less to load on every visit.
+  if (archiveKept && FS.analyzePath(kOldArchivePath).exists) {
+    try {
+      FS.unlink(kOldArchivePath);
+      FS.rmdir(`${kSaveDir}/${kKeptArchives}`);
+      await syncStorage(false);
+    } catch (error) {
+      console.error('Removing the old copy of mk64.o2r failed', error);
+    }
+  }
 
   showStatus('Loading the game files…');
-  const [portArchive, serverGameArchive] = await Promise.all([fetchArchive(kPortArchive), fetchArchive(kGameArchive)]);
+  const portArchive = await fetchArchive(kPortArchive);
   if (portArchive === null) {
     throw new Error(`${kPortArchive} is missing next to this page.`);
   }
-  let gameArchive = serverGameArchive;
-  const keptPath = `${kSaveDir}/${kKeptArchives}/${kGameArchive}`;
-  if (gameArchive === null) {
-    try {
-      gameArchive = FS.readFile(keptPath);
-      if (!isGameArchive(gameArchive)) {
-        // Kept by an earlier visit, but no game archive: the ROM is asked for again.
-        console.error('The kept mk64.o2r is not a game archive; discarding it.');
-        gameArchive = null;
-      }
-    } catch (error) {
-      // Not kept yet: asked for below.
-    }
-  }
-  if (gameArchive === null) {
-    gameArchive = await askForGameArchive();
-    FS.mkdirTree(`${kSaveDir}/${kKeptArchives}`);
-    FS.writeFile(keptPath, gameArchive);
-    await syncStorage(false);
-  }
   FS.writeFile(`${kGameDir}/${kPortArchive}`, portArchive);
   FS.writeFile(`${kGameDir}/${kGameArchive}`, gameArchive);
+  gameArchive = null;
   FS.chdir(kGameDir);
 }
 
@@ -401,11 +508,6 @@ var Module = {
     showStatus(text.startsWith('Running') ? '' : text);
   },
   preRun: [() => {
-    if (!crossOriginIsolated) {
-      showStatus('This page has to be served with the Cross-Origin-Opener-Policy and Cross-Origin-Embedder-Policy ' +
-                 'headers, because the game uses threads. tools/web-serve.py sends them.');
-      throw new Error('not cross-origin isolated');
-    }
     // The game's test settings (SK_FAST, SK_DETERMINISM_..., see src/port/netplay/DeterminismHarness.h) come from the
     // page's address: index.html?SK_FAST=10&SK_DETERMINISM_ROLLBACK=8.
     for (const [name, value] of new URLSearchParams(location.search)) {
@@ -434,6 +536,30 @@ var Module = {
     showStatus(`The game stopped: ${what}\nThe browser's console has the details.`);
   },
 };
+
+/**
+ * Finds the game's archive, then loads the game. In this order because loading the game makes its memory, its
+ * compiled code and a worker per thread, and Torch, making the archive from a ROM, needs memory besides (about 140 MB;
+ * 760 MB before HarbourMasters/Torch#263): on an iPhone the two together got the page stopped and reloaded, which
+ * asked for the ROM again. Kept before the game loads, the archive also survives the game being stopped later.
+ */
+async function startGame() {
+  if (!crossOriginIsolated) {
+    showStatus('This page has to be served with the Cross-Origin-Opener-Policy and Cross-Origin-Embedder-Policy ' +
+               'headers, because the game uses threads. tools/web-serve.py sends them.');
+    return;
+  }
+  gameArchive = await findGameArchive();
+  showStatus('Loading the game…');
+  // Emscripten names the game's script in the template at the end of the page.
+  const script = document.createElement('script');
+  script.src = document.getElementById('game-script').content.querySelector('script').getAttribute('src');
+  document.body.appendChild(script);
+}
+startGame().catch((error) => {
+  console.error(error);
+  showStatus(String(error.message || error));
+});
 // The full-screen button: where the browser allows the Fullscreen API (desktop, iPad) it makes the page full screen.
 // Safari on an iPhone does not, so there it explains how to install the page as an app, which has no browser bars. The
 // button is gone once the page is full screen or installed.
@@ -571,6 +697,7 @@ window.addEventListener('error', (event) => {
   }
 });
 </script>
-{{{ SCRIPT }}}
+<!-- The game's script, loaded by startGame() once the game's archive is ready. -->
+<template id="game-script">{{{ SCRIPT }}}</template>
 </body>
 </html>

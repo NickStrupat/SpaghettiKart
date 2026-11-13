@@ -15,7 +15,7 @@ file records how to build and serve it, what was changed to make it run, and wha
 - **Online play works between browsers and with desktop players**, connecting directly over WebRTC (steps 2 and 3,
   see [Online play](#online-play)). It needs a relay new enough to accept WebSockets, as the public one does since
   2026-11-10.
-- **The player's ROM becomes `mk64.o2r` in the browser** (`.z64`, `.n64` or `.v64`), in about 20 seconds on the
+- **The player's ROM becomes `mk64.o2r` in the browser** (`.z64`, `.n64` or `.v64`), in about 7 seconds on the
   first visit; see [The game's archive](#the-games-archive).
 - **Does not work**: desync recovery when a browser and a desktop game share a room.
 
@@ -59,11 +59,19 @@ when it has no archive.
 
 - `src/port/web/shell.html` puts the ROM in `.z64` byte order and checks its SHA-1 against the US version's; then
   `src/port/web/ExtractWorker.js` runs Torch on a worker, so the page keeps drawing its message. The archive is kept
-  in the browser's storage, as before; the ROM is not. A zipped ROM is unpacked in the browser.
+  in the browser's storage (an IndexedDB database of its own, `SpaghettiKart-archives`); the ROM is not. A zipped ROM
+  is unpacked in the browser. The player can also pick an `mk64.o2r` the desktop game made, which needs no Torch.
+- **Memory.** Torch before HarbourMasters/Torch#263 and #271 (October 2026) took about 760 MB to make the archive: it
+  kept every YAML file it read until the end, and the zip in memory. With the game loaded besides, an iPhone stopped and
+  reloaded the page at the end of the making, which then asked for the ROM again. Torch since takes about 140 MB and
+  7 seconds (measured in Chrome), and the page still finds or makes the archive, and keeps it, before it loads the
+  game's script at all (`startGame()`).
+  Pages before 2026-11-12 kept the archive in the game folder's IDBFS storage (`/save/.archives`); the page moves it
+  to its own database on the first visit.
 - The archive is not byte for byte the desktop's (the zip's dates differ), but every file's name, size and CRC
   match, which is what netplay's content check compares (`NetplayIdentity.h`).
 - Torch is a submodule this fork does not own: `tools/web/extractor/CMakeLists.txt` works around what it needs here
-  (a missing `<cstdlib>`, a thread check its link flags break).
+  (a missing `<cstdlib>`, a thread check its link flags break, embind for the file that defines `Companion::Instance`).
 
 ## Full screen
 

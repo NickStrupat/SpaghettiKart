@@ -199,18 +199,14 @@ include(cmake/dependencies/common.cmake)
 include(cmake/dependencies/FindLib.cmake)
 
 # fmt's consteval format-string checking fails to compile under newer
-# AppleClang (Xcode 16+) with the spdlog/fmt versions in use (both vcpkg's on
-# CI and Torch's bundled copy — see cmake/TorchExternalFixes.cmake for the
-# latter):
+# AppleClang (Xcode 16+) with the spdlog/fmt versions vcpkg provides on CI:
 #   error: call to consteval function 'fmt::basic_format_string<...>' is not
 #   a constant expression
 # Defining FMT_CONSTEVAL as empty falls back to fmt's pre-C++20 constexpr
 # checking, which compiles cleanly with identical runtime behavior. Scoped to
 # AppleClang; other platforms and compilers are untouched.
-# TODO: Temporary hack. Remove this (plus cmake/TorchExternalFixes.cmake and
-# the vcpkg.json fmt/spdlog pins) once the Torch pin is bumped past Torch's
-# spdlog/fmt update. Note the bump also needs matching MK64 loader changes,
-# see the discussion on PR #712.
+# TODO: Temporary hack. Remove this (plus the vcpkg.json fmt/spdlog pins) once
+# vcpkg's fmt compiles under AppleClang, see the discussion on PR #712.
 if(APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   foreach(FMT_CONSUMER ${PROJECT_NAME} libultraship torch)
     target_compile_definitions(${FMT_CONSUMER} PRIVATE "FMT_CONSTEVAL=")
@@ -261,21 +257,10 @@ endif()
 
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "NintendoSwitch" AND NOT SPAGHETTIKART_WEB)
   include(ExternalProject)
-  # Torch's pinned spdlog bundles an fmt that trips a consteval error under
-  # newer AppleClang (Xcode 16+): "call to consteval function
-  # 'fmt::basic_format_string<...>' is not a constant expression". Neutralize
-  # FMT_CONSTEVAL inside the Torch sub-build via CMAKE_PROJECT_INCLUDE (Torch's
-  # CMakeLists overwrites CMAKE_CXX_FLAGS, so flags can't be injected that
-  # way). Fixes the build-macos-arm64 job; the intel runner's older Xcode
-  # doesn't hit it.
-  # TODO: Temporary hack. Remove the CMAKE_PROJECT_INCLUDE line below (plus
-  # cmake/TorchExternalFixes.cmake itself) once the Torch pin is bumped past
-  # Torch's spdlog/fmt update, see the discussion on PR #712.
   ExternalProject_Add(TorchExternal
     PREFIX TorchExternal
     SOURCE_DIR ${CMAKE_SOURCE_DIR}/torch
     CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${CMAKE_BINARY_DIR}/torch
-               -DCMAKE_PROJECT_INCLUDE=${CMAKE_SOURCE_DIR}/cmake/TorchExternalFixes.cmake
                -DUSE_STANDALONE=ON
                -DBUILD_STORMLIB=${BUILD_STORMLIB}
                -DBUILD_SM64=${BUILD_SM64}
@@ -283,6 +268,9 @@ if(NOT CMAKE_SYSTEM_NAME STREQUAL "NintendoSwitch" AND NOT SPAGHETTIKART_WEB)
                -DBUILD_SF64=${BUILD_SF64}
                -DBUILD_FZERO=${BUILD_FZERO}
                -DBUILD_MARIO_ARTIST=${BUILD_MARIO_ARTIST}
+               -DBUILD_PM64=${BUILD_PM64}
+               -DBUILD_BK64=${BUILD_BK64}
+               -DBUILD_OOT=${BUILD_OOT}
                -DBUILD_NAUDIO=${BUILD_NAUDIO}
   )
 

@@ -21,8 +21,6 @@ add_link_options(-fwasm-exceptions -pthread)
 # CMake's check for threads fails inside Torch's folder, whose link flags are for its JavaScript API (embind) and
 # cannot link a test program in C. With -pthread the C library has them: the answer, given in advance.
 set(CMAKE_HAVE_LIBC_PTHREAD 1 CACHE INTERNAL "")
-# Torch's pinned spdlog bundles an fmt whose consteval checks newer clangs reject (see cmake/TorchExternalFixes.cmake).
-add_compile_definitions("FMT_CONSTEVAL=")
 # Torch is a submodule this fork does not own; some of its files use std::strtoull without including <cstdlib>, which
 # other platforms' headers happen to include for them.
 add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:SHELL:-include cstdlib>")
@@ -35,12 +33,18 @@ set(BUILD_MK64 ON CACHE BOOL "" FORCE)
 set(BUILD_SF64 OFF CACHE BOOL "" FORCE)
 set(BUILD_FZERO OFF CACHE BOOL "" FORCE)
 set(BUILD_MARIO_ARTIST OFF CACHE BOOL "" FORCE)
+set(BUILD_PM64 OFF CACHE BOOL "" FORCE)
+set(BUILD_BK64 OFF CACHE BOOL "" FORCE)
+set(BUILD_OOT OFF CACHE BOOL "" FORCE)
 set(BUILD_NAUDIO ON CACHE BOOL "" FORCE)
 add_subdirectory(${SK_SOURCE_DIR}/torch torch)
 
 add_executable(extractor Extractor.cpp)
 target_link_libraries(extractor PRIVATE torch)
 target_link_options(extractor PRIVATE
+  # Under Emscripten, Torch defines Companion::Instance in src/lib/web.cpp, next to its JavaScript API: using it links
+  # that file, whose API needs embind's runtime.
+  -lembind
   -sMODULARIZE=1
   -sEXPORT_ES6=1
   -sEXPORT_NAME=createExtractor

@@ -6,6 +6,7 @@
 // The source folder holds Torch's config.yml and asset descriptions; mk64.o2r is written to the destination.
 #include "Companion.h"
 
+#include <atomic>
 #include <cstdio>
 #include <exception>
 #include <fstream>
@@ -29,9 +30,10 @@ int main(int argc, char* argv[]) {
         // As strings: a char* would choose the constructor whose next parameter is the bool "modding".
         Companion::Instance = new Companion(rom, ArchiveType::O2R, false, std::string(argv[2]), std::string(argv[3]));
         Companion::Instance->SetAdditionalFiles({ "meta/mods.toml" });
-        Companion::Instance->Init(ExportType::Binary);
+        std::atomic<size_t> assetCount = 0;
+        Companion::Instance->Init(ExportType::Binary, assetCount, true);
         // Companion::Init processes the ROM itself everywhere but under Emscripten.
-        Companion::Instance->Process();
+        Companion::Instance->Process(assetCount);
     } catch (const std::exception& error) {
         std::fprintf(stderr, "Torch failed: %s\n", error.what());
         return 1;
