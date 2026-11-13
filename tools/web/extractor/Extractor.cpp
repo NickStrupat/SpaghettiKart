@@ -4,6 +4,7 @@
 //   extractor <rom.z64> <source folder> <destination folder>
 //
 // The source folder holds Torch's config.yml and asset descriptions; mk64.o2r is written to the destination.
+#include "AssetsVersionDefine.h"
 #include "Companion.h"
 
 #include <atomic>
@@ -30,6 +31,9 @@ int main(int argc, char* argv[]) {
         // As strings: a char* would choose the constructor whose next parameter is the bool "modding".
         Companion::Instance = new Companion(rom, ArchiveType::O2R, false, std::string(argv[2]), std::string(argv[3]));
         Companion::Instance->SetAdditionalFiles({ "meta/mods.toml" });
+        // Which version made it (src/port/AssetsVersion.h, which the game's side reads; this one is Torch's alone).
+        const std::string version = SK_ASSETS_VERSION;
+        Companion::Instance->RegisterArchiveFile("assetsVersion", std::vector<char>(version.begin(), version.end()));
         std::atomic<size_t> assetCount = 0;
         Companion::Instance->Init(ExportType::Binary, assetCount, true);
         // Companion::Init processes the ROM itself everywhere but under Emscripten.

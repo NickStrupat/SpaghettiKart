@@ -8,8 +8,10 @@
 #include <vector>
 
 #include "Lobby.h"
+#include "port/AssetsVersion.h"
 #include "Netplay.h"
 #include "NetplayIdentity.h"
+#include "PageVersion.h"
 #include "RelayClient.h"
 
 extern "C" {
@@ -194,6 +196,38 @@ void DrawCursor(MenuItem* item, s32 column, s32 row) {
 // so these screens draw their fixed text first and text that changes (names, the room list) after it: letters added
 // or removed then never shift the others, which would make them slide sideways.
 
+/**
+ * Above the room list: why a friend's room may be missing. The relay lists only rooms of this build and these game
+ * files. The browser build updates itself in the background (PageVersion.h), so a friend can be one restart behind or
+ * ahead; game files made by an older extractor (AssetsVersion.h) stay in use until the player makes them again.
+ */
+void DrawVersionNote() {
+    std::string text;
+    const u8 hidden = sOnline.RoomList.GetOtherBuildRooms();
+    const u8 otherFiles = sOnline.RoomList.GetOtherContentRooms();
+    const PageVersion::State page = PageVersion::GetState();
+    if (page == PageVersion::State::Waiting) {
+        text = "NEW VERSION READY - RESTART TO UPDATE";
+    } else if (page == PageVersion::State::Downloading) {
+        text = "DOWNLOADING A NEW VERSION...";
+    } else if (!AssetsVersion::IsGameArchiveCurrent()) {
+        // The game offers to make them again when it starts.
+        text = "YOUR GAME FILES ARE OLD - RESTART TO REMAKE";
+    } else if ((hidden > 0) && (page == PageVersion::State::Newest)) {
+        // This page is the server's newest: the hidden rooms' hosts have to restart into it.
+        text = std::to_string(hidden) + ((hidden == 1) ? " ROOM IS ON AN OLDER VERSION" : " ROOMS ARE ON OLDER VERSIONS");
+    } else if (hidden > 0) {
+        text = std::to_string(hidden) + ((hidden == 1) ? " ROOM IS ON ANOTHER VERSION" : " ROOMS ARE ON OTHER VERSIONS");
+    } else if (otherFiles > 0) {
+        text = std::to_string(otherFiles) + ((otherFiles == 1) ? " ROOM HAS OTHER GAME FILES OR MODS"
+                                                               : " ROOMS HAVE OTHER GAME FILES OR MODS");
+    } else {
+        return;
+    }
+    set_text_color(TEXT_GREEN);
+    print_text1_center_mode_1(0xA0, 0x40, (char*) text.c_str(), 0, 0.5f, 0.5f);
+}
+
 void DrawRooms(MenuItem* item) {
     const std::vector<RelayRoomList::Room>& rooms = sOnline.RoomList.GetRooms();
     const s32 listRow = 0x66;
@@ -298,6 +332,7 @@ extern "C" void online_menu_enter(void) {
     sOnline.Current = Screen::Rooms;
     sOnline.Cursor = 0;
     RefreshRooms();
+    PageVersion::Check();
 }
 
 extern "C" void online_menu_act(struct Controller* controller) {
@@ -352,6 +387,7 @@ extern "C" void render_online_menu(MenuItem* item) {
         DrawName(item);
     } else {
         DrawRooms(item);
+        DrawVersionNote();
     }
 }
 

@@ -33,6 +33,9 @@
  *     RoomClosed u8 CloseReason
  *     RoomList   u32 request, u8 count, then per room: char code[6], char host name[16], u8 members, u8 RoomFlags
  *                The rooms with the asker's build and content that have a free slot, at most kMaxListedRooms.
+ *                Then u8 other builds, u8 other content: how many rooms with a free slot are of another build, and
+ *                of this build with other game files or mods (relays since 2026-11-13; older ones end the list
+ *                before them, and older games ignore them).
  *
  *   Client -> client, directly
  *     Punch      u8 source slot, u64 source key, u32 time          To each address a member may have, until one answers,

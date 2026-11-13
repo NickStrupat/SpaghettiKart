@@ -592,7 +592,11 @@ class RelayServer {
         }
     }
 
-    /** Answers with the joinable rooms of the asker's build and content, newest first. */
+    /**
+     * Answers with the joinable rooms of the asker's build and content, newest first, and how many joinable rooms are
+     * of another build, and of the same build with other game files: the browser build updates itself, and game files
+     * made by an older extractor stay in use until remade, so a friend's room is often hidden for one of these.
+     */
     void HandleListRooms(ByteReader& reader, const Address& from, AddressLimits& limits, Clock::time_point now) {
         const uint32_t request = reader.Read32();
         BuildId build;
@@ -606,16 +610,22 @@ class RelayServer {
             return;
         }
         std::vector<const Room*> rooms;
+        size_t otherBuilds = 0;
+        size_t otherContent = 0;
         for (const auto& [key, room] : mRooms) {
             const bool hasFreeSlot = std::count(room.Members.begin(), room.Members.end(), 0) > 0;
             if ((room.Build == build) && (room.Content == content) && hasFreeSlot) {
                 rooms.push_back(&room);
+            } else if ((room.Build != build) && hasFreeSlot) {
+                otherBuilds++;
+            } else if (hasFreeSlot) {
+                otherContent++;
             }
         }
         std::sort(rooms.begin(), rooms.end(), [](const Room* a, const Room* b) { return a->Created > b->Created; });
         rooms.resize(std::min(rooms.size(), kMaxListedRooms));
 
-        uint8_t packet[kHeaderSize + 4 + 1 + kMaxListedRooms * (kCodeLength + kNameLength + 2)];
+        uint8_t packet[kHeaderSize + 4 + 1 + kMaxListedRooms * (kCodeLength + kNameLength + 2) + 2];
         ByteWriter writer(packet, sizeof(packet));
         writer.WriteHeader(MessageType::RoomList);
         writer.Write32(request);
@@ -626,6 +636,8 @@ class RelayServer {
             writer.Write8((uint8_t) (kMaxSlots - std::count(room->Members.begin(), room->Members.end(), 0)));
             writer.Write8(room->Racing ? kRoomRacing : 0);
         }
+        writer.Write8((uint8_t) std::min<size_t>(otherBuilds, 255));
+        writer.Write8((uint8_t) std::min<size_t>(otherContent, 255));
         Send(from, packet, writer.GetSize());
     }
 

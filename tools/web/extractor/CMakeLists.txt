@@ -41,6 +41,13 @@ add_subdirectory(${SK_SOURCE_DIR}/torch torch)
 
 add_executable(extractor Extractor.cpp)
 target_link_libraries(extractor PRIVATE torch)
+# The version it stamps into the archive (src/port/AssetsVersion.h), as the game's build computes it.
+add_custom_target(AssetsVersion
+  COMMAND ${CMAKE_COMMAND} -DSOURCE_DIR=${SK_SOURCE_DIR} -DOUTPUT=${CMAKE_BINARY_DIR}/assets/AssetsVersionDefine.h
+          -P ${SK_SOURCE_DIR}/cmake/AssetsVersion.cmake
+  BYPRODUCTS ${CMAKE_BINARY_DIR}/assets/AssetsVersionDefine.h)
+add_dependencies(extractor AssetsVersion)
+target_include_directories(extractor PRIVATE ${CMAKE_BINARY_DIR}/assets)
 target_link_options(extractor PRIVATE
   # Under Emscripten, Torch defines Companion::Instance in src/lib/web.cpp, next to its JavaScript API: using it links
   # that file, whose API needs embind's runtime.

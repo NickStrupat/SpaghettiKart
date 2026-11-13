@@ -71,7 +71,8 @@ class Peer:
         self.joined(self.receive(JOINED))
 
     def list_rooms(self, request=1, build=BUILD, content=CONTENT):
-        """@returns [(code, host name, members, flags)] for each listed room."""
+        """@returns [(code, host name, members, flags)] for each listed room. Sets other_builds: the rooms left out for
+        being of another build, and other_content: those of this build with other game files."""
         self.send(header(LIST_ROOMS) + struct.pack("<I", request) + build + struct.pack("<Q", content))
         body = self.receive(ROOM_LIST)
         got_request, count = struct.unpack_from("<IB", body)
@@ -80,6 +81,7 @@ class Peer:
         for i in range(count):
             code, name, members, flags = struct.unpack_from("<6s16sBB", body, 5 + i * 24)
             rooms.append((code, name.rstrip(b"\0"), members, flags))
+        self.other_builds, self.other_content = struct.unpack_from("<BB", body, 5 + count * 24)
         return rooms
 
     def join(self, code, request=1, build=BUILD, content=CONTENT):
@@ -228,7 +230,11 @@ def main():
         browser = Peer(port)
         Peer(port).create(name=b"Other build", build=b"other".ljust(32, b"\0"))
         assert browser.list_rooms() == [(host.code, b"Host", 1, 0)], "only rooms of the same build are listed"
+        assert browser.other_builds == 1, "the rooms of other builds are counted"
+        assert browser.other_content == 0, "a room of another build is not counted as other content too"
         assert browser.list_rooms(request=2, content=CONTENT + 1) == [], "and of the same content"
+        assert browser.other_builds == 1, "a room of other content but the same build is not another build's"
+        assert browser.other_content == 1, "and is counted as other content"
         host.room_state(echo=9, racing=True)
         assert browser.list_rooms(request=3)[0][3] == ROOM_RACING, "the host's keep-alive marks the room racing"
         host.room_state(echo=10)

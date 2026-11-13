@@ -582,6 +582,8 @@ struct RelayRoomList::Impl {
     Clock::time_point LastRequestSent;
     bool HasList = false;
     std::vector<Room> Rooms;
+    u8 OtherBuilds = 0;
+    u8 OtherContent = 0;
     std::string Error;
     std::mt19937 Random{ std::random_device{}() };
 
@@ -664,10 +666,15 @@ struct RelayRoomList::Impl {
             room.Racing = (reader.Read8() & kRoomRacing) != 0;
             rooms.push_back(room);
         }
+        // Relays before 2026-11-13 do not send these.
+        const u8 otherBuilds = (reader.GetRemainingSize() > 0) ? reader.Read8() : 0;
+        const u8 otherContent = (reader.GetRemainingSize() > 0) ? reader.Read8() : 0;
         if (reader.Failed()) {
             return;
         }
         Rooms = rooms;
+        OtherBuilds = otherBuilds;
+        OtherContent = otherContent;
         HasList = true;
         Error.clear();
         Busy = false;
@@ -711,6 +718,14 @@ bool RelayRoomList::HasList() const {
 
 const std::vector<RelayRoomList::Room>& RelayRoomList::GetRooms() const {
     return mImpl->Rooms;
+}
+
+u8 RelayRoomList::GetOtherBuildRooms() const {
+    return mImpl->OtherBuilds;
+}
+
+u8 RelayRoomList::GetOtherContentRooms() const {
+    return mImpl->OtherContent;
 }
 
 const std::string& RelayRoomList::GetError() const {

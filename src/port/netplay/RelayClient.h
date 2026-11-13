@@ -111,6 +111,10 @@ class RelayRoomList {
     bool HasList() const;
     /** The rooms of the last answer, newest first. */
     const std::vector<Room>& GetRooms() const;
+    /** How many open rooms the last answer left out for being of another build (up to 255). */
+    u8 GetOtherBuildRooms() const;
+    /** How many open rooms of this build the last answer left out for other game files or mods (up to 255). */
+    u8 GetOtherContentRooms() const;
     /** Why the last request failed, or empty. */
     const std::string& GetError() const;
 

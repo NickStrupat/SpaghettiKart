@@ -10,6 +10,7 @@
 
 #include <fstream>
 
+#include "AssetsVersion.h"
 #include "Companion.h"
 #include "ship/Context.h"
 #include "spdlog/spdlog.h"
@@ -191,6 +192,8 @@ bool GameExtractor::GenerateOTR() const {
 
     Companion::Instance = new Companion(this->mGameData, ArchiveType::O2R, false, assets_path, game_path);
     Companion::Instance->SetAdditionalFiles({ "meta/mods.toml" });
+    // Which version made it, for the game to check on later starts.
+    Companion::Instance->RegisterArchiveFile(AssetsVersion::kArchiveFile, AssetsVersion::GetStamp());
 
     try {
         Companion::Instance->Init(ExportType::Binary);

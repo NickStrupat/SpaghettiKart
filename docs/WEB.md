@@ -70,6 +70,15 @@ when it has no archive; the service worker keeps them for offline play either wa
   to its own database on the first visit.
 - The archive is not byte for byte the desktop's (the zip's dates differ), but every file's name, size and CRC
   match, which is what netplay's content check compares (`NetplayIdentity.h`).
+- **Old archives.** A new Torch or changed asset descriptions make a different archive, and netplay hides the rooms of
+  players whose files differ. So each archive carries the version of what made it: `cmake/AssetsVersion.cmake` hashes
+  Torch's commit, `config.yml`, `yamls/`, `include/defines.h` and `meta/mods.toml`, both extractors write that into
+  the archive as `assetsVersion` (`src/port/AssetsVersion.h`), and the build puts it next to the page as
+  `assets-version.txt`. A kept archive with another version (or none: everything made before 2026-11-13) gets the
+  ROM asked for again, with "Not now" to play on with the old files; it is asked again on the next start. A picked
+  `mk64.o2r` of another version is refused. The page skips the check for an archive its server provides. The desktop
+  game offers the same when it starts (`ModManager.cpp`), except when a test harness started it (any `SK_`
+  environment variable).
 - Torch is a submodule this fork does not own: `tools/web/extractor/CMakeLists.txt` works around what it needs here
   (a missing `<cstdlib>`, a thread check its link flags break, embind for the file that defines `Companion::Instance`).
 
@@ -94,6 +103,11 @@ and the archive maker too, so a player can pick their ROM offline. The player's 
   checks each against its hash, and waits. The page then shows "New version ready: tap to restart" in its bottom-left
   corner, so a new version never replaces the files under a race. The tap saves the game folder, hands over to the new
   version and reloads; the old version's files are deleted then.
+- **Online play** needs both players on the same build, and the relay lists only rooms of the player's own. The ONLINE
+  screen asks the page to check for a new version when it opens (`src/port/netplay/PageVersion.h`, the page's
+  `window.skPageVersion`) and says "NEW VERSION READY - RESTART TO UPDATE" while one waits. When the relay hid rooms
+  of other builds it says how many, "on an older version" once the page knows it is the server's newest; likewise
+  for rooms of this build with other game files or mods, and it says when the player's own files are old (above).
 - **A deploy in progress.** A file that does not match the list (the server has a newer one) fails that version's
   install, and the next check tries again.
 - `tools/web-check/check.mjs` checks it offline with `run:kill <server's PID>` and `reload:`; its `click:#update`

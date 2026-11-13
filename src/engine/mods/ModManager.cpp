@@ -2,10 +2,16 @@
 #include "ModMetadata.h"
 #include "ship/resource/archive/FolderArchive.h"
 #include "ship/resource/archive/O2rArchive.h"
+#include "port/AssetsVersion.h"
 #include "port/Engine.h"
+#ifndef __EMSCRIPTEN__
+#include "port/GameExtractor.h"
+#endif
 #include "semver.hpp"
 #include "ship/utils/StringHelper.h"
 #include <cstdlib>
+#include <cstring>
+#include <filesystem>
 #include <memory>
 #include <optional>
 #include <string>
@@ -208,11 +214,65 @@ void AddCoreDependencies() {
     AddModMetadata(meta, nullptr);
 }
 
+#ifndef __EMSCRIPTEN__
+/** Whether a test harness started the game: they pass their settings as SK_ environment variables, players never do. */
+bool IsTestRun() {
+    extern char** environ;
+    for (char** variable = environ; *variable != nullptr; variable++) {
+        if (strncmp(*variable, "SK_", 3) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+#endif
+
+/**
+ * mk64.o2r was made by an older version of the extractor (AssetsVersion.h): offers to make it again from the ROM. A
+ * player who declines, or picks no ROM, plays on with the old files; the ONLINE screen keeps saying they are old.
+ */
+void OfferRemakingAssets(const std::string& mainPath) {
+#ifdef __EMSCRIPTEN__
+    // The page offers it, before the game starts (src/port/web/shell.html).
+    (void) mainPath;
+#else
+    if (IsTestRun() ||
+        (GameEngine::ShowYesNoBox("Old game files",
+                                  "mk64.o2r was made by an older version of SpaghettiKart. It still plays, but online "
+                                  "rooms of players with newer files will not show.\n\nMake it again from your ROM "
+                                  "now?") != IDYES)) {
+        return;
+    }
+    GameExtractor extractor;
+    if (!extractor.SelectGameFromUI()) {
+        return;
+    }
+    if (!extractor.ValidateChecksum().has_value()) {
+        GameEngine::ShowMessage("Unsupported ROM", "The provided ROM is not supported. The old files stay in use.");
+        return;
+    }
+    // Kept until the new archive is written, in case making it fails.
+    const std::string oldPath = mainPath + ".old";
+    std::error_code error;
+    std::filesystem::rename(mainPath, oldPath, error);
+    if (!extractor.GenerateOTR() || !std::filesystem::exists(mainPath)) {
+        std::filesystem::remove(mainPath, error);
+        std::filesystem::rename(oldPath, mainPath, error);
+        GameEngine::ShowMessage("Error", "Making the game files failed. The old files stay in use.");
+        return;
+    }
+    std::filesystem::remove(oldPath, error);
+#endif
+}
+
 void CheckMK64O2RExists() {
     const std::string main_path = Ship::Context::GetPathRelativeToAppDirectory(game_asset_file);
 
     if (!std::filesystem::exists(main_path)) {
         GenerateAssetsMods();
+    } else if (!AssetsVersion::IsCurrent(main_path)) {
+        SPDLOG_WARN("{} was made by an older extractor (this one is {})", main_path, AssetsVersion::GetCurrent());
+        OfferRemakingAssets(main_path);
     }
 }
 

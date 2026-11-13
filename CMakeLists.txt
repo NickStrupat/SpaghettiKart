@@ -165,6 +165,21 @@ add_custom_target(NetplayBuildId
 add_dependencies(${PROJECT_NAME} NetplayBuildId)
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_BINARY_DIR}/netplay)
 
+# Which extractor made mk64.o2r (see cmake/AssetsVersion.cmake and src/port/AssetsVersion.h). The browser build's page
+# reads it from assets-version.txt, next to it.
+set(ASSETS_VERSION_HEADER ${CMAKE_BINARY_DIR}/assets/AssetsVersionDefine.h)
+if(EMSCRIPTEN)
+  set(ASSETS_VERSION_TEXT ${CMAKE_BINARY_DIR}/web/assets-version.txt)
+else()
+  set(ASSETS_VERSION_TEXT "")
+endif()
+add_custom_target(AssetsVersion
+  COMMAND ${CMAKE_COMMAND} -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR} -DOUTPUT=${ASSETS_VERSION_HEADER}
+          -DTEXT_OUTPUT=${ASSETS_VERSION_TEXT} -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/AssetsVersion.cmake
+  BYPRODUCTS ${ASSETS_VERSION_HEADER})
+add_dependencies(${PROJECT_NAME} AssetsVersion)
+target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_BINARY_DIR}/assets)
+
 target_include_directories(
   ${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
                           ${CMAKE_CURRENT_SOURCE_DIR}/include

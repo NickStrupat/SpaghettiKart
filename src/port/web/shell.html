@@ -45,8 +45,8 @@
   #update { position: fixed; left: 8px; bottom: 8px; padding: 10px 14px; border: 0; border-radius: 8px;
             background: rgba(0, 0, 0, 0.85); color: #fff; font: inherit; font-size: 15px; cursor: pointer; }
   #update[hidden] { display: none; }
-  #picker { pointer-events: auto; }
-  #picker[hidden] { display: none; }
+  #picker, #later { pointer-events: auto; }
+  #picker[hidden], #later[hidden] { display: none; }
 </style>
 </head>
 <body>
@@ -57,6 +57,7 @@
 <div id="overlay">
   <div id="status">Loading…</div>
   <input id="picker" type="file" accept=".z64,.n64,.v64,.zip,.o2r" hidden>
+  <button id="later" type="button" hidden>Not now</button>
 </div>
 <script>
 // ?dbg=1 shows what the game and the browser are doing, in the top-left corner, to find out where the time goes (see
@@ -103,11 +104,14 @@ if (dbgEnabled) {
 }
 const statusElement = document.getElementById('status');
 const pickerElement = document.getElementById('picker');
+const laterElement = document.getElementById('later');
 
 // The game's files: the two archives it reads everything from. spaghetti.o2r is the port's own and must be next to
 // this page. mk64.o2r holds the game's own data: when the server has none, the player is asked for their ROM, which
 // ExtractWorker.js turns into it here.
 const kGameArchive = 'mk64.o2r';
+// The file in mk64.o2r naming the version of the archive maker that made it (src/port/AssetsVersion.h).
+const kAssetsVersionFile = 'assetsVersion';
 const kPortArchive = 'spaghetti.o2r';
 // The one ROM the archive maker knows: Mario Kart 64 (US), by the SHA-1 of its .z64 form (as src/port/GameExtractor.cpp).
 const kRomSha1 = '579c48e211ae952530ffc8738709f078d5dd215e';
@@ -286,13 +290,11 @@ function isGameArchive(bytes) {
   return false;
 }
 
-/**
- * The biggest file in a zip, which is the ROM in a zipped dump; null when these bytes are no zip or hold nothing
- * the browser can unpack (it does stored and deflated files).
- */
-async function romFromZip(bytes) {
+/** The files a zip's directory lists, with where each is; null when these bytes are no zip. */
+function zipEntries(bytes) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   let end = -1;
+  // The end-of-directory record is in the last 64 KB, behind an optional comment.
   for (let at = bytes.length - 22; at >= Math.max(0, bytes.length - 22 - 0xffff); at--) {
     if (view.getUint32(at, true) === 0x06054b50) {
       end = at;
@@ -302,45 +304,103 @@ async function romFromZip(bytes) {
   if (end < 0) {
     return null;
   }
-  let best = null;
+  const entries = [];
   let at = view.getUint32(end + 16, true);
   for (let n = view.getUint16(end + 10, true); n > 0 && at + 46 <= bytes.length; n--) {
     if (view.getUint32(at, true) !== 0x02014b50) {
       return null;
     }
-    const entry = {
+    const nameLength = view.getUint16(at + 28, true);
+    entries.push({
+      name: new TextDecoder('latin1').decode(bytes.subarray(at + 46, at + 46 + nameLength)),
       method: view.getUint16(at + 10, true),
       packed: view.getUint32(at + 20, true),
       size: view.getUint32(at + 24, true),
       header: view.getUint32(at + 42, true),
-    };
-    if ((best === null || entry.size > best.size) && (entry.method === 0 || entry.method === 8)) {
-      best = entry;
-    }
-    at += 46 + view.getUint16(at + 28, true) + view.getUint16(at + 30, true) + view.getUint16(at + 32, true);
+    });
+    at += 46 + nameLength + view.getUint16(at + 30, true) + view.getUint16(at + 32, true);
   }
-  if (best === null || view.getUint32(best.header, true) !== 0x04034b50) {
+  return entries;
+}
+
+/** One file of a zip, unpacked; null when the browser cannot unpack it (it does stored and deflated files). */
+async function unpackZipEntry(bytes, entry) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if ((entry.method !== 0 && entry.method !== 8) || entry.header + 30 > bytes.length ||
+      view.getUint32(entry.header, true) !== 0x04034b50) {
     return null;
   }
-  const start = best.header + 30 + view.getUint16(best.header + 26, true) + view.getUint16(best.header + 28, true);
-  const data = bytes.subarray(start, start + best.packed);
-  if (best.method === 0) {
+  const start = entry.header + 30 + view.getUint16(entry.header + 26, true) + view.getUint16(entry.header + 28, true);
+  const data = bytes.subarray(start, start + entry.packed);
+  if (entry.method === 0) {
     return data;
   }
   const stream = new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
-/** The game's archive, made here from the ROM the player picks. */
-async function askForGameArchive() {
+/** The biggest file in a zip, which is the ROM in a zipped dump; null when there is none the browser can unpack. */
+async function romFromZip(bytes) {
+  const entries = (zipEntries(bytes) || []).filter((entry) => entry.method === 0 || entry.method === 8);
+  if (entries.length === 0) {
+    return null;
+  }
+  return unpackZipEntry(bytes, entries.reduce((best, entry) => (entry.size > best.size ? entry : best)));
+}
+
+/**
+ * Which version of the archive maker made this mk64.o2r (src/port/AssetsVersion.h): the text of its assetsVersion
+ * file; empty for one made before 2026-11-13, which has none.
+ */
+async function readAssetsVersion(archive) {
+  const entry = (zipEntries(archive) || []).find((candidate) => candidate.name === kAssetsVersionFile);
+  const text = entry ? await unpackZipEntry(archive, entry).catch(() => null) : null;
+  return text ? new TextDecoder().decode(text) : '';
+}
+
+/** This page's version of the archive maker: what a current mk64.o2r carries. Null when the server has no list. */
+async function fetchAssetsVersion() {
+  const response = await fetch('assets-version.txt').catch(() => null);
+  return response && response.ok ? (await response.text()).trim() : null;
+}
+
+/** The player's choice of a file, or null when they pressed "Not now". */
+function pickFileOrLater() {
+  laterElement.hidden = false;
+  return Promise.race([
+    pickFile(),
+    new Promise((resolve) => { laterElement.onclick = () => resolve(null); }),
+  ]).finally(() => {
+    laterElement.hidden = true;
+    pickerElement.hidden = true;
+  });
+}
+
+/**
+ * The game's archive, made here from the ROM the player picks. With currentVersion, the kept archive is older than
+ * that (readAssetsVersion): the player may say "Not now" and keep it, which returns null.
+ */
+async function askForGameArchive(currentVersion = null) {
   let problem = '';
   for (;;) {
-    showStatus(`${problem}Choose your Mario Kart 64 ROM (US version; .z64, .n64 or .v64, or a zip of one). The game's files are made ` +
+    const intro = currentVersion === null ? '' :
+      'Your game files were made by an older version of SpaghettiKart. They still play, but online rooms of players ' +
+      'with newer files will not show.\n\n';
+    showStatus(`${problem}${intro}Choose your Mario Kart 64 ROM (US version; .z64, .n64 or .v64, or a zip of one). The game's files are made ` +
                'from it right here and kept in this browser; nothing is uploaded.\n\n' +
                'An mk64.o2r made by the desktop game works too, and needs no making.');
-    let file = await pickFile();
+    let file = currentVersion === null ? await pickFile() : await pickFileOrLater();
+    if (file === null) {
+      return null;
+    }
     // The archive itself, from the desktop game's folder: nothing to make. Phones short of memory need this.
     if (isGameArchive(file)) {
+      const expected = currentVersion || await fetchAssetsVersion();
+      if (expected !== null && await readAssetsVersion(file) !== expected) {
+        problem = 'That mk64.o2r was made by an older version of SpaghettiKart: choose your ROM instead, or an ' +
+                  'mk64.o2r the desktop game made after offering to make its files again.\n\n';
+        continue;
+      }
       return file;
     }
     if (file[0] === 0x50 && file[1] === 0x4b) {
@@ -462,7 +522,16 @@ async function findGameArchive() {
     kept = null;
     archiveKept = false;
   }
-  const archive = kept || await askForGameArchive();
+  let archive = kept || await askForGameArchive();
+  // Made by an older archive maker: netplay would hide the rooms of players with current files (AssetsVersion.h).
+  const currentVersion = kept !== null ? await fetchAssetsVersion() : null;
+  if (currentVersion !== null && await readAssetsVersion(kept) !== currentVersion) {
+    const remade = await askForGameArchive(currentVersion);
+    if (remade !== null) {
+      archive = remade;
+      archiveKept = false;
+    }
+  }
   if (!archiveKept) {
     try {
       await keepArchive(archive);
@@ -574,26 +643,51 @@ startGame().catch((error) => {
 // Offline: sw.js keeps a copy of every file this page loads, and the page starts from it, network or not. A new version
 // (a changed sw.js, checked whenever the page opens and on returning to it) is downloaded in the background and waits
 // for the player's restart, so that it never replaces the files under a game in progress.
+// What the game's online menu shows of it (src/port/netplay/PageVersion.h): its state is 'unknown', 'downloading',
+// 'waiting' (for the restart) or 'newest' (the server has nothing newer).
+window.skPageVersion = { state: 'unknown', check: () => {} };
 if ('serviceWorker' in navigator) {
   const updateButton = document.getElementById('update');
   navigator.serviceWorker.register('sw.js').then((registration) => {
     const offerRestart = () => {
       // Without a controller this is the first version kept, which is in use already.
-      updateButton.hidden = !(registration.waiting && navigator.serviceWorker.controller);
+      const waiting = !!(registration.waiting && navigator.serviceWorker.controller);
+      updateButton.hidden = !waiting;
+      if (waiting) {
+        skPageVersion.state = 'waiting';
+      }
     };
     registration.addEventListener('updatefound', () => {
       const worker = registration.installing;
+      if (navigator.serviceWorker.controller) {
+        skPageVersion.state = 'downloading';
+      }
       worker.addEventListener('statechange', () => {
         if (worker.state === 'installed') {
           offerRestart();
+        } else if (worker.state === 'redundant' && skPageVersion.state === 'downloading') {
+          // Its download failed; the next check tries again.
+          skPageVersion.state = 'unknown';
         }
       });
     });
     offerRestart();
+    skPageVersion.check = () => {
+      registration.update().then(() => {
+        if (!registration.installing && !registration.waiting) {
+          skPageVersion.state = 'newest';
+        }
+      }).catch(() => {
+        // No network: what was known stands, but "newest" may no longer be true.
+        if (skPageVersion.state === 'newest') {
+          skPageVersion.state = 'unknown';
+        }
+      });
+    };
     // An app on the home screen comes back without opening the page again.
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') {
-        registration.update().catch(() => {});
+        skPageVersion.check();
       }
     });
     updateButton.addEventListener('click', async () => {
