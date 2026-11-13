@@ -86,3 +86,12 @@ add_custom_command(
   COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/src/port/web/manifest.webmanifest ${WEB_DIR}/
   COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/icon.png ${WEB_DIR}/
   VERBATIM)
+
+# The service worker, which keeps the files above for playing offline (src/port/web/sw.js), with their list and
+# hashes. Written after every build, as a target of its own: the archive maker's files can change without the game
+# relinking.
+add_custom_target(WebServiceWorker ALL
+  COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_SOURCE_DIR}/tools/web/make-sw.py ${CMAKE_SOURCE_DIR}/src/port/web/sw.js
+          ${WEB_DIR}
+  VERBATIM)
+add_dependencies(WebServiceWorker ${PROJECT_NAME})

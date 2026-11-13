@@ -41,6 +41,10 @@
   #hint { position: fixed; right: 8px; bottom: 56px; max-width: 18em; padding: 12px 14px; border-radius: 8px;
           background: rgba(0, 0, 0, 0.85); color: #fff; font-size: 15px; line-height: 1.4; }
   #hint[hidden] { display: none; }
+  /* Bottom left, away from the full-screen button. */
+  #update { position: fixed; left: 8px; bottom: 8px; padding: 10px 14px; border: 0; border-radius: 8px;
+            background: rgba(0, 0, 0, 0.85); color: #fff; font: inherit; font-size: 15px; cursor: pointer; }
+  #update[hidden] { display: none; }
   #picker { pointer-events: auto; }
   #picker[hidden] { display: none; }
 </style>
@@ -48,6 +52,7 @@
 <body>
 <canvas id="canvas" tabindex="-1" oncontextmenu="event.preventDefault()"></canvas>
 <button id="fullscreen" type="button" title="Full screen" aria-label="Full screen" hidden>&#x26F6;</button>
+<button id="update" type="button" hidden>New version ready: tap to restart</button>
 <div id="hint" hidden>For full screen: tap the Share button in Safari, then Add to Home Screen, and open the game from its icon.</div>
 <div id="overlay">
   <div id="status">Loading…</div>
@@ -161,11 +166,15 @@ function syncStorage(fromStorage) {
 
 let savedFiles = new Map();
 let storageBusy = false;
+let storageWrite = Promise.resolve();
 
-/** Copies what the game changed in its folder to the browser's storage. */
+/**
+ * Copies what the game changed in its folder to the browser's storage. The promise is for the write in progress, which
+ * may have started before this call: once it settles, a second call saves what came after.
+ */
 function saveChanges() {
   if (storageBusy) {
-    return;
+    return storageWrite;
   }
   const files = listFiles(kGameDir, kNotSaved);
   let changed = false;
@@ -184,9 +193,10 @@ function saveChanges() {
   savedFiles = files;
   if (changed) {
     storageBusy = true;
-    syncStorage(false).catch((error) => console.error('Saving to the browser\'s storage failed', error))
+    storageWrite = syncStorage(false).catch((error) => console.error('Saving to the browser\'s storage failed', error))
       .finally(() => { storageBusy = false; });
   }
+  return storageWrite;
 }
 
 /** The player's choice of a file, once they made it. */
@@ -360,9 +370,10 @@ async function askForGameArchive() {
   }
 }
 
+/** The server's copy of an archive; null when it has none or cannot be reached (playing offline). */
 async function fetchArchive(name) {
-  const response = await fetch(name);
-  return response.ok ? new Uint8Array(await response.arrayBuffer()) : null;
+  const response = await fetch(name).catch(() => null);
+  return response && response.ok ? new Uint8Array(await response.arrayBuffer()) : null;
 }
 
 function requestResult(request) {
@@ -560,6 +571,49 @@ startGame().catch((error) => {
   console.error(error);
   showStatus(String(error.message || error));
 });
+// Offline: sw.js keeps a copy of every file this page loads, and the page starts from it, network or not. A new version
+// (a changed sw.js, checked whenever the page opens and on returning to it) is downloaded in the background and waits
+// for the player's restart, so that it never replaces the files under a game in progress.
+if ('serviceWorker' in navigator) {
+  const updateButton = document.getElementById('update');
+  navigator.serviceWorker.register('sw.js').then((registration) => {
+    const offerRestart = () => {
+      // Without a controller this is the first version kept, which is in use already.
+      updateButton.hidden = !(registration.waiting && navigator.serviceWorker.controller);
+    };
+    registration.addEventListener('updatefound', () => {
+      const worker = registration.installing;
+      worker.addEventListener('statechange', () => {
+        if (worker.state === 'installed') {
+          offerRestart();
+        }
+      });
+    });
+    offerRestart();
+    // An app on the home screen comes back without opening the page again.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        registration.update().catch(() => {});
+      }
+    });
+    updateButton.addEventListener('click', async () => {
+      updateButton.hidden = true;
+      // The write in progress, then what came after it. Before the game has its folder there is nothing to save.
+      try {
+        await saveChanges();
+        await saveChanges();
+      } catch (error) {
+        console.log('Nothing saved before the restart', error);
+      }
+      navigator.serviceWorker.addEventListener('controllerchange', () => location.reload());
+      if (registration.waiting) {
+        registration.waiting.postMessage('activate');
+      } else {
+        location.reload();
+      }
+    });
+  }).catch((error) => console.error('Keeping the page for offline play failed', error));
+}
 // SDL sizes the game's picture to the canvas only on the window's resize event (Emscripten_HandleResize in its
 // SDL_emscriptenevents.c). Turned to landscape, the iPhone's home-screen app lays the page out again after that event,
 // and the picture kept a size that no longer matched the canvas: stretched, or black. Each change of the canvas's own

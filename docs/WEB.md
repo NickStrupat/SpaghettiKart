@@ -55,7 +55,7 @@ On the desktop, the game's first start makes `mk64.o2r` from the player's ROM wi
 The page does the same with Torch compiled to WebAssembly on its own (`tools/web/extractor/`), built by the
 `WebExtractor` step of `cmake/web/WebTarget.cmake`: `extractor.wasm` (1.5 MB), and `extractor.data` (8 MB, Torch's
 asset descriptions from `config.yml`, `yamls/`, `include/defines.h` and `meta/mods.toml`). The page loads them only
-when it has no archive.
+when it has no archive; the service worker keeps them for offline play either way (below).
 
 - `src/port/web/shell.html` puts the ROM in `.z64` byte order and checks its SHA-1 against the US version's; then
   `src/port/web/ExtractWorker.js` runs Torch on a worker, so the page keeps drawing its message. The archive is kept
@@ -79,6 +79,25 @@ A button in the page's bottom-right corner (`shell.html`) makes it full screen w
 API: desktop browsers and iPad. Safari on an iPhone allows it for videos only, so there the button shows how: Share > Add to Home
 Screen: `manifest.webmanifest` and the `apple-mobile-web-app-*` tags open the page as an app without the browser's bars.
 Picture in picture is not possible: it is for videos, and iOS stops a page's drawing and game loop when it is left.
+
+## Offline
+
+The page starts without a network once it has been opened online one time, as a tab or from the home screen.
+`src/port/web/sw.js`, a service worker, keeps a copy of every file the page loads (about 21 MB): the game, `spaghetti.o2r`
+and the archive maker too, so a player can pick their ROM offline. The player's `mk64.o2r` is kept by the page itself
+(above). Online play needs the network, of course.
+
+- **The list.** `tools/web/make-sw.py` writes `build-web/web/sw.js` after every build (the `WebServiceWorker` target)
+  with each file's SHA-256. Any change to a file changes `sw.js`, which is how the browser learns of a new version.
+- **Updates.** The browser checks `sw.js` whenever the page opens, and the page asks again on returning to it (a home
+  screen app comes back without opening the page). A new version's worker downloads only the files whose hash changed,
+  checks each against its hash, and waits. The page then shows "New version ready: tap to restart" in its bottom-left
+  corner, so a new version never replaces the files under a race. The tap saves the game folder, hands over to the new
+  version and reloads; the old version's files are deleted then.
+- **A deploy in progress.** A file that does not match the list (the server has a newer one) fails that version's
+  install, and the next check tries again.
+- `tools/web-check/check.mjs` checks it offline with `run:kill <server's PID>` and `reload:`; its `click:#update`
+  presses the restart button. Its Chrome starts with an empty profile each run, so other checks never see a kept copy.
 
 ## Testing
 
