@@ -560,6 +560,11 @@ startGame().catch((error) => {
   console.error(error);
   showStatus(String(error.message || error));
 });
+// SDL sizes the game's picture to the canvas only on the window's resize event (Emscripten_HandleResize in its
+// SDL_emscriptenevents.c). Turned to landscape, the iPhone's home-screen app lays the page out again after that event,
+// and the picture kept a size that no longer matched the canvas: stretched, or black. Each change of the canvas's own
+// size, known once the layout is done, is passed on as one more resize event.
+new ResizeObserver(() => window.dispatchEvent(new Event('resize'))).observe(Module.canvas);
 // The full-screen button: where the browser allows the Fullscreen API (desktop, iPad) it makes the page full screen.
 // Safari on an iPhone does not, so there it explains how to install the page as an app, which has no browser bars. The
 // button is gone once the page is full screen or installed.

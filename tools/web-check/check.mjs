@@ -12,6 +12,7 @@
 //   eval:<JavaScript>  run in the page and print the result; FS is the game's file system
 //   pick:<mk64.o2r>    answer the page's request for the player's file, on a server that has none (the public one)
 //   reload:
+//   viewport:<W>x<H>[@<scale>][,touch]   resize the page, as turning a phone does (390x844@3,touch is an iPhone)
 // CHROME=<path> picks another Chrome than the one in /Applications. Without --use-angle=metal a headless Chrome draws
 // with a software renderer, far too slowly for the game.
 import puppeteer from 'puppeteer-core';
@@ -71,6 +72,10 @@ try {
     } else if (kind === 'pick') {
       const picker = await page.waitForSelector('#picker:not([hidden])', { timeout: 120000 });
       await picker.uploadFile(value);
+    } else if (kind === 'viewport') {
+      const [, w, h, scale, touch] = value.match(/^(\d+)x(\d+)(?:@([\d.]+))?(,touch)?$/);
+      await page.setViewport({ width: Number(w), height: Number(h), deviceScaleFactor: Number(scale || 1),
+                               isMobile: !!touch, hasTouch: !!touch, isLandscape: Number(w) > Number(h) });
     } else if (kind === 'reload') {
       await page.reload({ waitUntil: 'load' });
     } else {
