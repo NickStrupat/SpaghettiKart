@@ -7,8 +7,8 @@ static const char engine_asset_file[] = "spaghetti.o2r";
 
 #define LOAD_ASSET(path) \
 (path == NULL ? NULL \
-  : (GameEngine_OTRSigCheck((const char*) path) ? ResourceGetDataByName((const char*) path) : path))
-#define LOAD_ASSET_RAW(path) ResourceGetDataByName((const char*) path)
+  : (GameEngine_OTRSigCheck((const char*) path) ? GameEngine_GetResourceDataByName((const char*) path) : path))
+#define LOAD_ASSET_RAW(path) GameEngine_GetResourceDataByName((const char*) path)
 
 #ifdef __cplusplus
 #include <vector>
@@ -133,6 +133,13 @@ uint32_t GameEngine_GetSequenceCount();
 uint8_t GameEngine_IsSequenceLoaded(uint8_t seqId);
 void GameEngine_UnloadSequence(uint8_t seqId);
 // bool GameEngine_OTRSigCheck(char* imgData); -> align_asset_macro.h
+// Documented in align_asset_macro.h, which C files include instead
+void* GameEngine_GetResourceDataByName(const char* name);
+size_t GameEngine_GetResourceSizeByName(const char* name);
+void* GameEngine_GetResourceDataByCrc(uint64_t crc);
+size_t GameEngine_GetTexSizeByName(const char* name);
+uint16_t GameEngine_GetTexWidthByName(const char* name);
+uint16_t GameEngine_GetTexHeightByName(const char* name);
 float OTRGetAspectRatio(void);
 float OTRGetDimensionFromLeftEdge(float v);
 float OTRGetDimensionFromRightEdge(float v);

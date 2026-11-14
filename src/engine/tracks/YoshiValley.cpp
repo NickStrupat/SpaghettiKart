@@ -38,8 +38,8 @@ extern "C" {
 
 YoshiValley::YoshiValley() {
     Props.Minimap.Texture = minimap_yoshi_valley;
-    Props.Minimap.Width = ResourceGetTexWidthByName(Props.Minimap.Texture);
-    Props.Minimap.Height = ResourceGetTexHeightByName(Props.Minimap.Texture);
+    Props.Minimap.Width = GameEngine_GetTexWidthByName(Props.Minimap.Texture);
+    Props.Minimap.Height = GameEngine_GetTexHeightByName(Props.Minimap.Texture);
     Props.Minimap.PlayerX = 61;
     Props.Minimap.PlayerY = 38;
     Props.Minimap.PlayerScaleFactor = 0.018f;

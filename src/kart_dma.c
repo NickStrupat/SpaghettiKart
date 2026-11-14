@@ -674,14 +674,14 @@ void load_kart_palette(Player* player, s8 playerId, s8 screenId, s8 buffer) {
         case SCREEN_MODE_2P_SPLITSCREEN_VERTICAL:
             osInvalDCache(temp_s0, sizeof(struct_D_802F1F80));
 
-            size = ResourceGetTexSizeByName((const char*) gKartPalettes[player->characterId]);
+            size = GameEngine_GetTexSizeByName((const char*) gKartPalettes[player->characterId]);
             asset = (u8*) LOAD_ASSET(gKartPalettes[player->characterId]);
             memcpy(&temp_s0->kart_palette[0], asset, size);
             break;
         case SCREEN_MODE_3P_4P_SPLITSCREEN: // Code identical to above
             osInvalDCache(temp_s0, sizeof(struct_D_802F1F80));
 
-            size = ResourceGetTexSizeByName((const char*) gKartPalettes[player->characterId]);
+            size = GameEngine_GetTexSizeByName((const char*) gKartPalettes[player->characterId]);
             asset = (u8*) LOAD_ASSET(gKartPalettes[player->characterId]);
             memcpy(&temp_s0->kart_palette[0], asset, size);
             break;
@@ -715,7 +715,7 @@ void load_wheel_palette_non_blocking(UNUSED Player* player, const char* texture,
                  (uintptr_t) &_kart_texturesSegmentRomStart[SEGMENT_OFFSET(arg1)], vAddr, size, &gDmaMesgQueue);
 #else
     u16* tex = (u16*) LOAD_ASSET(texture);
-    // size_t textureSize = ResourceGetTexSizeByName(texture);
+    // size_t textureSize = GameEngine_GetTexSizeByName(texture);
     memcpy(vAddr, tex, size);
 #endif
 }

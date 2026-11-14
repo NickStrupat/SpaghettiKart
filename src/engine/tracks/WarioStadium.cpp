@@ -39,8 +39,8 @@ extern s16 currentScreenSection;
 
 WarioStadium::WarioStadium() {
     Props.Minimap.Texture = minimap_wario_stadium;
-    Props.Minimap.Width = ResourceGetTexWidthByName(Props.Minimap.Texture);
-    Props.Minimap.Height = ResourceGetTexHeightByName(Props.Minimap.Texture);
+    Props.Minimap.Width = GameEngine_GetTexWidthByName(Props.Minimap.Texture);
+    Props.Minimap.Height = GameEngine_GetTexHeightByName(Props.Minimap.Texture);
     Props.Minimap.Pos[0].X = 262;
     Props.Minimap.Pos[0].Y = 170;
     Props.Minimap.PlayerX = 53;

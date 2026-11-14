@@ -31,7 +31,7 @@ void render_actor_kiwano_fruit(UNUSED Camera* camera, Mat4 arg1, struct Actor* a
 
     // Animate actor by creating an index from rot[0]. Divide by texture size to get whole number 0-2.
     // All three animated textures need to be the same size for this to work.
-    size_t idx = (actor->rot[0] << 0xA) / ResourceGetTexSizeByName(gTextureDksJungleParkwayKiwanoFruit1);
+    size_t idx = (actor->rot[0] << 0xA) / GameEngine_GetTexSizeByName(gTextureDksJungleParkwayKiwanoFruit1);
     switch(idx) {
         case 0:
             addr = (uintptr_t) gTextureDksJungleParkwayKiwanoFruit1;

@@ -26,8 +26,8 @@ CustomTrack::CustomTrack() {
     Props.SetText(Props.TrackLength, "100m", sizeof(Props.TrackLength));
     ResourceName = "mod:blank_track";
     Props.Minimap.Texture = minimap_mario_raceway;
-    Props.Minimap.Width = ResourceGetTexWidthByName(Props.Minimap.Texture);
-    Props.Minimap.Height = ResourceGetTexHeightByName(Props.Minimap.Texture);
+    Props.Minimap.Width = GameEngine_GetTexWidthByName(Props.Minimap.Texture);
+    Props.Minimap.Height = GameEngine_GetTexHeightByName(Props.Minimap.Texture);
     Props.Minimap.Pos[0].X = 257;
     Props.Minimap.Pos[0].Y = 170;
     Props.Minimap.PlayerX = 0;
@@ -123,7 +123,7 @@ void CustomTrack::Load() {
         return;
     }
 
-    size_t numMesh = ( ResourceGetSizeByName(meshPath.c_str()) / sizeof(TrackSections) );
+    size_t numMesh = ( GameEngine_GetResourceSizeByName(meshPath.c_str()) / sizeof(TrackSections) );
 
     /** Iterate over meshes **/
     for (size_t i = 0; i < numMesh; i++) {
@@ -164,7 +164,7 @@ void CustomTrack::InvertTriangleWindingModdedByName(const char* name) {
     if (name == nullptr) {
         return;
     }
-    Gfx* gfx = (Gfx*)ResourceGetDataByName(name);
+    Gfx* gfx = (Gfx*)GameEngine_GetResourceDataByName(name);
     InvertTriangleWindingModdedInternal(gfx, name);
 }
 
@@ -194,7 +194,7 @@ void CustomTrack::ParseMeshForCollision(TrackSections* sections, size_t numMesh)
 
         const char* name = ResourceGetNameByCrc(sections[i].crc);
         printf("  %s\n", name);
-        generate_collision_mesh((Gfx*) ResourceGetDataByCrc(sections[i].crc), sections[i].surfaceType,
+        generate_collision_mesh((Gfx*) GameEngine_GetResourceDataByCrc(sections[i].crc), sections[i].surfaceType,
                                 sections[i].sectionId);
     }
     printf("[Track] Collision Mesh Generation Complete!\n\n");
@@ -263,10 +263,10 @@ void CustomTrack::Draw(ScreenContext* arg0) {
     std::string res = info->Path + "/data_track_sections";
 
     TrackSections* sections = (TrackSections*) LOAD_ASSET_RAW(res.c_str());
-    size_t size = ResourceGetSizeByName(res.c_str());
+    size_t size = GameEngine_GetResourceSizeByName(res.c_str());
     size_t totalSections = size / sizeof(TrackSections);
     for (uint64_t item : mOpaqueItems) {
-        gSPDisplayList(gDisplayListHead++, (Gfx*) ResourceGetDataByCrc(item));
+        gSPDisplayList(gDisplayListHead++, (Gfx*) GameEngine_GetResourceDataByCrc(item));
     }
 }
 
@@ -293,7 +293,7 @@ void CustomTrack::DrawTransparency(ScreenContext* screen, uint16_t pathCounter, 
         FrameInterpolation_RecordOpenChild("translucent_obj", (item.crc << 4) | screen - gScreenContexts);
         ApplyMatrixTransformations(matrix, pos, IRotator(0, 0, 0), FVector(1, 1, 1));
         AddObjectMatrix(matrix, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
-        gSPDisplayList(gDisplayListHead++, (Gfx*) ResourceGetDataByCrc(item.crc));
+        gSPDisplayList(gDisplayListHead++, (Gfx*) GameEngine_GetResourceDataByCrc(item.crc));
         FrameInterpolation_RecordCloseChild();
     }
 
@@ -304,7 +304,7 @@ void CustomTrack::DrawTransparency(ScreenContext* screen, uint16_t pathCounter, 
         FrameInterpolation_RecordOpenChild("translucent_no_z", (item.crc << 4) | screen - gScreenContexts);
         ApplyMatrixTransformations(matrix, pos, IRotator(0, 0, 0), FVector(1, 1, 1));
         AddObjectMatrix(matrix, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
-        gSPDisplayList(gDisplayListHead++, (Gfx*) ResourceGetDataByCrc(item.crc));
+        gSPDisplayList(gDisplayListHead++, (Gfx*) GameEngine_GetResourceDataByCrc(item.crc));
         FrameInterpolation_RecordCloseChild();
     }
     gSPSetGeometryMode(gDisplayListHead++, G_ZBUFFER);

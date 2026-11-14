@@ -287,7 +287,7 @@ u8* load_lakitu_tlut_x64(const char** textureList, size_t length) {
     // Calculate lakitu texture size to allocate
     size_t size = 0;
     for (size_t i = 0; i < length; i++) {
-        size += ResourceGetTexSizeByName(textureList[i]);
+        size += GameEngine_GetTexSizeByName(textureList[i]);
     }
 
     u8* textures = (u8*) gNextFreeMemoryAddress;
@@ -295,7 +295,7 @@ u8* load_lakitu_tlut_x64(const char** textureList, size_t length) {
     size_t offset = 0;
     for (size_t i = 0; i < length; i++) {
         u8* tex = (u8*) LOAD_ASSET_RAW(textureList[i]);
-        size_t texSize = ResourceGetTexSizeByName(textureList[i]);
+        size_t texSize = GameEngine_GetTexSizeByName(textureList[i]);
         // printf("\nTEX SIZE: %X\n\n", texSize);
         memcpy(&textures[offset], tex, texSize);
         offset += texSize;

@@ -36,8 +36,8 @@ extern "C" {
 
 RainbowRoad::RainbowRoad() {
     Props.Minimap.Texture = minimap_rainbow_road;
-    Props.Minimap.Width = ResourceGetTexWidthByName(Props.Minimap.Texture);
-    Props.Minimap.Height = ResourceGetTexHeightByName(Props.Minimap.Texture);
+    Props.Minimap.Width = GameEngine_GetTexWidthByName(Props.Minimap.Texture);
+    Props.Minimap.Height = GameEngine_GetTexHeightByName(Props.Minimap.Texture);
     Props.Minimap.Pos[0].X = 261;
     Props.Minimap.Pos[0].Y = 166;
     Props.Minimap.PlayerX = 39;

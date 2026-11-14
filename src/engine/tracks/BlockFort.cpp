@@ -36,8 +36,8 @@ extern s16 currentScreenSection;
 
 BlockFort::BlockFort() {
     Props.Minimap.Texture = minimap_block_fort;
-    Props.Minimap.Width = ResourceGetTexWidthByName(Props.Minimap.Texture);
-    Props.Minimap.Height = ResourceGetTexHeightByName(Props.Minimap.Texture);
+    Props.Minimap.Width = GameEngine_GetTexWidthByName(Props.Minimap.Texture);
+    Props.Minimap.Height = GameEngine_GetTexHeightByName(Props.Minimap.Texture);
     Props.Minimap.Pos[0].X = 257;
     Props.Minimap.Pos[0].Y = 170;
     Props.Minimap.PlayerX = 32;

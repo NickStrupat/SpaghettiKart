@@ -2043,10 +2043,10 @@ void generate_collision_mesh(Gfx* addr, s8 surfaceType, u16 sectionId) {
             case G_DL_OTR_HASH:
                 gfx++;
                 uint64_t hash = ((uint64_t)gfx->words.w0) << 32 | gfx->words.w1;
-                generate_collision_mesh(ResourceGetDataByCrc(hash), surfaceType, sectionId);
+                generate_collision_mesh(GameEngine_GetResourceDataByCrc(hash), surfaceType, sectionId);
                 break;
             case G_DL_OTR_FILEPATH:
-                generate_collision_mesh(ResourceGetDataByName((const char*)hi), surfaceType, sectionId);
+                generate_collision_mesh(GameEngine_GetResourceDataByName((const char*)hi), surfaceType, sectionId);
                 break;
             case G_VTX:{
                 uintptr_t ptr = hi;
@@ -2064,7 +2064,7 @@ void generate_collision_mesh(Gfx* addr, s8 surfaceType, u16 sectionId) {
                 size_t count = gfx->words.w0;
                 size_t index = (gfx->words.w1 >> 16);
                 size_t vtxDataOff = gfx->words.w1 & 0xFFFF;
-                Vtx* vtx = ( (Vtx*)ResourceGetDataByName(filePath) ) + vtxDataOff;
+                Vtx* vtx = ( (Vtx*)GameEngine_GetResourceDataByName(filePath) ) + vtxDataOff;
 
                 set_vtx_buffer((uintptr_t) vtx, count, index);
                 break;
@@ -2075,7 +2075,7 @@ void generate_collision_mesh(Gfx* addr, s8 surfaceType, u16 sectionId) {
                 int numVerts = (lo >> 12) & ((1<<8)-1);
                 int bufferIndex = ((lo >> 1) & ((1<<7)-1));
                 bufferIndex = numVerts - bufferIndex; 
-                set_vtx_buffer((uintptr_t) ResourceGetDataByCrc(hash), numVerts, bufferIndex);
+                set_vtx_buffer((uintptr_t) GameEngine_GetResourceDataByCrc(hash), numVerts, bufferIndex);
                 break;
             case G_TRI1:
                 D_8015F58C += 1;
@@ -2132,7 +2132,7 @@ bool is_cull_box(const char* filePath) {
 void find_and_set_tile_size(uintptr_t addr, s32 uls, s32 ult) {
     Gfx* gfx = (Gfx*) addr;
     if (GameEngine_OTRSigCheck(gfx)) {
-        gfx = (Gfx*) ResourceGetDataByName(gfx);
+        gfx = (Gfx*) GameEngine_GetResourceDataByName(gfx);
     }
     u32 opcode;
 
@@ -2174,7 +2174,7 @@ void set_vertex_colours(uintptr_t addr, u32 vertexCount, UNUSED s32 vert3, s8 al
  */
 void find_vtx_and_set_colours(Gfx* displayList, s8 alpha, u8 red, u8 green, u8 blue) {
     if (GameEngine_OTRSigCheck(displayList)) {
-        displayList = (Gfx*) ResourceGetDataByName(displayList);
+        displayList = (Gfx*) GameEngine_GetResourceDataByName(displayList);
     }
     Gfx* gfx = displayList;
     uintptr_t lo;
@@ -2192,9 +2192,9 @@ void find_vtx_and_set_colours(Gfx* displayList, s8 alpha, u8 red, u8 green, u8 b
         } else if (opcode == (G_DL_OTR_HASH << 24)) {
             gfx++;
             uint64_t hash = ((uint64_t)gfx->words.w0) << 32 | gfx->words.w1;
-            find_vtx_and_set_colours(ResourceGetDataByCrc(hash), alpha, red, green, blue);
+            find_vtx_and_set_colours(GameEngine_GetResourceDataByCrc(hash), alpha, red, green, blue);
         } else if (opcode == (G_DL_OTR_FILEPATH << 24)) {
-            find_vtx_and_set_colours(ResourceGetDataByName((const char*)hi), alpha, red, green, blue);
+            find_vtx_and_set_colours(GameEngine_GetResourceDataByName((const char*)hi), alpha, red, green, blue);
         } else if (opcode == (G_VTX << 24)) {
             // G_VTX contains an addr hi
             set_vertex_colours(hi, (lo >> 10) & 0x3F, ((lo >> 16) & 0xFF) >> 1, alpha, red, green, blue);
@@ -2209,7 +2209,7 @@ void find_vtx_and_set_colours(Gfx* displayList, s8 alpha, u8 red, u8 green, u8 b
             size_t count = gfx->words.w0;
             size_t index = (gfx->words.w1 >> 16);
             size_t vtxDataOff = gfx->words.w1 & 0xFFFF;
-            Vtx* vtx = ( (Vtx*)ResourceGetDataByName(filePath) ) + vtxDataOff;
+            Vtx* vtx = ( (Vtx*)GameEngine_GetResourceDataByName(filePath) ) + vtxDataOff;
 
             set_vertex_colours((uintptr_t)vtx, count, index, alpha, red, green, blue);
         } else if (opcode == (G_VTX_OTR_HASH << 24)) {
@@ -2218,7 +2218,7 @@ void find_vtx_and_set_colours(Gfx* displayList, s8 alpha, u8 red, u8 green, u8 b
             int numVerts = (lo >> 12) & ((1<<8)-1);
             int bufferIndex = ((lo >> 1) & ((1<<7)-1));
             bufferIndex = numVerts - bufferIndex; 
-            set_vertex_colours((uintptr_t) ResourceGetDataByCrc(hash), numVerts, bufferIndex, alpha, red, green, blue);
+            set_vertex_colours((uintptr_t) GameEngine_GetResourceDataByCrc(hash), numVerts, bufferIndex, alpha, red, green, blue);
         }
         if (opcode == G_MARKER || opcode == G_MTX_OTR || opcode == G_SETTIMG_OTR_HASH) {
             gfx++;

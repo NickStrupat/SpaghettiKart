@@ -75,7 +75,7 @@ void parse_track_displaylists(TrackSections* asset) {
         // char* name = ResourceGetNameByCrc(section->crc);
         // printf("Generating collision mesh for section %d: %s\n", section->sectionId, name != NULL ? name :
         // "Unknown");
-        void* addr = ResourceGetDataByCrc(section->crc);
+        void* addr = GameEngine_GetResourceDataByCrc(section->crc);
         if (addr == NULL) {
             printf("Warning: Could not find resource for section %d with crc 0x%llX\n", section->sectionId,
                    section->crc);

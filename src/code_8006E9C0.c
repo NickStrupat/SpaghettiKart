@@ -188,7 +188,7 @@ void func_8006EF60(void) {
 
     // clang-format off
     // God forgive me for my sins...
-    // huh = 0x14; if (0) {} for (i = 0; i < huh; i++) {D_8018D248[i] = CM_GetProps()->MinimapTexture; wut += ResourceGetTexSizeByName(CM_GetProps()->MinimapTexture); }
+    // huh = 0x14; if (0) {} for (i = 0; i < huh; i++) {D_8018D248[i] = CM_GetProps()->MinimapTexture; wut += GameEngine_GetTexSizeByName(CM_GetProps()->MinimapTexture); }
     // clang-format on
 }
 

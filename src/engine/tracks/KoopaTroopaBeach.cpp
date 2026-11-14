@@ -42,8 +42,8 @@ extern "C" {
 
 KoopaTroopaBeach::KoopaTroopaBeach() {
     Props.Minimap.Texture = minimap_koopa_troopa_beach;
-    Props.Minimap.Width = ResourceGetTexWidthByName(Props.Minimap.Texture);
-    Props.Minimap.Height = ResourceGetTexHeightByName(Props.Minimap.Texture);
+    Props.Minimap.Width = GameEngine_GetTexWidthByName(Props.Minimap.Texture);
+    Props.Minimap.Height = GameEngine_GetTexHeightByName(Props.Minimap.Texture);
     Props.Minimap.Pos[0].X = 268;
     Props.Minimap.Pos[0].Y = 170;
     Props.Minimap.PlayerX = 40;

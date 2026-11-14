@@ -4382,8 +4382,8 @@ void func_8009AD78(s32 arg0, s32 arg1) {
 }
 
 void convert_img_to_greyscale(s32 index, u32 num) {
-    size_t width = ResourceGetTexWidthByName(sMenuTextureList[sMenuTextureMap[index].offset]);
-    size_t height = ResourceGetTexHeightByName(sMenuTextureList[sMenuTextureMap[index].offset]);
+    size_t width = GameEngine_GetTexWidthByName(sMenuTextureList[sMenuTextureMap[index].offset]);
+    size_t height = GameEngine_GetTexHeightByName(sMenuTextureList[sMenuTextureMap[index].offset]);
     u32 i;
     s32 red;
     s32 green;
@@ -4420,8 +4420,8 @@ void convert_img_to_greyscale(s32 index, u32 num) {
 }
 
 void adjust_img_colour(s32 index, s32 screenSize, s32 r, s32 g, s32 b) {
-    size_t width = ResourceGetTexWidthByName(sMenuTextureList[sMenuTextureMap[index].offset]);
-    size_t height = ResourceGetTexHeightByName(sMenuTextureList[sMenuTextureMap[index].offset]);
+    size_t width = GameEngine_GetTexWidthByName(sMenuTextureList[sMenuTextureMap[index].offset]);
+    size_t height = GameEngine_GetTexHeightByName(sMenuTextureList[sMenuTextureMap[index].offset]);
     s32 red;
     s32 green;
     s32 blue;
@@ -5881,8 +5881,8 @@ f32 fractional_part(f32 arg0) {
 void resize_menu_texture(MenuTexture* mi) {
     int original_width = mi->width;
     int original_height = mi->height;
-    float new_width = (f32) ResourceGetTexWidthByName(mi->textureData) /
-                      ((f32) ResourceGetTexHeightByName(mi->textureData) / (f32) original_height);
+    float new_width = (f32) GameEngine_GetTexWidthByName(mi->textureData) /
+                      ((f32) GameEngine_GetTexHeightByName(mi->textureData) / (f32) original_height);
     mi->width = (s32) ceilf(new_width);
     mi->dX += (original_width - mi->width) / 2;
 }
@@ -6685,8 +6685,8 @@ void render_menus(MenuItem* arg0) {
                 func_800A8564(arg0);
                 UNUSED int32_t original_width = D_02004E80->width;
                 int32_t height = D_02004E80->height;
-                D_02004E80->width = ResourceGetTexWidthByName(D_02004E80->textureData) * height /
-                                    ResourceGetTexHeightByName(D_02004E80->textureData);
+                D_02004E80->width = GameEngine_GetTexWidthByName(D_02004E80->textureData) * height /
+                                    GameEngine_GetTexHeightByName(D_02004E80->textureData);
                 // D_02004E80->dX += (original_width - D_02004E80->width) / 2;
                 gDisplayListHead =
                     func_8009BC9C(gDisplayListHead, D_02004E80, arg0->column, arg0->row, 2, arg0->param1);

@@ -144,7 +144,7 @@ static void InvertTriangleWindingInternal(Gfx* gfx, const char* gfxName, bool sh
                 const char* name = ResourceGetNameByCrc(hash);
                 if (name != nullptr) {
                     bool subShouldSwap = (strstr(name, "packed") != nullptr);
-                    Gfx* subDL = (Gfx*)ResourceGetDataByCrc(hash);
+                    Gfx* subDL = (Gfx*)GameEngine_GetResourceDataByCrc(hash);
                     InvertTriangleWindingInternal(subDL, name, subShouldSwap);
                 }
                 break;
@@ -153,7 +153,7 @@ static void InvertTriangleWindingInternal(Gfx* gfx, const char* gfxName, bool sh
                 const char* name = (const char*)(uintptr_t)cmd->words.w1;
                 if (name != nullptr) {
                     bool subShouldSwap = (strstr(name, "packed") != nullptr);
-                    Gfx* subDL = (Gfx*)ResourceGetDataByName(name);
+                    Gfx* subDL = (Gfx*)GameEngine_GetResourceDataByName(name);
                     InvertTriangleWindingInternal(subDL, name, subShouldSwap);
                 }
                 break;
@@ -233,7 +233,7 @@ void InvertTriangleWindingModdedInternal(Gfx* gfx, const char* gfxName) {
                 uint64_t hash = ((uint64_t)cmd->words.w0 << 32) | cmd->words.w1;
                 const char* name = ResourceGetNameByCrc(hash);
                 if (name != nullptr) {
-                    Gfx* subDL = (Gfx*)ResourceGetDataByCrc(hash);
+                    Gfx* subDL = (Gfx*)GameEngine_GetResourceDataByCrc(hash);
                     InvertTriangleWindingModdedInternal(subDL, name);
                 }
                 break;
@@ -241,7 +241,7 @@ void InvertTriangleWindingModdedInternal(Gfx* gfx, const char* gfxName) {
             case G_DL_OTR_FILEPATH: {
                 const char* name = (const char*)(uintptr_t)cmd->words.w1;
                 if (name != nullptr) {
-                    Gfx* subDL = (Gfx*)ResourceGetDataByName(name);
+                    Gfx* subDL = (Gfx*)GameEngine_GetResourceDataByName(name);
                     InvertTriangleWindingModdedInternal(subDL, name);
                 }
                 break;
@@ -288,7 +288,7 @@ void InvertTriangleWindingByName(const char* name) {
     if (name == nullptr) {
         return;
     }
-    Gfx* gfx = (Gfx*)ResourceGetDataByName(name);
+    Gfx* gfx = (Gfx*)GameEngine_GetResourceDataByName(name);
     bool shouldSwap = (strstr(name, "packed") != nullptr);
     InvertTriangleWindingInternal(gfx, name, shouldSwap);
 }
@@ -299,7 +299,7 @@ void RestoreTriangleWinding() {
             continue;
         }
         
-        Gfx* gfx = (Gfx*)ResourceGetDataByName(name.c_str());
+        Gfx* gfx = (Gfx*)GameEngine_GetResourceDataByName(name.c_str());
         if (gfx == nullptr) {
             continue;
         }
@@ -352,8 +352,8 @@ Track::Track() {
     Props.SetText(Props.TrackLength, "100m", sizeof(Props.TrackLength));
     ResourceName = "mod:blank_track";
     Props.Minimap.Texture = minimap_mario_raceway;
-    Props.Minimap.Width = ResourceGetTexWidthByName(Props.Minimap.Texture);
-    Props.Minimap.Height = ResourceGetTexHeightByName(Props.Minimap.Texture);
+    Props.Minimap.Width = GameEngine_GetTexWidthByName(Props.Minimap.Texture);
+    Props.Minimap.Height = GameEngine_GetTexHeightByName(Props.Minimap.Texture);
     Props.Minimap.Pos[0].X = 257;
     Props.Minimap.Pos[0].Y = 170;
     Props.Minimap.PlayerX = 0;
@@ -543,10 +543,10 @@ void Track::Draw(ScreenContext* arg0) {
     std::string res = info->Path + "/data_track_sections";
 
     TrackSections* sections = (TrackSections*) LOAD_ASSET_RAW(res.c_str());
-    size_t size = ResourceGetSizeByName(res.c_str());
+    size_t size = GameEngine_GetResourceSizeByName(res.c_str());
     size_t totalSections = size / sizeof(TrackSections);
     for (size_t i = 0; i < totalSections; i++) {
-        gSPDisplayList(gDisplayListHead++, (Gfx*) ResourceGetDataByCrc(sections[i].crc));
+        gSPDisplayList(gDisplayListHead++, (Gfx*) GameEngine_GetResourceDataByCrc(sections[i].crc));
     }
 }
 

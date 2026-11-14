@@ -317,6 +317,14 @@ Each of these cost a debugging round.
   far: the sound log (`play_sound`), the music player (`HMAS_*`), and the music volume setting the race writes at its
   start and when L is pressed. That last one corrupted the settings table on every race with fresh settings; the next
   settings save (opening the menu) then never finished.
+  Also resource lookups (2026-11-13): a lookup that misses libultraship's cache allocates on the calling thread, and
+  whether it misses depends on what that machine loaded before (each player draws their own view). The peers' arenas
+  then drifted apart, and desync recovery, which keeps each player's own heap pointers at the host's offsets, failed
+  about half the time ("this game's state is too far from the host's"), more with an archive whose display lists name
+  more files. Game code looks resources up through `GameEngine_GetResourceDataByName()` and its siblings
+  (`include/align_asset_macro.h`, which `LOAD_ASSET` uses), never libultraship's `ResourceGet*` directly. To find
+  such allocations, record the call stacks of arena allocations in `SimArena.cpp`'s `NewImpl` and symbolize them
+  with `atos -l 0x100000000` (ASLR is off).
 - **Machine-local values fed back into the simulation**: the kart animation once read the frame-buffer index; a voice
   clip variant came from the audio engine's random number. Use simulation state instead.
 - **The course-select menu rewrites the track every frame**: apply race settings after the frame's game logic.

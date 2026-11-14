@@ -11,6 +11,7 @@
 #include <optional> // Must be before json.hpp
 #include <nlohmann/json.hpp>
 #include "port/Engine.h"
+#include "port/netplay/SimArena.h"
 #include <ship/resource/type/Json.h>
 #include "port/resource/type/Minimap.h"
 #include <ship/resource/File.h>
@@ -118,17 +119,22 @@ namespace TrackEditor {
          * Manually loading a custom asset file (scene.json) with no extractor class means that
          * the init data needs to be manually populated
          */
-        auto initData = std::make_shared<Ship::ResourceInitData>();
-        initData->Parent = track->Archive;
-        initData->Format = RESOURCE_FORMAT_BINARY;
-        initData->ByteOrder = Ship::Endianness::Little;
-        initData->Type = static_cast<uint32_t>(Ship::ResourceType::Json);
-        initData->ResourceVersion = 0;
+        // Outside the netplay sim arena: the resource and its init data stay in libultraship's cache
+        // (GameEngine_GetResourceDataByName() in align_asset_macro.h explains why).
+        const auto resource = [&] {
+            SimHeapPause pause;
+            auto initData = std::make_shared<Ship::ResourceInitData>();
+            initData->Parent = track->Archive;
+            initData->Format = RESOURCE_FORMAT_BINARY;
+            initData->ByteOrder = Ship::Endianness::Little;
+            initData->Type = static_cast<uint32_t>(Ship::ResourceType::Json);
+            initData->ResourceVersion = 0;
+            Ship::ResourceIdentifier id(sceneFile, 0, track->Archive);
+            return GameEngine::Instance->context->GetResourceManager()->LoadResource(id, true, initData);
+        }();
 
-        // Load the scene file and return the json data
-        Ship::ResourceIdentifier id(sceneFile, 0, track->Archive);
-        nlohmann::json data = std::static_pointer_cast<Ship::Json>(
-            GameEngine::Instance->context->GetResourceManager()->LoadResource(id, true, initData))->Data;
+        // Return the json data
+        nlohmann::json data = std::static_pointer_cast<Ship::Json>(resource)->Data;
 
         // Check that the data is valid
         if (data.is_null() || !data.is_object() || data.empty()) {
@@ -159,17 +165,22 @@ namespace TrackEditor {
          * Manually loading a custom asset file (scene.json) with no extractor class means that
          * the init data needs to be manually populated
          */
-        auto initData = std::make_shared<Ship::ResourceInitData>();
-        initData->Parent = archive;
-        initData->Format = RESOURCE_FORMAT_BINARY;
-        initData->ByteOrder = Ship::Endianness::Little;
-        initData->Type = static_cast<uint32_t>(Ship::ResourceType::Json);
-        initData->ResourceVersion = 0;
+        // Outside the netplay sim arena: the resource and its init data stay in libultraship's cache
+        // (GameEngine_GetResourceDataByName() in align_asset_macro.h explains why).
+        const auto resource = [&] {
+            SimHeapPause pause;
+            auto initData = std::make_shared<Ship::ResourceInitData>();
+            initData->Parent = archive;
+            initData->Format = RESOURCE_FORMAT_BINARY;
+            initData->ByteOrder = Ship::Endianness::Little;
+            initData->Type = static_cast<uint32_t>(Ship::ResourceType::Json);
+            initData->ResourceVersion = 0;
+            Ship::ResourceIdentifier id(sceneFile, 0, archive);
+            return GameEngine::Instance->context->GetResourceManager()->LoadResource(id, true, initData);
+        }();
 
-        // Load the scene file and return the json data
-        Ship::ResourceIdentifier id(sceneFile, 0, archive);
-        nlohmann::json data = std::static_pointer_cast<Ship::Json>(
-            GameEngine::Instance->context->GetResourceManager()->LoadResource(id, true, initData))->Data;
+        // Return the json data
+        nlohmann::json data = std::static_pointer_cast<Ship::Json>(resource)->Data;
 
         // Check that the data is valid
         if (data.is_null() || !data.is_object() || data.empty()) {
@@ -199,15 +210,18 @@ namespace TrackEditor {
         * Manually loading a custom asset file with no extractor class means that
         * the init data needs to be manually populated
         */
-        auto initData = std::make_shared<Ship::ResourceInitData>();
-        initData->Parent = track->Archive;
-        initData->Format = RESOURCE_FORMAT_BINARY;
-        initData->ByteOrder = Ship::Endianness::Little;
-        initData->Type = static_cast<uint32_t>(MK64::ResourceType::Minimap);
-        initData->ResourceVersion = 0;
-
-        std::shared_ptr<MK64::Minimap> ptr = std::static_pointer_cast<MK64::Minimap>(
-            GameEngine::Instance->context->GetResourceManager()->LoadResource(minimapPath, true, initData));
+        // Outside the netplay sim arena: the resource and its init data stay in libultraship's cache
+        // (GameEngine_GetResourceDataByName() in align_asset_macro.h explains why).
+        std::shared_ptr<MK64::Minimap> ptr = std::static_pointer_cast<MK64::Minimap>([&] {
+            SimHeapPause pause;
+            auto initData = std::make_shared<Ship::ResourceInitData>();
+            initData->Parent = track->Archive;
+            initData->Format = RESOURCE_FORMAT_BINARY;
+            initData->ByteOrder = Ship::Endianness::Little;
+            initData->Type = static_cast<uint32_t>(MK64::ResourceType::Minimap);
+            initData->ResourceVersion = 0;
+            return GameEngine::Instance->context->GetResourceManager()->LoadResource(minimapPath, true, initData);
+        }());
 
         if (ptr) {
             SPDLOG_INFO("  Minimap Loaded!");
@@ -223,8 +237,8 @@ namespace TrackEditor {
     // Sets the default minimap if none has been set
     void SetDefaultMinimap(Track* track) {
         track->Props.Minimap.Texture = minimap_mario_raceway;
-        track->Props.Minimap.Width = ResourceGetTexWidthByName(track->Props.Minimap.Texture);
-        track->Props.Minimap.Height = ResourceGetTexHeightByName(track->Props.Minimap.Texture);
+        track->Props.Minimap.Width = GameEngine_GetTexWidthByName(track->Props.Minimap.Texture);
+        track->Props.Minimap.Height = GameEngine_GetTexHeightByName(track->Props.Minimap.Texture);
         SPDLOG_INFO("  No minimap found! Falling back to default minimap");
     }
 
@@ -348,7 +362,11 @@ namespace TrackEditor {
         SPDLOG_INFO(" Loading Paths...");
         std::string path_file = (trackPath + "/data_paths").c_str();
 
-        auto res = std::dynamic_pointer_cast<MK64::Paths>(ResourceLoad(path_file.c_str()));
+        // Outside the netplay sim arena, as above.
+        auto res = std::dynamic_pointer_cast<MK64::Paths>([&] {
+            SimHeapPause pause;
+            return ResourceLoad(path_file.c_str());
+        }());
         if (nullptr == res) {
             SPDLOG_ERROR("  Unable to load path file (data_paths)");
             SPDLOG_ERROR("  This file is required for custom tracks to work ");

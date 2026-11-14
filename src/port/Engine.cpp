@@ -8,6 +8,7 @@
 #ifndef __EMSCRIPTEN__
 #include "GameExtractor.h"
 #endif
+#include "netplay/SimArena.h"
 #include "engine/mods/ModManager.h"
 #include "ui/ImguiUI.h"
 #include "ship/Context.h"
@@ -712,7 +713,7 @@ void GameEngine::AudioInit() {
 
     for (auto& bank : *banksFiles) {
         auto path = "__OTR__" + bank;
-        const auto ctl = static_cast<CtlEntry*>(ResourceGetDataByName(path.c_str()));
+        const auto ctl = static_cast<CtlEntry*>(GameEngine_GetResourceDataByName(path.c_str()));
         this->bankMapTable[bank] = ctl->bankId;
         SPDLOG_INFO("Loaded bank: {}", bank);
     }
@@ -722,7 +723,7 @@ void GameEngine::AudioInit() {
             continue;
         }
         auto path = "__OTR__" + sequence;
-        auto seq = static_cast<AudioSequenceData*>(ResourceGetDataByName(path.c_str()));
+        auto seq = static_cast<AudioSequenceData*>(GameEngine_GetResourceDataByName(path.c_str()));
         Instance->sequenceTable[seq->id] = path;
         SPDLOG_INFO("Loaded sequence: {}", sequence);
     }
@@ -830,7 +831,7 @@ extern "C" CtlEntry* GameEngine_LoadBank(const uint8_t bankId) {
 
     for (auto& bank : engine->bankMapTable) {
         if (bank.second == bankId) {
-            const auto ctl = static_cast<CtlEntry*>(ResourceGetDataByName(("__OTR__" + bank.first).c_str()));
+            const auto ctl = static_cast<CtlEntry*>(GameEngine_GetResourceDataByName(("__OTR__" + bank.first).c_str()));
             engine->banksTable[bankId] = ctl;
             return ctl;
         }
@@ -860,7 +861,7 @@ extern "C" AudioSequenceData* GameEngine_LoadSequence(const uint8_t seqId) {
         return engine->audioSequenceTable[seqId];
     }
 
-    auto sequences = static_cast<AudioSequenceData*>(ResourceGetDataByName(engine->sequenceTable[seqId].c_str()));
+    auto sequences = static_cast<AudioSequenceData*>(GameEngine_GetResourceDataByName(engine->sequenceTable[seqId].c_str()));
     engine->audioSequenceTable[seqId] = sequences;
     return sequences;
 }
@@ -894,7 +895,38 @@ extern "C" bool GameEngine_OTRSigCheck(const char* data) {
     return strncmp(data, sOtrSignature, strlen(sOtrSignature)) == 0;
 }
 
+extern "C" void* GameEngine_GetResourceDataByName(const char* name) {
+    SimHeapPause pause;
+    return ResourceGetDataByName(name);
+}
+
+extern "C" size_t GameEngine_GetResourceSizeByName(const char* name) {
+    SimHeapPause pause;
+    return ResourceGetSizeByName(name);
+}
+
+extern "C" void* GameEngine_GetResourceDataByCrc(uint64_t crc) {
+    SimHeapPause pause;
+    return ResourceGetDataByCrc(crc);
+}
+
+extern "C" size_t GameEngine_GetTexSizeByName(const char* name) {
+    SimHeapPause pause;
+    return ResourceGetTexSizeByName(name);
+}
+
+extern "C" uint16_t GameEngine_GetTexWidthByName(const char* name) {
+    SimHeapPause pause;
+    return ResourceGetTexWidthByName(name);
+}
+
+extern "C" uint16_t GameEngine_GetTexHeightByName(const char* name) {
+    SimHeapPause pause;
+    return ResourceGetTexHeightByName(name);
+}
+
 extern "C" int32_t GameEngine_ResourceGetTexTypeByName(const char* name) {
+    SimHeapPause pause;
     const auto res = std::static_pointer_cast<Fast::Texture>(ResourceLoad(name));
 
     if (res != nullptr) {

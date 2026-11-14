@@ -2090,7 +2090,7 @@ void render_texture_tile_rgba32_block(s16 x, s16 y, u8* texture, u32 width, u32 
 void render_game_logo(s16 x, s16 y) {
     int32_t height = 128;
     int32_t width =
-        ResourceGetTexWidthByName(logo_mario_kart_64) * height / ResourceGetTexHeightByName(logo_mario_kart_64);
+        GameEngine_GetTexWidthByName(logo_mario_kart_64) * height / GameEngine_GetTexHeightByName(logo_mario_kart_64);
     render_texture_tile_rgba32_block(x, y, (u8*) logo_mario_kart_64, width, height);
 }
 
@@ -2576,8 +2576,8 @@ void func_8004EF9C(s32 arg0) {
         return;
     }
 
-    width = ResourceGetTexWidthByName(minimap);
-    height = ResourceGetTexHeightByName(minimap);
+    width = GameEngine_GetTexWidthByName(minimap);
+    height = GameEngine_GetTexHeightByName(minimap);
     func_8004D37C(0x00000104, 0x0000003C, (u8*) minimap, 0x000000FF, 0x000000FF, 0x000000FF, 0x000000FF, width, height,
                   width, height);
 }

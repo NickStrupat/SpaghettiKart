@@ -1,6 +1,7 @@
 #include <libultraship.h>
 
 #include "Engine.h"
+#include "netplay/SimArena.h"
 #include "fast/resource/type/DisplayList.h"
 #include "fast/resource/ResourceType.h"
 #include "resource/type/ResourceType.h"
@@ -9,7 +10,11 @@ extern "C" {
 #include <align_asset_macro.h>
 }
 
+// The display-list commands below look resources up by name: outside the netplay sim arena, as
+// GameEngine_GetResourceDataByName() explains (align_asset_macro.h).
+
 extern "C" void gSPDisplayList(Gfx* pkt, Gfx* dl) {
+    SimHeapPause pause;
     char* imgData = (char*) dl;
 
     if (GameEngine_OTRSigCheck(imgData)) {
@@ -24,7 +29,7 @@ extern "C" void gSPDisplayList(Gfx* pkt, Gfx* dl) {
 extern "C" void gSPVertex(Gfx* pkt, uintptr_t v, int n, int v0) {
 
     if (GameEngine_OTRSigCheck((char*) v)) {
-        v = (uintptr_t) ResourceGetDataByName((char*) v);
+        v = (uintptr_t) GameEngine_GetResourceDataByName((char*) v);
     }
 
     __gSPVertex(pkt, v, n, v0);
@@ -38,6 +43,7 @@ extern "C" void gSPInvalidateTexCache(Gfx* pkt, uintptr_t texAddr) {
     auto data = reinterpret_cast<char*>(texAddr);
 
     if (texAddr != 0 && GameEngine_OTRSigCheck(data)) {
+        SimHeapPause pause;
         const auto res = Ship::Context::GetRawInstance()->GetResourceManager()->LoadResource(data);
         const auto type = static_cast<Fast::ResourceType>(res->GetInitData()->Type);
 

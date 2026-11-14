@@ -37,25 +37,25 @@ namespace TrackEditor {
                     break;
                 case G_DL_OTR_HASH:
                     ptr++;
-                    GenerateCollisionMesh(object, (Gfx*)ResourceGetDataByCrc(((uint64_t)(ptr->words.w0) << 32) + ptr->words.w1), scale);
+                    GenerateCollisionMesh(object, (Gfx*)GameEngine_GetResourceDataByCrc(((uint64_t)(ptr->words.w0) << 32) + ptr->words.w1), scale);
                     break;
                 case G_DL_OTR_FILEPATH:
                    // printf("otr filepath: %s\n", (const char*)hi);
-                    GenerateCollisionMesh(object, (Gfx*)ResourceGetDataByName((const char*)hi), scale);
+                    GenerateCollisionMesh(object, (Gfx*)GameEngine_GetResourceDataByName((const char*)hi), scale);
                     break;
                 case G_VTX:
                     vtx = (Vtx*)ptr->words.w1;
                     break;
                 case G_VTX_OTR_HASH: {
                     ptr++;
-                    vtx = (Vtx*)ResourceGetDataByCrc(((uint64_t)(ptr->words.w0) << 32) + ptr->words.w1);
+                    vtx = (Vtx*)GameEngine_GetResourceDataByCrc(((uint64_t)(ptr->words.w0) << 32) + ptr->words.w1);
                     break;
                 }
                 case G_VTX_OTR_FILEPATH: {
                     const char* filePath = (const char*)hi;
                     ptr++;
                     size_t vtxDataOff = ptr->words.w1 & 0xFFFF;
-                    vtx = ( (Vtx*)ResourceGetDataByName(filePath) ) + vtxDataOff;
+                    vtx = ( (Vtx*)GameEngine_GetResourceDataByName(filePath) ) + vtxDataOff;
                     break;
                 }
                 case G_TRI1: {
