@@ -14,8 +14,15 @@
 
 #include "RelayLink.h"
 
+#include <algorithm>
 #include <chrono>
+#include <cstring>
 #include <future>
+
+#ifndef _WIN32
+#include <sys/socket.h>
+#include <sys/time.h>
+#endif
 
 #include "NetLog.h"
 #include "WebRtcPeers.h"
@@ -109,8 +116,9 @@ class RelayLinkUdp : public RelayLink {
         u8 buffer[2048];
         udp::endpoint sender;
         while (mSocket != nullptr) {
+            Arrival arrived;
             asio::error_code error;
-            const size_t size = mSocket->receive_from(asio::buffer(buffer), sender, 0, error);
+            const size_t size = ReceiveFrom(buffer, sizeof(buffer), &sender, &arrived, &error);
             if (error == asio::error::would_block) {
                 return;
             }
@@ -119,9 +127,9 @@ class RelayLinkUdp : public RelayLink {
                 continue;
             }
             if (sender == mRelay) {
-                mCallbacks.FromRelay(buffer, size);
+                mCallbacks.FromRelay(buffer, size, arrived);
             } else {
-                HandleDirect(buffer, size, sender, Clock::now());
+                HandleDirect(buffer, size, sender, arrived);
             }
         }
     }
@@ -249,6 +257,11 @@ class RelayLinkUdp : public RelayLink {
         try {
             mSocket = std::make_unique<udp::socket>(mIo, udp::endpoint(udp::v4(), 0));
             mSocket->non_blocking(true);
+#ifndef _WIN32
+            // Has the system stamp each datagram with when it arrived, which ReceiveFrom() reads.
+            const int on = 1;
+            setsockopt(mSocket->native_handle(), SOL_SOCKET, SO_TIMESTAMP, &on, sizeof(on));
+#endif
         } catch (const std::exception& e) {
             Fail(std::string("Could not open a network socket: ") + e.what());
             return;
@@ -293,6 +306,52 @@ class RelayLinkUdp : public RelayLink {
             peer.HasDirect = false;
             NetLog("Direct connection to slot %d lost; using the relay", slot);
         }
+    }
+
+    /**
+     * Reads one datagram without waiting, and when it reached this computer: the system's stamp where it gives one, so
+     * that the time the game took to read it is not counted as the network's.
+     */
+    size_t ReceiveFrom(u8* buffer, size_t capacity, udp::endpoint* sender, Arrival* arrived, asio::error_code* error) {
+#ifdef _WIN32
+        *arrived = Clock::now();
+        return mSocket->receive_from(asio::buffer(buffer, capacity), *sender, 0, *error);
+#else
+        sockaddr_in from = {};
+        iovec part = { buffer, capacity };
+        alignas(cmsghdr) u8 control[CMSG_SPACE(sizeof(timeval))];
+        msghdr message = {};
+        message.msg_name = &from;
+        message.msg_namelen = sizeof(from);
+        message.msg_iov = &part;
+        message.msg_iovlen = 1;
+        message.msg_control = control;
+        message.msg_controllen = sizeof(control);
+        const ssize_t size = recvmsg(mSocket->native_handle(), &message, MSG_DONTWAIT);
+        *arrived = Clock::now();
+        if (size < 0) {
+            *error = ((errno == EAGAIN) || (errno == EWOULDBLOCK)) ? asio::error_code(asio::error::would_block)
+                                                                   : asio::error_code(errno, asio::system_category());
+            return 0;
+        }
+        *error = {};
+        *sender = udp::endpoint(asio::ip::address_v4(ntohl(from.sin_addr.s_addr)), ntohs(from.sin_port));
+        for (cmsghdr* header = CMSG_FIRSTHDR(&message); header != nullptr; header = CMSG_NXTHDR(&message, header)) {
+            if ((header->cmsg_level == SOL_SOCKET) && (header->cmsg_type == SCM_TIMESTAMP)) {
+                timeval stamp;
+                memcpy(&stamp, CMSG_DATA(header), sizeof(stamp));
+                // The stamp is wall-clock time: how long ago it was carries over to the steady clock.
+                const auto stamped = std::chrono::system_clock::time_point(
+                    std::chrono::duration_cast<std::chrono::system_clock::duration>(
+                        std::chrono::seconds(stamp.tv_sec) + std::chrono::microseconds(stamp.tv_usec)));
+                const auto age = std::chrono::system_clock::now() - stamped;
+                if ((age > std::chrono::system_clock::duration::zero()) && (age < std::chrono::seconds(1))) {
+                    *arrived -= std::chrono::duration_cast<Clock::duration>(age);
+                }
+            }
+        }
+        return (size_t) size;
+#endif
     }
 
     void SendTo(const udp::endpoint& to, const u8* data, size_t size) {
@@ -340,12 +399,14 @@ class RelayLinkUdp : public RelayLink {
                 if (reader.Failed()) {
                     return;
                 }
-                const s32 sample = (s32) (GetMilliseconds(now) - echo);
+                // The arrival stamp comes from the system's clock: a round trip within the computer can come out
+                // just below 0.
+                const s32 sample = std::max((s32) (GetMilliseconds(now) - echo), 0);
                 peer.PingMs = (peer.PingMs < 0) ? sample : (peer.PingMs * (kPingSmoothing - 1) + sample) / kPingSmoothing;
                 break;
             }
             case MessageType::Direct:
-                mCallbacks.FromMember(source, reader.GetRemaining(), reader.GetRemainingSize());
+                mCallbacks.FromMember(source, reader.GetRemaining(), reader.GetRemainingSize(), now);
                 break;
             default:
                 return;

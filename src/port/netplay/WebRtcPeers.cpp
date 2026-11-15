@@ -107,10 +107,13 @@ void WebRtcPeers::Receive() {
     u8 buffer[kMaxPacketSize + 1024];
     int slot;
     int kind;
+    double ageMs;
     int size;
-    while ((size = sk_rtc_poll(&slot, &kind, buffer, sizeof(buffer))) >= 0) {
+    while ((size = sk_rtc_poll(&slot, &kind, &ageMs, buffer, sizeof(buffer))) >= 0) {
         if ((slot >= 0) && (slot < (s32) kMaxSlots)) {
-            HandleEvent(slot, kind, buffer, (size_t) size);
+            const std::chrono::duration<double, std::milli> ageInMs(ageMs);
+            const auto age = std::chrono::duration_cast<Clock::duration>(ageInMs);
+            HandleEvent(slot, kind, buffer, (size_t) size, Clock::now() - age);
         }
     }
 }
@@ -195,9 +198,10 @@ void WebRtcPeers::SendPing(s32 slot, Clock::time_point now) {
     sk_rtc_send(slot, message, sizeof(message));
 }
 
-void WebRtcPeers::HandleEvent(s32 slot, int kind, const u8* data, size_t size) {
+void WebRtcPeers::HandleEvent(s32 slot, int kind, const u8* data, size_t size, Clock::time_point arrived) {
     Peer& peer = mPeers[slot];
-    const Clock::time_point now = Clock::now();
+    // Pongs are timed from their arrival, so the ping is the network's alone, without this game's wait to read them.
+    const Clock::time_point now = arrived;
     switch (kind) {
         case SK_RTC_EVENT_SIGNAL:
             SendSignal(slot, data, size);
@@ -234,10 +238,10 @@ void WebRtcPeers::HandleChannelMessage(s32 slot, const u8* data, size_t size, Cl
         reply[0] = kChannelPong;
         sk_rtc_send(slot, reply, sizeof(reply));
     } else if ((data[0] == kChannelPong) && (size == kPingSize)) {
-        const s32 sample = (s32) (GetMilliseconds(now) - ReadU32(data + 1));
+        const s32 sample = std::max((s32) (GetMilliseconds(now) - ReadU32(data + 1)), 0);
         peer.PingMs = (peer.PingMs < 0) ? sample : (peer.PingMs * (kPingSmoothing - 1) + sample) / kPingSmoothing;
     } else if (data[0] == kChannelPayload) {
-        mCallbacks.FromMember((u8) slot, data + 1, size - 1);
+        mCallbacks.FromMember((u8) slot, data + 1, size - 1, now);
     }
 }
 

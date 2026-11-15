@@ -1,7 +1,9 @@
 #include "RelayClient.h"
 
+#include <algorithm>
 #include <array>
 #include <cctype>
+#include <cmath>
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
@@ -29,6 +31,8 @@ constexpr auto kRequestTimeout = std::chrono::seconds(10);
 constexpr auto kConnectionTimeout = std::chrono::seconds(10);
 constexpr int kLeaveRepeats = 3; // Leave is never answered, so send it a few times in case of loss
 constexpr s32 kPingSmoothing = 4;  // Each round trip moves the ping a quarter of the way
+// Each GekkoNet packet moves the average wait 1/32 of the way: about a second of them from one member.
+constexpr f32 kGekkoWaitSmoothing = 32.0f;
 
 /** One GekkoNet session's packets: the tag they carry, and those received for it. */
 struct GekkoLane {
@@ -36,6 +40,7 @@ struct GekkoLane {
     u16 Tag = 0;
     u32 LastRequest = 0; // When GetGekkoAdapter() last handed it out; the least recent one is reused
     std::vector<GekkoNetResult*> Packets;
+    std::vector<RelayLink::Arrival> Arrivals; // When each of Packets reached this computer
     std::vector<GekkoNetResult*> HandedOut;
 };
 
@@ -74,6 +79,10 @@ struct RelayClient::Impl {
     std::vector<LobbyPacket> LobbyPackets;
     std::array<GekkoLane, kNumGekkoLanes> GekkoLanes;
     u32 GekkoRequests = 0;
+    // How long GekkoNet's packets wait between reaching this computer and GekkoNet reading them, in ms, -1 before
+    // any: from each member, and from all of them.
+    std::array<f32, kMaxSlots> GekkoWaitMs = MakeUnknownWaits();
+    f32 AllGekkoWaitMs = -1.0f;
 
     std::mt19937 Random{ std::random_device{}() };
 
@@ -93,10 +102,12 @@ struct RelayClient::Impl {
         Error.clear();
         State = Status::Resolving;
         RelayLink::Callbacks callbacks;
-        callbacks.FromRelay = [this](const u8* data, size_t size) { Handle(data, size, Clock::now()); };
-        callbacks.FromMember = [this](u8 slot, const u8* data, size_t size) {
+        callbacks.FromRelay = [this](const u8* data, size_t size, RelayLink::Arrival arrived) {
+            Handle(data, size, arrived);
+        };
+        callbacks.FromMember = [this](u8 slot, const u8* data, size_t size, RelayLink::Arrival arrived) {
             ByteReader reader(data, size);
-            HandlePayload(slot, reader);
+            HandlePayload(slot, reader, arrived);
         };
         callbacks.SendSignal = [this](u8 slot, const u8* data, size_t size) {
             const u8 header = kSignalChannel;
@@ -129,7 +140,35 @@ struct RelayClient::Impl {
         PingMs = -1;
         LobbyPackets.clear();
         FreeGekkoPackets();
+        GekkoWaitMs = MakeUnknownWaits();
+        AllGekkoWaitMs = -1.0f;
         State = Status::Idle;
+    }
+
+    static std::array<f32, kMaxSlots> MakeUnknownWaits() {
+        std::array<f32, kMaxSlots> waits;
+        waits.fill(-1.0f);
+        return waits;
+    }
+
+    static void AddWait(f32* average, f32 waitMs) {
+        *average = (*average < 0.0f) ? waitMs : *average + (waitMs - *average) / kGekkoWaitSmoothing;
+    }
+
+    /** Hands GekkoNet what arrived for this lane, noting how long each packet waited for it. */
+    void HandOutGekkoPackets(GekkoLane& lane) {
+        const Clock::time_point now = Clock::now();
+        for (size_t i = 0; i < lane.Packets.size(); i++) {
+            const u8 source = *static_cast<const u8*>(lane.Packets[i]->addr.data);
+            const f32 waitMs = std::chrono::duration<f32, std::milli>(now - lane.Arrivals[i]).count();
+            if (source < kMaxSlots) {
+                AddWait(&GekkoWaitMs[source], waitMs);
+            }
+            AddWait(&AllGekkoWaitMs, waitMs);
+        }
+        lane.HandedOut.swap(lane.Packets);
+        lane.Packets.clear();
+        lane.Arrivals.clear();
     }
 
     void FreeGekkoPackets() {
@@ -143,6 +182,7 @@ struct RelayClient::Impl {
             FreeGekkoPacket(packet);
         }
         lane.Packets.clear();
+        lane.Arrivals.clear();
     }
 
     static void FreeGekkoPacket(GekkoNetResult* packet) {
@@ -326,8 +366,9 @@ struct RelayClient::Impl {
                     ReadMembers(reader, occupied);
                     LastHeardFromRelay = now;
                     if (echo != 0) {
-                        // Averaged, as a single round trip can be held up.
-                        const s32 sample = (s32) (GetMilliseconds(now) - echo);
+                        // Averaged, as a single round trip can be held up. The arrival time comes from another
+                        // clock on some links, so a round trip within the computer can come out just below 0.
+                        const s32 sample = std::max((s32) (GetMilliseconds(now) - echo), 0);
                         PingMs = (PingMs < 0) ? sample : (PingMs * (kPingSmoothing - 1) + sample) / kPingSmoothing;
                     }
                 }
@@ -349,7 +390,7 @@ struct RelayClient::Impl {
                     break;
                 }
                 LastHeardFromRelay = now;
-                HandlePayload(source, reader);
+                HandlePayload(source, reader, now);
                 break;
             }
             default:
@@ -358,7 +399,7 @@ struct RelayClient::Impl {
     }
 
     /** What Relay or Direct carried: a lobby message or a GekkoNet packet. */
-    void HandlePayload(u8 source, ByteReader& reader) {
+    void HandlePayload(u8 source, ByteReader& reader, RelayLink::Arrival arrived) {
         const u8 channel = reader.Read8();
         if (reader.Failed()) {
             return;
@@ -370,7 +411,7 @@ struct RelayClient::Impl {
             const u16 tag = reader.Read16();
             for (GekkoLane& lane : GekkoLanes) {
                 if (!reader.Failed() && lane.Used && (tag == lane.Tag)) {
-                    QueueGekkoPacket(lane, source, reader.GetRemaining(), reader.GetRemainingSize());
+                    QueueGekkoPacket(lane, source, reader.GetRemaining(), reader.GetRemainingSize(), arrived);
                 }
             }
         } else if ((channel == kSignalChannel) && (Link != nullptr)) {
@@ -378,7 +419,8 @@ struct RelayClient::Impl {
         }
     }
 
-    static void QueueGekkoPacket(GekkoLane& lane, u8 source, const u8* data, size_t size) {
+    static void QueueGekkoPacket(GekkoLane& lane, u8 source, const u8* data, size_t size,
+                                 RelayLink::Arrival arrived) {
         GekkoNetResult* packet = static_cast<GekkoNetResult*>(malloc(sizeof(GekkoNetResult)));
         packet->addr.size = 1;
         packet->addr.data = malloc(1);
@@ -387,6 +429,7 @@ struct RelayClient::Impl {
         packet->data = malloc(size > 0 ? size : 1);
         memcpy(packet->data, data, size);
         lane.Packets.push_back(packet);
+        lane.Arrivals.push_back(arrived);
     }
 
     /** Sends directly to a member reached that way, or through the relay. */
@@ -441,8 +484,7 @@ template <size_t Lane> GekkoNetResult** GekkoReceive(int* length) {
     sGekkoClient->Receive();
     // GekkoNet frees each packet with GekkoFree; the array stays ours until the next call.
     GekkoLane& lane = sGekkoClient->GekkoLanes[Lane];
-    lane.HandedOut.swap(lane.Packets);
-    lane.Packets.clear();
+    sGekkoClient->HandOutGekkoPackets(lane);
     *length = (int) lane.HandedOut.size();
     return lane.HandedOut.data();
 }
@@ -513,6 +555,14 @@ u8 RelayClient::GetOccupiedSlots() const {
 
 s32 RelayClient::GetPingMs() const {
     return mImpl->PingMs;
+}
+
+s32 RelayClient::GetGekkoWaitMs(u8 slot) const {
+    return (slot < kMaxSlots) ? (s32) std::lround(mImpl->GekkoWaitMs[slot]) : -1;
+}
+
+s32 RelayClient::GetGekkoWaitMs() const {
+    return (s32) std::lround(mImpl->AllGekkoWaitMs);
 }
 
 void RelayClient::SetDirectEnabled(bool enabled) {
@@ -590,8 +640,8 @@ struct RelayRoomList::Impl {
     void Open(const std::string& address) {
         Address = address;
         RelayLink::Callbacks callbacks;
-        callbacks.FromRelay = [this](const u8* data, size_t size) { Handle(data, size); };
-        callbacks.FromMember = [](u8, const u8*, size_t) {};
+        callbacks.FromRelay = [this](const u8* data, size_t size, RelayLink::Arrival) { Handle(data, size); };
+        callbacks.FromMember = [](u8, const u8*, size_t, RelayLink::Arrival) {};
         callbacks.SendSignal = [](u8, const u8*, size_t) {};
         Link = RelayLink::Create(callbacks);
         Link->Open(address);

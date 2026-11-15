@@ -51,7 +51,7 @@ Settings in the netplay window, each per player:
 |---|---|---|
 | Show only my player | on | Full-screen view of your own player instead of the split screen |
 | Hear only my player | on | Only your camera's sounds, in proper stereo |
-| Show connection stats | on | Ping per player, input delay, rollbacks and waits, top right during races |
+| Show connection stats | on | Ping per player (network, and frame wait: packets waiting for a frame to read them), input delay, rollbacks and waits, top right during races |
 | Smooth other karts' corrections | on | After a rollback, other karts glide to where they now are instead of jumping |
 | Input delay | Automatic | Frames your own input is held back. Automatic picks it from the ping at each race start |
 | Connect directly to other players | on | Race traffic skips the relay when routers allow it. Shares your IP address with the room |
@@ -148,6 +148,11 @@ all of it memory pools and frame buffers; the simulation's own state is under 1 
 - **Input delay.** Each peer picks its own at every race start: the one-way latency to its slowest peer in whole
   frames (33 ms each), at most 3. The latency comes from the direct ping, or from both players' relay pings when they
   are not connected directly.
+- **Ping and frame wait.** Pings are timed from when a reply reached the computer (the system's receive stamp on the
+  desktop, the event's time in a browser), not from when the game read it. GekkoNet reads its packets only once a
+  frame, so its ping in the stats overlay also holds that wait at both ends, up to a frame each: each peer averages how
+  long GekkoNet's packets waited (`RelayClient::GetGekkoWaitMs`), shares it in its member state, and the overlay
+  splits the ping into network and frame wait.
 - **Controls.** Leaving and restarting travel inside the inputs (two unused button bits), so every peer acts on the
   same frame.
 - **Stick positions.** GekkoNet compares inputs byte for byte, so every wobble of a held stick would be a wrong

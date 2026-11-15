@@ -63,6 +63,8 @@ struct SessionSettings {
     std::function<s32()> GetLatencyMs;
     /** @returns true while packets to this player go through the relay, not straight to it. */
     std::function<bool(s32 player)> IsRelayed;
+    /** How much of the ping to this player is packets waiting for a frame to read them, in ms; -1 while unknown. */
+    std::function<s32(s32 player)> GetFrameWaitMs;
     /** The race, or on a shared console only its gameplay settings (IntCVars, FloatCVars). */
     RaceConfig Config;
     /** A shared console's menus already set up the race: start its session as soon as it has loaded. */
@@ -126,6 +128,11 @@ struct LiveStats {
     s32 LocalPlayer = 0;
     /** Average round trip to each player in ms, in player order; -1 for the local player. */
     std::vector<s32> PingMs;
+    /**
+     * Per player: how much of PingMs is packets waiting at either end for a frame to read them, which GekkoNet does
+     * once a frame; the rest is the network. -1 while unknown.
+     */
+    std::vector<s32> FrameWaitMs;
     /** Per player: its packets go through the relay. */
     std::vector<bool> Relayed;
     u8 InputDelay = 0;

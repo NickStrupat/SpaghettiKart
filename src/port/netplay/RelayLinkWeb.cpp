@@ -69,9 +69,9 @@ class RelayLinkWeb : public RelayLink {
     void Receive() override {
         // The WebSocket's callbacks queued what arrived between frames.
         while (!mIncoming.empty()) {
-            const std::vector<u8> message = std::move(mIncoming.front());
+            const Incoming message = std::move(mIncoming.front());
             mIncoming.pop_front();
-            mCallbacks.FromRelay(message.data(), message.size());
+            mCallbacks.FromRelay(message.Data.data(), message.Data.size(), message.Arrived);
         }
         mPeers.Receive();
     }
@@ -133,7 +133,8 @@ class RelayLinkWeb : public RelayLink {
 
     static EM_BOOL OnMessage(int, const EmscriptenWebSocketMessageEvent* event, void* userData) {
         if (!event->isText) {
-            static_cast<RelayLinkWeb*>(userData)->mIncoming.emplace_back(event->data, event->data + event->numBytes);
+            static_cast<RelayLinkWeb*>(userData)->mIncoming.push_back(
+                { std::vector<u8>(event->data, event->data + event->numBytes), std::chrono::steady_clock::now() });
         }
         return EM_TRUE;
     }
@@ -162,7 +163,11 @@ class RelayLinkWeb : public RelayLink {
     std::string mError;
     std::string mAddress;
     EMSCRIPTEN_WEBSOCKET_T mSocket = 0;
-    std::deque<std::vector<u8>> mIncoming;
+    struct Incoming {
+        std::vector<u8> Data;
+        Arrival Arrived;
+    };
+    std::deque<Incoming> mIncoming;
 };
 
 } // namespace

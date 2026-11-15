@@ -11,14 +11,14 @@
 addToLibrary({
   $SkRtc: {
     peers: {},  // slot -> { pc, channel, open }
-    events: [], // { slot, kind, data: Uint8Array }
+    events: [], // { slot, kind, data: Uint8Array, time: when it arrived, on performance.now()'s clock }
     kData: 0,
     kSignal: 1,
     kOpen: 2,
     kClosed: 3,
 
-    push(slot, kind, data) {
-      SkRtc.events.push({ slot, kind, data: data || new Uint8Array(0) });
+    push(slot, kind, data, time) {
+      SkRtc.events.push({ slot, kind, data: data || new Uint8Array(0), time: time || performance.now() });
     },
 
     signal(slot, message) {
@@ -36,7 +36,9 @@ addToLibrary({
       channel.onclose = () => SkRtc.lost(slot, peer);
       channel.onmessage = (event) => {
         if (event.data instanceof ArrayBuffer) {
-          SkRtc.push(slot, SkRtc.kData, new Uint8Array(event.data));
+          // The event's time is when the message arrived, even if the game's frame held up handling it.
+          const time = (event.timeStamp > 0 && event.timeStamp <= performance.now()) ? event.timeStamp : 0;
+          SkRtc.push(slot, SkRtc.kData, new Uint8Array(event.data), time);
         }
       };
     },
@@ -154,17 +156,19 @@ addToLibrary({
   },
 
   /**
-   * Takes the oldest event: writes its slot and kind, copies up to `capacity` bytes of its data to `buffer`.
+   * Takes the oldest event: writes its slot, kind and how many ms ago it arrived, copies up to `capacity` bytes of its
+   * data to `buffer`.
    * @returns the data's size, or -1 when nothing is waiting.
    */
   sk_rtc_poll__deps: ['$SkRtc'],
-  sk_rtc_poll: function(slotOut, kindOut, buffer, capacity) {
+  sk_rtc_poll: function(slotOut, kindOut, ageMsOut, buffer, capacity) {
     const event = SkRtc.events.shift();
     if (!event) {
       return -1;
     }
     HEAP32[slotOut >> 2] = event.slot;
     HEAP32[kindOut >> 2] = event.kind;
+    HEAPF64[ageMsOut >> 3] = Math.max(0, performance.now() - event.time);
     const size = Math.min(event.data.length, capacity);
     HEAPU8.set(event.data.subarray(0, size), buffer);
     return size;

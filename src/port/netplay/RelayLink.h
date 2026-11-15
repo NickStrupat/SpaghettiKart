@@ -4,6 +4,7 @@
 #include <libultraship/libultraship.h>
 
 #include <array>
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <string>
@@ -31,12 +32,14 @@ class RelayLink {
         u16 LocalPort = 0;
     };
     using Members = std::array<Member, RelayProtocol::kMaxSlots>;
+    /** When a packet reached this computer, which can be before the game got around to reading it. */
+    using Arrival = std::chrono::steady_clock::time_point;
 
     struct Callbacks {
         /** A datagram from the relay. */
-        std::function<void(const u8* data, size_t size)> FromRelay;
+        std::function<void(const u8* data, size_t size, Arrival arrived)> FromRelay;
         /** What a member sent directly: a payload as Relay carries it (RelayClient's channel byte first). */
-        std::function<void(u8 slot, const u8* data, size_t size)> FromMember;
+        std::function<void(u8 slot, const u8* data, size_t size, Arrival arrived)> FromMember;
         /** Asks the client to pass a message to a member through the relay, for links that set up connections so. */
         std::function<void(u8 slot, const u8* data, size_t size)> SendSignal;
     };

@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstring>
 #include <deque>
 #include <memory>
@@ -25,6 +26,7 @@ struct Event {
     int Slot;
     int Kind;
     std::vector<u8> Data;
+    std::chrono::steady_clock::time_point Arrived;
 };
 
 struct Connection {
@@ -57,7 +59,7 @@ void Push(int slot, u32 generation, int kind, std::vector<u8> data = {}) {
         }
         sConnections[slot].Lost = true;
     }
-    sEvents.push_back({ slot, kind, std::move(data) });
+    sEvents.push_back({ slot, kind, std::move(data), std::chrono::steady_clock::now() });
 }
 
 void PushSignal(int slot, u32 generation, const nlohmann::json& message) {
@@ -214,7 +216,7 @@ extern "C" int sk_rtc_send(int slot, const u8* data, int size) {
     }
 }
 
-extern "C" int sk_rtc_poll(int* slot, int* kind, u8* buffer, int capacity) {
+extern "C" int sk_rtc_poll(int* slot, int* kind, double* ageMs, u8* buffer, int capacity) {
     std::lock_guard<std::mutex> lock(sMutex);
     if (sEvents.empty()) {
         return -1;
@@ -223,6 +225,7 @@ extern "C" int sk_rtc_poll(int* slot, int* kind, u8* buffer, int capacity) {
     sEvents.pop_front();
     *slot = event.Slot;
     *kind = event.Kind;
+    *ageMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - event.Arrived).count();
     const int size = std::min((int) event.Data.size(), capacity);
     memcpy(buffer, event.Data.data(), (size_t) size);
     return size;

@@ -28,8 +28,8 @@ class WebRtcPeers {
     enum class Role { Browser, Desktop };
 
     struct Callbacks {
-        /** A payload a member sent (RelayClient's channel byte first). */
-        std::function<void(u8 slot, const u8* data, size_t size)> FromMember;
+        /** A payload a member sent (RelayClient's channel byte first), and when it arrived. */
+        std::function<void(u8 slot, const u8* data, size_t size, RelayLink::Arrival arrived)> FromMember;
         /** A setup message to pass to a member through the relay. */
         std::function<void(u8 slot, const u8* data, size_t size)> SendSignal;
     };
@@ -70,7 +70,7 @@ class WebRtcPeers {
     void StartDirect(s32 slot, bool initiator);
     void CloseDirect(s32 slot);
     void SendPing(s32 slot, Clock::time_point now);
-    void HandleEvent(s32 slot, int kind, const u8* data, size_t size);
+    void HandleEvent(s32 slot, int kind, const u8* data, size_t size, Clock::time_point arrived);
     void HandleChannelMessage(s32 slot, const u8* data, size_t size, Clock::time_point now);
     void SendSignal(s32 slot, const u8* data, size_t size);
     u32 GetMilliseconds(Clock::time_point now) const;

@@ -35,10 +35,11 @@ void sk_rtc_signal(int slot, const u8* data, int size);
 /** @returns 1 if the message went out on an open channel. */
 int sk_rtc_send(int slot, const u8* data, int size);
 /**
- * Takes the oldest event: writes its slot and kind, copies up to `capacity` bytes of its data to `buffer`.
+ * Takes the oldest event: writes its slot, kind and how many ms ago it arrived, copies up to `capacity` bytes of its
+ * data to `buffer`.
  * @returns the data's size, or -1 when nothing is waiting.
  */
-int sk_rtc_poll(int* slot, int* kind, u8* buffer, int capacity);
+int sk_rtc_poll(int* slot, int* kind, double* ageMs, u8* buffer, int capacity);
 
 #ifdef __cplusplus
 }

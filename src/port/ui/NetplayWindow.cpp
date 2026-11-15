@@ -498,14 +498,20 @@ void NetplayStatsOverlay::DrawElement() {
         ImGui::TextUnformatted("Connecting...");
         return;
     }
-    std::string pings;
+    // One line per player: the network's share of the ping, and the share spent waiting for a frame to read packets.
     for (size_t player = 0; player < stats.PingMs.size(); player++) {
-        if (stats.PingMs[player] >= 0) {
-            pings += (pings.empty() ? "" : ", ") + std::string("P") + std::to_string(player + 1) + " " +
-                     std::to_string(stats.PingMs[player]) + " ms" + (stats.Relayed[player] ? " relayed" : "");
+        const s32 ping = stats.PingMs[player];
+        if (ping < 0) {
+            continue;
+        }
+        const s32 wait = stats.FrameWaitMs[player];
+        const char* relayed = stats.Relayed[player] ? ", relayed" : "";
+        if (wait < 0) {
+            ImGui::Text("Ping P%zu %d ms%s", player + 1, ping, relayed);
+        } else {
+            ImGui::Text("Ping P%zu %d ms network + %d ms frame wait%s", player + 1, ping - wait, wait, relayed);
         }
     }
-    ImGui::Text("Ping %s", pings.c_str());
     ImGui::Text("Input delay %u (%u ms)", stats.InputDelay, stats.InputDelay * 100u / 3u);
     if (stats.RollbackShare > 0.0f) {
         ImGui::Text("Rollback %.0f%% of frames, %.1f avg, %u max", stats.RollbackShare * 100.0f,

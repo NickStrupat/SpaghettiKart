@@ -322,11 +322,13 @@ void EndGekkoSession(const char* verdict, const std::string& message, bool desyn
     GekkoRollbackStats rollbacks = {};
     gekko_rollback_stats(sNet.Gekko, &rollbacks);
     GekkoNetworkStats network = {};
-    gekko_network_stats(sNet.Gekko, (sNet.Settings.LocalPlayer == 0) ? 1 : 0, &network);
+    const s32 otherPlayer = (sNet.Settings.LocalPlayer == 0) ? 1 : 0;
+    gekko_network_stats(sNet.Gekko, otherPlayer, &network);
+    const s32 frameWait = (sNet.Settings.GetFrameWaitMs != nullptr) ? sNet.Settings.GetFrameWaitMs(otherPlayer) : -1;
     NetLog("%s: %s. Segment %u: %u frames shown, %u rollbacks (avg %.1f, max %u frames), %u stalls, "
-           "%u time-sync waits, ping %.0f ms, %s, %s",
+           "%u time-sync waits, ping %.0f ms (%d ms frame wait), %s, %s",
            verdict, message.c_str(), sNet.Segment, sNet.SegmentFrames, rollbacks.total_count, rollbacks.avg_frames,
-           rollbacks.max_frames, rollbacks.total_stalls, sNet.WaitedFrames, network.avg_ping,
+           rollbacks.max_frames, rollbacks.total_stalls, sNet.WaitedFrames, network.avg_ping, frameWait,
            SoundRollback::GetSummary().c_str(), KartSmoothing::GetSummary().c_str());
     gekko_destroy(&sNet.Gekko);
     for (DelayedPacket& packet : sNet.DelayedPackets) {
@@ -958,6 +960,7 @@ bool GetLiveStats(LiveStats* stats) {
     }
     stats->LocalPlayer = sNet.Settings.LocalPlayer;
     stats->PingMs.assign(sNet.Settings.Addresses.size(), -1);
+    stats->FrameWaitMs.assign(sNet.Settings.Addresses.size(), -1);
     stats->Relayed.assign(sNet.Settings.Addresses.size(), false);
     for (s32 player = 0; player < (s32) stats->PingMs.size(); player++) {
         if (player != sNet.Settings.LocalPlayer) {
@@ -965,6 +968,11 @@ bool GetLiveStats(LiveStats* stats) {
             gekko_network_stats(sNet.Gekko, player, &network);
             stats->PingMs[player] = (s32) network.avg_ping;
             stats->Relayed[player] = (sNet.Settings.IsRelayed != nullptr) && sNet.Settings.IsRelayed(player);
+            if (sNet.Settings.GetFrameWaitMs != nullptr) {
+                // GekkoNet's average and the wait's cover slightly different packets: the wait can't exceed the ping.
+                const s32 wait = sNet.Settings.GetFrameWaitMs(player);
+                stats->FrameWaitMs[player] = (wait < 0) ? -1 : std::min(wait, stats->PingMs[player]);
+            }
         }
     }
     stats->InputDelay = sNet.InputDelay;

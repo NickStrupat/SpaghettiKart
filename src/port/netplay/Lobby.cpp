@@ -28,11 +28,13 @@ constexpr size_t kMaxMessageSize = 512;
 constexpr size_t kMaxQueuedRaceData = 1024;
 // Sent for a ping not measured yet
 constexpr u16 kUnknownPing = 0xFFFF;
+// Sent for a GekkoNet wait not measured yet
+constexpr u8 kUnknownWait = 0xFF;
 
 enum class MessageType : u8 {
     MemberState = 1,  // u8 character, u8 ready, u32 race running or run last, u8 in race, u8 racing,
                       // u32 last confirmed segment end and s32 its frame, u16 relay ping (kUnknownPing),
-                      // u8 name length, name
+                      // u8 GekkoNet wait (kUnknownWait), u8 name length, name
     RoomSettings = 2, // Host only: u8 mode, u8 cc, u8 cup, u8 track length, track,
                       // u8 shared console, u32 console (0 for none), then for a console: u8 player count, the slot
                       // of each player, RaceConfig (the rules), u8 Extra mode unlocked;
@@ -122,6 +124,8 @@ void BroadcastMemberState() {
     writer.Write32((u32) sLobby.BarrierFrame);
     const s32 ping = sLobby.Relay.GetPingMs();
     writer.Write16((ping < 0) ? kUnknownPing : (u16) std::min(ping, (s32) kUnknownPing - 1));
+    const s32 wait = sLobby.Relay.GetGekkoWaitMs();
+    writer.Write8((wait < 0) ? kUnknownWait : (u8) std::min(wait, (s32) kUnknownWait - 1));
     WriteString(writer, sLobby.Name, kMaxNameLength);
     sLobby.Relay.SendLobby(kBroadcast, message, writer.GetSize());
 }
@@ -162,6 +166,8 @@ void HandleMemberState(u8 source, ByteReader& reader) {
     member.BarrierFrame = (s32) reader.Read32();
     const u16 ping = reader.Read16();
     member.PingMs = (ping == kUnknownPing) ? -1 : ping;
+    const u8 wait = reader.Read8();
+    member.GekkoWaitMs = (wait == kUnknownWait) ? -1 : wait;
     member.Name = ReadString(reader);
     if (reader.Failed() || (source >= kMaxMembers) || (member.Character < 0) || (member.Character >= kNumCharacters)) {
         return;
@@ -322,6 +328,7 @@ void UpdateMembers() {
     self.BarrierSegment = sLobby.BarrierSegment;
     self.BarrierFrame = sLobby.BarrierFrame;
     self.PingMs = sLobby.Relay.GetPingMs();
+    self.GekkoWaitMs = sLobby.Relay.GetGekkoWaitMs();
 }
 
 /**
@@ -489,6 +496,13 @@ s32 GetDirectPingMs(u8 slot) {
 
 void BlockDirectAfter(u32 milliseconds) {
     sLobby.Relay.BlockDirectAfter(milliseconds);
+}
+
+s32 GetGekkoWaitMs(u8 slot) {
+    // This peer's wait for the slot's packets, and the slot's for this peer's: GekkoNet answers a ping on reading it.
+    const s32 ownWait = sLobby.Relay.GetGekkoWaitMs(slot);
+    const s32 theirWait = (slot < kMaxMembers) ? sLobby.Members[slot].GekkoWaitMs : -1;
+    return ((ownWait < 0) || (theirWait < 0)) ? -1 : ownWait + theirWait;
 }
 
 s32 GetLatencyMs(const std::vector<u8>& slots) {

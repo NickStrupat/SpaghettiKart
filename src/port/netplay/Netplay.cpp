@@ -347,6 +347,7 @@ void StartLobbyRace(const Lobby::RaceStart& start) {
     };
     SetResyncChannel(&settings, raceId, start.Slots);
     settings.IsRelayed = [slots = start.Slots](s32 player) { return !Lobby::IsDirect(slots[player]); };
+    settings.GetFrameWaitMs = [slots = start.Slots](s32 player) { return Lobby::GetGekkoWaitMs(slots[player]); };
     settings.GetLatencyMs = [slots = start.Slots]() {
         // Test peers add their simulated delay to every packet they receive.
         const s32 latency = Lobby::GetLatencyMs(slots);
@@ -616,6 +617,9 @@ void StartConsoleRace(u32 segment) {
     };
     SetResyncChannel(&settings, id, sConsole.Start.Slots);
     settings.IsRelayed = [slots = sConsole.Start.Slots](s32 player) { return !Lobby::IsDirect(slots[player]); };
+    settings.GetFrameWaitMs = [slots = sConsole.Start.Slots](s32 player) {
+        return Lobby::GetGekkoWaitMs(slots[player]);
+    };
     settings.GetLatencyMs = [slots = sConsole.Start.Slots]() {
         const s32 latency = Lobby::GetLatencyMs(slots);
         return (latency < 0) ? latency : latency + (s32) (sNetplay.DelayMs + sNetplay.JitterMs / 2);

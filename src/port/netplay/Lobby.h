@@ -53,6 +53,7 @@ struct Member {
     u32 BarrierSegment = 0;  // The last segment of that race it confirmed the end of
     s32 BarrierFrame = 0;    // The frame it confirmed that segment ended on
     s32 PingMs = -1;         // Round trip to the relay; -1 until measured
+    s32 GekkoWaitMs = -1;    // How long GekkoNet packets wait for it to read them (RelayClient::GetGekkoWaitMs())
 };
 
 /** What the host picks. Guests see the host's choice. */
@@ -107,6 +108,11 @@ bool IsDirect(u8 slot);
 s32 GetDirectPingMs(u8 slot);
 /** Testing: direct connections stop working this long after joining a room, as if a router closed them. */
 void BlockDirectAfter(u32 milliseconds);
+/**
+ * @returns how much of GekkoNet's round trip to this slot is packets waiting at either end for a frame to read them,
+ *          in ms, rather than time on the network; -1 while not known.
+ */
+s32 GetGekkoWaitMs(u8 slot);
 /**
  * @returns the one-way latency in ms from this peer to the slowest other player of a race, through the relay, or -1
  *          while a ping is not known yet.

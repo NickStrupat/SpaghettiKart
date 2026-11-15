@@ -68,6 +68,13 @@ class RelayClient {
     bool IsDirect(u8 slot) const;
     /** Round trip straight to this slot, or -1 while not connected directly or not measured yet. */
     s32 GetDirectPingMs(u8 slot) const;
+    /**
+     * How long GekkoNet packets from this slot wait, on average, between reaching this computer and GekkoNet reading
+     * them once a frame, in ms; -1 before any arrived. GekkoNet's ping counts this wait at both ends.
+     */
+    s32 GetGekkoWaitMs(u8 slot) const;
+    /** The same over packets from every slot, for the others to add to their side's wait. */
+    s32 GetGekkoWaitMs() const;
 
     /** Sends a lobby message to one slot, or to every other member with RelayProtocol::kBroadcast. */
     void SendLobby(u8 destination, const void* data, size_t size);
