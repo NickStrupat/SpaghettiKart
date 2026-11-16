@@ -31,15 +31,19 @@ target_link_options(${PROJECT_NAME} PRIVATE
   # Netplay: a WebSocket to the relay, WebRTC to the other players (src/port/netplay/RelayLinkWeb.cpp).
   -lwebsocket.js
   --js-library ${CMAKE_SOURCE_DIR}/src/port/web/WebRtcLink.js
+  # Netplay voice chat: the browser's microphone and speakers (src/port/netplay/VoiceDeviceWeb.cpp). "SHELL:" keeps
+  # CMake from dropping the second --js-library as a repeat of the first.
+  "SHELL:--js-library ${CMAKE_SOURCE_DIR}/src/port/web/VoiceDevice.js"
   -sFORCE_FILESYSTEM=1
   -lidbfs.js
   -sEXPORTED_RUNTIME_METHODS=FS,IDBFS,ENV,addRunDependency,removeRunDependency
   -sEXIT_RUNTIME=0
   -sENVIRONMENT=web,worker)
 
-# The page and the JavaScript library are inputs of the link: changing them relinks.
+# The page and the JavaScript libraries are inputs of the link: changing them relinks.
 set_property(TARGET ${PROJECT_NAME} APPEND PROPERTY LINK_DEPENDS
-  ${CMAKE_SOURCE_DIR}/src/port/web/shell.html ${CMAKE_SOURCE_DIR}/src/port/web/WebRtcLink.js)
+  ${CMAKE_SOURCE_DIR}/src/port/web/shell.html ${CMAKE_SOURCE_DIR}/src/port/web/WebRtcLink.js
+  ${CMAKE_SOURCE_DIR}/src/port/web/VoiceDevice.js)
 
 target_link_options(${PROJECT_NAME} PRIVATE
   "$<$<CONFIG:Debug>:-sASSERTIONS=2;-gsource-map>"
@@ -83,6 +87,7 @@ add_custom_command(
   TARGET ${PROJECT_NAME} POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/src/port/web/ExtractWorker.js ${WEB_DIR}/
   COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/src/port/web/AudioOutput.js ${WEB_DIR}/
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/src/port/web/VoiceWorklet.js ${WEB_DIR}/
   COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/src/port/web/manifest.webmanifest ${WEB_DIR}/
   COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/icon.png ${WEB_DIR}/
   VERBATIM)

@@ -13,10 +13,11 @@
 
 /**
  * The game's connection to the netplay relay: creates or joins a room, keeps the membership alive, and carries
- * two channels of packets between room members: lobby messages and GekkoNet's rollback traffic.
+ * three channels of packets between room members: lobby messages, GekkoNet's rollback traffic and voice.
  *
  * Packets to one member go to it directly once a direct connection works, and through the relay otherwise, or again
- * once the direct way goes quiet. Broadcasts always go through the relay. How packets move is a RelayLink's business
+ * once the direct way goes quiet. Broadcasts always go through the relay. Voice is the exception: it only ever goes
+ * directly, so the relay carries none of it. How packets move is a RelayLink's business
  * (RelayLink.h): UDP with punching through routers on the desktop, a WebSocket and WebRTC in a browser.
  * Single-threaded: call Update() once per frame from the game thread. Only host name lookup runs on a worker thread.
  */
@@ -25,6 +26,11 @@ class RelayClient {
     enum class Status { Idle, Resolving, Joining, InRoom, Failed };
 
     struct LobbyPacket {
+        u8 Source; // Sender's slot
+        std::vector<u8> Data;
+    };
+
+    struct VoicePacket {
         u8 Source; // Sender's slot
         std::vector<u8> Data;
     };
@@ -79,6 +85,14 @@ class RelayClient {
     /** Sends a lobby message to one slot, or to every other member with RelayProtocol::kBroadcast. */
     void SendLobby(u8 destination, const void* data, size_t size);
     std::vector<LobbyPacket> TakeLobbyPackets();
+
+    /**
+     * Sends voice to one slot, only while it is reached directly: voice never goes through the relay.
+     * @returns whether it was sent.
+     */
+    bool SendVoice(u8 destination, const void* data, size_t size);
+    /** The voice that arrived directly since the last call. Voice that came through the relay is dropped. */
+    std::vector<VoicePacket> TakeVoicePackets();
 
     /**
      * A GekkoNet network adapter over this connection. Peer addresses are one byte: the peer's slot.

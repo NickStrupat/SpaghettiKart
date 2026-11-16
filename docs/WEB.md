@@ -17,6 +17,8 @@ file records how to build and serve it, what was changed to make it run, and wha
   2026-11-10.
 - **The player's ROM becomes `mk64.o2r` in the browser** (`.z64`, `.n64` or `.v64`), in about 7 seconds on the
   first visit; see [The game's archive](#the-games-archive).
+- **Voice chat works in the checks** (`docs/NETPLAY.md`): between browsers and with a desktop game, with Chrome's
+  stand-in microphone; not yet heard by people in a real browser, and not checked in Safari or on phones.
 - **Does not work**: desync recovery when a browser and a desktop game share a room.
 
 ## Building
@@ -150,6 +152,8 @@ the options (players, mode, relay only, a direct connection that fails, a deskto
 ```sh
 node tools/web-check/netplay.mjs                                   # 2 browsers, direct over WebRTC
 PLAYERS=4 MODE=battle TRACK=mk:block_fort node tools/web-check/netplay.mjs
+VOICE=1 node tools/web-check/netplay.mjs                           # voice chat: each player hums, all must hear all
+VOICE=mic node tools/web-check/netplay.mjs                         # the browser's own voice device, Chrome's stand-in microphone
 NATIVE=build-cmake/SpaghettiKart.app/Contents/MacOS/SpaghettiKart SPEED=0 node tools/web-check/netplay.mjs
 ```
 
@@ -182,6 +186,7 @@ on a phone: at 16 times slower, a one-player race kept 30 game frames a second a
 | Files | the settings folder | a folder in memory; `src/port/web/shell.html` copies changes to IndexedDB |
 | `mk64.o2r` | made from a ROM by Torch | made from a ROM by Torch in WebAssembly, on a worker |
 | Online play | UDP to the relay; to other players directly, punching through routers | a WebSocket to the relay; WebRTC to other browsers |
+| Voice chat | macOS's voice processing audio unit (`VoiceDeviceMac.cpp`) | the browser's microphone with its echo cancellation, and an AudioWorklet on a sound context of its own (`VoiceDeviceWeb.cpp`, `src/port/web/VoiceDevice.js`, `VoiceWorklet.js`) |
 
 Everything specific to the browser is behind `__EMSCRIPTEN__` in the code and `SPAGHETTIKART_WEB` in CMake
 (`cmake/web/`, `cmake/dependencies/emscripten.cmake`). The page itself is `src/port/web/shell.html`.
@@ -220,6 +225,8 @@ Everything specific to the browser is behind `__EMSCRIPTEN__` in the code and `S
 - **Two headless Chromes on one computer cannot connect with WebRTC** unless started with
   `--disable-features=WebRtcHideLocalIpsWithMdns`: Chrome hides each one's local addresses behind `.local` names the
   other cannot look up (`tools/web-check/netplay.mjs` passes it). Players on different computers do not need it.
+- **CMake drops a repeated `--js-library`** from the link options, leaving the second library's file as a bare
+  input that the linker rejects ("unknown file type"): write the pair as one `"SHELL:--js-library <file>"`.
 - **Uninitialized memory differs.** The Mac's happened to be zero where the browser's held leftovers: see the
   kiwano pitfall in `docs/NETPLAY.md`.
 

@@ -34,7 +34,7 @@ constexpr u8 kUnknownWait = 0xFF;
 enum class MessageType : u8 {
     MemberState = 1,  // u8 character, u8 ready, u32 race running or run last, u8 in race, u8 racing,
                       // u32 last confirmed segment end and s32 its frame, u16 relay ping (kUnknownPing),
-                      // u8 GekkoNet wait (kUnknownWait), u8 name length, name
+                      // u8 GekkoNet wait (kUnknownWait), u8 uses voice chat, u8 name length, name
     RoomSettings = 2, // Host only: u8 mode, u8 cc, u8 cup, u8 track length, track,
                       // u8 shared console, u32 console (0 for none), then for a console: u8 player count, the slot
                       // of each player, RaceConfig (the rules), u8 Extra mode unlocked;
@@ -81,6 +81,7 @@ struct LobbyState {
     u32 SeenConsoleId = 0;
     std::optional<ConsoleStart> PendingConsole;
     bool Racing = false;
+    bool Voice = false; // This peer uses voice chat (SetVoice())
 
     Clock::time_point LastBroadcast;
     bool Changed = true;
@@ -126,6 +127,7 @@ void BroadcastMemberState() {
     writer.Write16((ping < 0) ? kUnknownPing : (u16) std::min(ping, (s32) kUnknownPing - 1));
     const s32 wait = sLobby.Relay.GetGekkoWaitMs();
     writer.Write8((wait < 0) ? kUnknownWait : (u8) std::min(wait, (s32) kUnknownWait - 1));
+    writer.Write8(sLobby.Voice ? 1 : 0);
     WriteString(writer, sLobby.Name, kMaxNameLength);
     sLobby.Relay.SendLobby(kBroadcast, message, writer.GetSize());
 }
@@ -168,6 +170,7 @@ void HandleMemberState(u8 source, ByteReader& reader) {
     member.PingMs = (ping == kUnknownPing) ? -1 : ping;
     const u8 wait = reader.Read8();
     member.GekkoWaitMs = (wait == kUnknownWait) ? -1 : wait;
+    member.Voice = reader.Read8() != 0;
     member.Name = ReadString(reader);
     if (reader.Failed() || (source >= kMaxMembers) || (member.Character < 0) || (member.Character >= kNumCharacters)) {
         return;
@@ -329,6 +332,7 @@ void UpdateMembers() {
     self.BarrierFrame = sLobby.BarrierFrame;
     self.PingMs = sLobby.Relay.GetPingMs();
     self.GekkoWaitMs = sLobby.Relay.GetGekkoWaitMs();
+    self.Voice = sLobby.Voice;
 }
 
 /**
@@ -766,6 +770,25 @@ void SendRaceData(u32 raceId, u8 destination, const std::vector<u8>& data) {
     if (!writer.Failed()) {
         sLobby.Relay.SendLobby(destination, message, writer.GetSize());
     }
+}
+
+void SetVoice(bool voice) {
+    if (sLobby.Voice != voice) {
+        sLobby.Voice = voice;
+        sLobby.Changed = true;
+    }
+}
+
+bool SendVoice(u8 slot, const void* data, size_t size) {
+    return (sLobby.Status == State::InRoom) && sLobby.Relay.SendVoice(slot, data, size);
+}
+
+std::vector<VoiceData> TakeVoice() {
+    std::vector<VoiceData> voice;
+    for (RelayClient::VoicePacket& packet : sLobby.Relay.TakeVoicePackets()) {
+        voice.push_back({ packet.Source, std::move(packet.Data) });
+    }
+    return voice;
 }
 
 std::vector<RaceData> TakeRaceData(u32 raceId) {

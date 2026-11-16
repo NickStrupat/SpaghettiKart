@@ -54,6 +54,7 @@ struct Member {
     s32 BarrierFrame = 0;    // The frame it confirmed that segment ended on
     s32 PingMs = -1;         // Round trip to the relay; -1 until measured
     s32 GekkoWaitMs = -1;    // How long GekkoNet packets wait for it to read them (RelayClient::GetGekkoWaitMs())
+    bool Voice = false;      // Uses voice chat (VoiceChat.h): only such members are sent voice
 };
 
 /** What the host picks. Guests see the host's choice. */
@@ -154,6 +155,21 @@ struct RaceEnd {
     SessionResult Result;
     std::string Message;
 };
+
+/** Voice from another member (VoiceChat.h). */
+struct VoiceData {
+    u8 Source; // Sender's relay slot
+    std::vector<u8> Data;
+};
+/** Tells the room whether this peer uses voice chat, so that the others send it theirs. */
+void SetVoice(bool voice);
+/**
+ * Sends voice to one slot, only while it is reached directly: voice never goes through the relay.
+ * @returns whether it was sent.
+ */
+bool SendVoice(u8 slot, const void* data, size_t size);
+/** The voice that arrived since the last call. */
+std::vector<VoiceData> TakeVoice();
 
 /** A message for a race's session from another member, such as part of a state for desync recovery (Resync.h). */
 struct RaceData {

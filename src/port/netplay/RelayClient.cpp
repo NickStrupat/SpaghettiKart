@@ -22,6 +22,10 @@ constexpr u8 kLobbyChannel = 1;
 constexpr u8 kGekkoChannel = 2;
 // Messages a link sets up direct connections with (RelayLink::Callbacks::SendSignal): always through the relay.
 constexpr u8 kSignalChannel = 3;
+// Voice chat (VoiceChat.h): only ever straight to a member, so that the relay carries none of it.
+constexpr u8 kVoiceChannel = 4;
+// Voice packets kept for TakeVoicePackets(): about a second from every member, should nobody take them.
+constexpr size_t kMaxVoicePackets = 256;
 constexpr size_t kGekkoHeaderSize = 3; // Channel, session tag
 // GekkoNet sessions that can run at once, each with its own tag: a shared console's last menu session finishes while
 // its race's session starts.
@@ -77,6 +81,7 @@ struct RelayClient::Impl {
     Clock::time_point Epoch = Clock::now();
 
     std::vector<LobbyPacket> LobbyPackets;
+    std::vector<VoicePacket> VoicePackets;
     std::array<GekkoLane, kNumGekkoLanes> GekkoLanes;
     u32 GekkoRequests = 0;
     // How long GekkoNet's packets wait between reaching this computer and GekkoNet reading them, in ms, -1 before
@@ -107,7 +112,7 @@ struct RelayClient::Impl {
         };
         callbacks.FromMember = [this](u8 slot, const u8* data, size_t size, RelayLink::Arrival arrived) {
             ByteReader reader(data, size);
-            HandlePayload(slot, reader, arrived);
+            HandlePayload(slot, reader, arrived, true);
         };
         callbacks.SendSignal = [this](u8 slot, const u8* data, size_t size) {
             const u8 header = kSignalChannel;
@@ -139,6 +144,7 @@ struct RelayClient::Impl {
         Occupied = 0;
         PingMs = -1;
         LobbyPackets.clear();
+        VoicePackets.clear();
         FreeGekkoPackets();
         GekkoWaitMs = MakeUnknownWaits();
         AllGekkoWaitMs = -1.0f;
@@ -390,7 +396,7 @@ struct RelayClient::Impl {
                     break;
                 }
                 LastHeardFromRelay = now;
-                HandlePayload(source, reader, now);
+                HandlePayload(source, reader, now, false);
                 break;
             }
             default:
@@ -398,8 +404,11 @@ struct RelayClient::Impl {
         }
     }
 
-    /** What Relay or Direct carried: a lobby message or a GekkoNet packet. */
-    void HandlePayload(u8 source, ByteReader& reader, RelayLink::Arrival arrived) {
+    /**
+     * What Relay or Direct carried: a lobby message, a GekkoNet packet, a link's setup message or voice.
+     * @param direct Whether it came straight from the member rather than through the relay.
+     */
+    void HandlePayload(u8 source, ByteReader& reader, RelayLink::Arrival arrived, bool direct) {
         const u8 channel = reader.Read8();
         if (reader.Failed()) {
             return;
@@ -416,6 +425,13 @@ struct RelayClient::Impl {
             }
         } else if ((channel == kSignalChannel) && (Link != nullptr)) {
             Link->HandleSignal(source, reader.GetRemaining(), reader.GetRemainingSize());
+        } else if ((channel == kVoiceChannel) && direct) {
+            // Voice through the relay is dropped: no game of this build sends it that way.
+            if (VoicePackets.size() >= kMaxVoicePackets) {
+                VoicePackets.erase(VoicePackets.begin());
+            }
+            const u8* payload = reader.GetRemaining();
+            VoicePackets.push_back({ source, std::vector<u8>(payload, payload + reader.GetRemainingSize()) });
         }
     }
 
@@ -445,6 +461,18 @@ struct RelayClient::Impl {
         memcpy(payload, header, headerSize);
         memcpy(payload + headerSize, data, size);
         Link->SendDirect(destination, payload, headerSize + size);
+    }
+
+    /** Sends voice straight to a member. There is no way through the relay for it. */
+    bool SendVoice(u8 destination, const void* data, size_t size) {
+        if ((State != Status::InRoom) || (1 + size > kMaxPayload) || !HasDirect(destination, Clock::now())) {
+            return false;
+        }
+        u8 payload[kMaxPayload];
+        payload[0] = kVoiceChannel;
+        memcpy(payload + 1, data, size);
+        Link->SendDirect(destination, payload, 1 + size);
+        return true;
     }
 
     void SendThroughRelay(u8 destination, const u8* header, size_t headerSize, const void* data, size_t size) {
@@ -593,6 +621,16 @@ void RelayClient::SendLobby(u8 destination, const void* data, size_t size) {
 std::vector<RelayClient::LobbyPacket> RelayClient::TakeLobbyPackets() {
     std::vector<LobbyPacket> packets;
     packets.swap(mImpl->LobbyPackets);
+    return packets;
+}
+
+bool RelayClient::SendVoice(u8 destination, const void* data, size_t size) {
+    return mImpl->SendVoice(destination, data, size);
+}
+
+std::vector<RelayClient::VoicePacket> RelayClient::TakeVoicePackets() {
+    std::vector<VoicePacket> packets;
+    packets.swap(mImpl->VoicePackets);
     return packets;
 }
 

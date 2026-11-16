@@ -1,6 +1,7 @@
 #include "NetplayWindow.h"
 
 #include <algorithm>
+#include <cmath>
 #include <imgui.h>
 #include <string>
 #include <vector>
@@ -14,6 +15,7 @@
 #include "port/netplay/Lobby.h"
 #include "port/netplay/NetSession.h"
 #include "port/netplay/Netplay.h"
+#include "port/netplay/VoiceChat.h"
 
 namespace GameUI {
 extern std::shared_ptr<PortMenu> mPortMenu;
@@ -29,6 +31,7 @@ constexpr const char* kCharacterNames[] = { "Mario", "Luigi", "Yoshi", "Toad", "
 constexpr const char* kCCNames[] = { "50cc", "100cc", "150cc", "Extra (mirrored)" };
 const ImVec4 kErrorColor = ImVec4(1.0f, 0.45f, 0.45f, 1.0f);
 const ImVec4 kDimColor = ImVec4(0.65f, 0.65f, 0.65f, 1.0f);
+const ImVec4 kTalkingColor = ImVec4(0.45f, 1.0f, 0.45f, 1.0f);
 
 char sRoomCodeInput[RelayProtocol::kCodeLength + 1] = "";
 
@@ -110,15 +113,80 @@ void DrawConnect() {
     }
 }
 
+/** This player's side of voice chat, in a few words. */
+const char* GetMicStatusText(VoiceChat::MicStatus status) {
+    switch (status) {
+        case VoiceChat::MicStatus::Off:
+            return "off";
+        case VoiceChat::MicStatus::Unavailable:
+            return "not on this system";
+        case VoiceChat::MicStatus::Idle:
+            return "nobody to talk to";
+        case VoiceChat::MicStatus::Starting:
+            return "starting";
+        case VoiceChat::MicStatus::Live:
+            return "on";
+        case VoiceChat::MicStatus::Muted:
+            return "microphone muted";
+        case VoiceChat::MicStatus::Denied:
+            return "microphone not allowed";
+        default:
+            return "microphone failed";
+    }
+}
+
+/** The voice chat cell of a member's row: for another member, whether they are heard, and a way to mute them. */
+void DrawMemberVoice(u8 slot, bool self) {
+    if (self) {
+        const VoiceChat::MicStatus status = VoiceChat::GetMicStatus();
+        if (VoiceChat::IsTalking()) {
+            ImGui::TextColored(kTalkingColor, "talking");
+        } else if (status == VoiceChat::MicStatus::Live) {
+            ImGui::TextUnformatted(GetMicStatusText(status));
+        } else {
+            ImGui::TextColored(kDimColor, "%s", GetMicStatusText(status));
+        }
+        return;
+    }
+    const VoiceChat::MemberStatus status = VoiceChat::GetMemberStatus(slot);
+    switch (status) {
+        case VoiceChat::MemberStatus::None:
+            return;
+        case VoiceChat::MemberStatus::VoiceOff:
+            ImGui::TextColored(kDimColor, "off");
+            return;
+        case VoiceChat::MemberStatus::NotDirect:
+            ImGui::TextColored(kDimColor, "no direct connection");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Voice only goes straight between two players, never through the relay server.\n"
+                                  "Your routers do not let you and this player connect directly.");
+            }
+            return;
+        default:
+            break;
+    }
+    bool muted = VoiceChat::IsMuted(slot);
+    ImGui::PushID(slot);
+    if (ImGui::Checkbox("mute", &muted)) {
+        VoiceChat::SetMuted(slot, muted);
+    }
+    ImGui::PopID();
+    if (status == VoiceChat::MemberStatus::Talking) {
+        ImGui::SameLine();
+        ImGui::TextColored(kTalkingColor, "talking");
+    }
+}
+
 void DrawMembers() {
     const auto& members = Lobby::GetMembers();
-    if (!ImGui::BeginTable("members", 4, ImGuiTableFlags_BordersInnerH)) {
+    if (!ImGui::BeginTable("members", 5, ImGuiTableFlags_BordersInnerH)) {
         return;
     }
     ImGui::TableSetupColumn("Player");
     ImGui::TableSetupColumn("Character");
     ImGui::TableSetupColumn("Status");
     ImGui::TableSetupColumn("Connection");
+    ImGui::TableSetupColumn("Voice");
     ImGui::TableHeadersRow();
     for (size_t slot = 0; slot < members.size(); slot++) {
         const Lobby::Member& member = members[slot];
@@ -152,9 +220,7 @@ void DrawMembers() {
         // Your own row stays empty: your ping to the relay server is shown above the table, and on this row it read
         // as if you were connected through the relay.
         if (self) {
-            continue;
-        }
-        if (Lobby::IsDirect((u8) slot)) {
+        } else if (Lobby::IsDirect((u8) slot)) {
             const s32 ping = Lobby::GetDirectPingMs((u8) slot);
             if (ping >= 0) {
                 ImGui::Text("direct %d ms", ping);
@@ -164,6 +230,8 @@ void DrawMembers() {
         } else if (member.Known) {
             ImGui::TextColored(kDimColor, "relayed");
         }
+        ImGui::TableNextColumn();
+        DrawMemberVoice((u8) slot, self);
     }
     ImGui::EndTable();
 }
@@ -396,8 +464,8 @@ void DrawControllerChoice() {
                                                   : "Button held on controller %s", pressed.c_str());
 }
 
-void CheckboxCVar(const char* label, const char* cvar) {
-    bool enabled = CVarGetInteger(cvar, 1) != 0;
+void CheckboxCVar(const char* label, const char* cvar, s32 fallback = 1) {
+    bool enabled = CVarGetInteger(cvar, fallback) != 0;
     if (ImGui::Checkbox(label, &enabled)) {
         CVarSetInteger(cvar, enabled ? 1 : 0);
         Ship::Context::GetRawInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
@@ -423,6 +491,36 @@ void DrawViewChoice() {
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
         ImGui::SetTooltip("Faster than going through the relay server, when your routers allow it.\nThe other "
                           "players in the room see your IP address. Applies when you next host or join.");
+    }
+}
+
+/** Voice chat: on or off, this player's microphone, and how loud the others are. */
+void DrawVoiceChoice() {
+    CheckboxCVar("Voice chat", VoiceChat::kEnabledCVar);
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Talk with the other players of a room, in the menus and in races.\nVoice goes straight "
+                          "between players, never through the relay server: you hear, and are heard by,\nthe "
+                          "players you are connected to directly. It uses the microphone your system has selected.");
+    }
+    if (CVarGetInteger(VoiceChat::kEnabledCVar, 1) == 0) {
+        return;
+    }
+    ImGui::SameLine();
+    CheckboxCVar("Mute my microphone", VoiceChat::kMicMutedCVar, 0);
+    constexpr s32 kMaxVolumePercent = 200;
+    s32 volume = (s32) std::lround(CVarGetFloat(VoiceChat::kVolumeCVar, 1.0f) * 100.0f);
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10);
+    if (ImGui::SliderInt("Voice volume", &volume, 0, kMaxVolumePercent, "%d%%")) {
+        CVarSetFloat(VoiceChat::kVolumeCVar, (f32) volume / 100.0f);
+        Ship::Context::GetRawInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+    }
+    if (CVarGetInteger(Lobby::kDirectConnectCVar, 1) == 0) {
+        ImGui::TextColored(kDimColor, "Voice chat needs \"Connect directly to other players\".");
+    } else if (VoiceChat::GetMicStatus() == VoiceChat::MicStatus::Denied) {
+        ImGui::TextColored(kErrorColor, "The microphone is not allowed: no voice chat. Allow it for SpaghettiKart in\n"
+                                        "System Settings > Privacy & Security > Microphone.");
+    } else if (VoiceChat::GetMicStatus() == VoiceChat::MicStatus::Failed) {
+        ImGui::TextColored(kErrorColor, "The microphone failed to start: no voice chat.");
     }
 }
 
@@ -525,9 +623,52 @@ void NetplayStatsOverlay::DrawElement() {
     }
 }
 
+void NetplayVoiceOverlay::Draw() {
+    if (Lobby::GetState() != Lobby::State::InRoom) {
+        return;
+    }
+    // Who is talking, and what the player should know about their own microphone; nothing while all is quiet.
+    std::string talking;
+    if (VoiceChat::IsTalking()) {
+        talking = "You";
+    }
+    const auto& members = Lobby::GetMembers();
+    for (size_t slot = 0; slot < members.size(); slot++) {
+        if (VoiceChat::GetMemberStatus((u8) slot) == VoiceChat::MemberStatus::Talking) {
+            talking += (talking.empty() ? "" : ", ") + GetMemberName(members[slot], slot);
+        }
+    }
+    const VoiceChat::MicStatus status = VoiceChat::GetMicStatus();
+    const bool warn = (status == VoiceChat::MicStatus::Denied) || (status == VoiceChat::MicStatus::Failed);
+    const bool muted = status == VoiceChat::MicStatus::Muted;
+    if (talking.empty() && !warn && !muted) {
+        return;
+    }
+    constexpr f32 kMargin = 8.0f;
+    constexpr f32 kBackgroundAlpha = 0.55f;
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + kMargin, viewport->WorkPos.y + kMargin), ImGuiCond_Always);
+    ImGui::SetNextWindowViewport(viewport->ID);
+    ImGui::SetNextWindowBgAlpha(kBackgroundAlpha);
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs |
+                                   ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
+                                   ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav |
+                                   ImGuiWindowFlags_NoDocking;
+    if (ImGui::Begin(GetName().c_str(), nullptr, flags)) {
+        if (!talking.empty()) {
+            ImGui::TextColored(kTalkingColor, "Talking: %s", talking.c_str());
+        }
+        if (warn || muted) {
+            ImGui::TextColored(warn ? kErrorColor : kDimColor, "Voice chat: %s", GetMicStatusText(status));
+        }
+    }
+    ImGui::End();
+}
+
 void NetplayWindow::DrawElement() {
     DrawControllerChoice();
     DrawViewChoice();
+    DrawVoiceChoice();
     DrawInputDelayChoice();
     ImGui::Separator();
     switch (Lobby::GetState()) {

@@ -91,6 +91,8 @@ EVENTS = {
     "menus_in_sync": r"Test: menus in sync",
     "left_room": r"Leaving the room",
     "recoveries": r"Recovered from the desync",
+    "voice_heard": r"Voice test: hearing note \d+",
+    "voice_stopped": r"Voice test: note \d+ stopped",
 }
 # The game prints each line to stdout, then again through its log; count the plain copy only.
 EVENTS = {event: re.compile(r"^\[Netplay\] " + pattern, re.MULTILINE) for event, pattern in EVENTS.items()}
@@ -149,6 +151,24 @@ SCENARIOS = [
              # The connection dies 5 s after joining, by the clock: run slower, so that the race is still on then.
              peer_env={-1: {"SK_FAST": "3"}, 1: {"SK_NETPLAY_TEST_BLOCK_DIRECT_MS": "5000"}},
              expect={"races_over": 1, "direct": 1, "direct_lost": 1}),
+    # Voice chat: with SK_NETPLAY_TEST_VOICE each game hums its own note in place of a microphone, and logs the notes
+    # that reach its speakers (src/port/netplay/VoiceDeviceTest.cpp).
+    Scenario("voice", "3 players, versus, with voice chat: each hears the other two", 3, "vs",
+             track="mk:luigi_raceway", series_races=1,
+             peer_env={0: {"SK_NETPLAY_TEST_VOICE": "1"}, 1: {"SK_NETPLAY_TEST_VOICE": "2"},
+                       2: {"SK_NETPLAY_TEST_VOICE": "3"}},
+             expect={"races_over": 1, "voice_heard": 2}),
+    Scenario("voice-relayed", "2 players, versus, with voice chat but direct connections turned off: voice never "
+             "goes through the relay, so nobody hears anybody", 2, "vs", track="mk:moo_moo_farm", series_races=1,
+             cvars={"gNetplay.DirectConnect": 0},
+             peer_env={0: {"SK_NETPLAY_TEST_VOICE": "1"}, 1: {"SK_NETPLAY_TEST_VOICE": "2"}},
+             expect={"races_over": 1}, expect_none=("direct", "voice_heard")),
+    Scenario("voice-direct-lost", "2 players, versus, with voice chat; the guest's direct connection dies mid-race: "
+             "the race goes on through the relay, the voices stop", 2, "vs", track="mk:kalimari_desert",
+             series_races=1,
+             peer_env={-1: {"SK_FAST": "3"}, 0: {"SK_NETPLAY_TEST_VOICE": "1"},
+                       1: {"SK_NETPLAY_TEST_VOICE": "2", "SK_NETPLAY_TEST_BLOCK_DIRECT_MS": "5000"}},
+             expect={"races_over": 1, "direct": 1, "direct_lost": 1, "voice_heard": 1, "voice_stopped": 1}),
     Scenario("relay-host", "2 players, versus; the host reaches the relay on its own computer, the guest by that "
              "computer's network address, as a second computer would", 2, "vs", track="mk:yoshi_valley",
              series_races=1, peer_env={1: {"SK_NETPLAY_RELAY": "{lan}:{port}"}},

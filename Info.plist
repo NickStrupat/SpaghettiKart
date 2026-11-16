@@ -35,6 +35,8 @@
     <string>public.app-category.games</string>
     <key>LSMinimumSystemVersion</key>
     <string>15.0</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Voice chat with the other players of an online room.</string>
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSSupportsAutomaticGraphicsSwitching</key>

@@ -143,7 +143,22 @@ if(SPAGHETTIKART_IOS)
 
 endif()
 
+if(APPLE AND NOT SPAGHETTIKART_IOS)
+  # Netplay voice chat asks macOS for the microphone in Objective-C++ (src/port/netplay/VoiceMicPermissionMac.mm).
+  file(
+    GLOB_RECURSE MACOS_OBJCXX_FILES
+    CONFIGURE_DEPENDS
+    RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
+    "src/port/*.mm")
+  list(APPEND ALL_FILES ${MACOS_OBJCXX_FILES})
+endif()
+
 add_executable(${PROJECT_NAME} ${ALL_FILES})
+if(APPLE AND NOT SPAGHETTIKART_IOS)
+  # The microphone and speakers of netplay voice chat (src/port/netplay/VoiceDeviceMac.cpp)
+  target_link_libraries(${PROJECT_NAME} PRIVATE "-framework AudioToolbox" "-framework AVFoundation"
+                                                "-framework CoreAudio")
+endif()
 
 # Netplay rollback: place the simulation's mutable globals in one section (see src/port/netplay/SimSection.h)
 set(NETPLAY_SIM_FILES ${ALL_FILES})

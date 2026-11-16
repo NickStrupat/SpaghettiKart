@@ -22,6 +22,7 @@ details live in the headers under `src/port/netplay/`, which each start with a d
 | Players at different frame rates (Settings > Graphics > Current FPS) | Works: frame interpolation only draws, every game simulates 30 frames a second (`mixed-fps` scenario) |
 | Automatic input delay, connection stats overlay | Works |
 | Sound effects across rollbacks | Works |
+| Voice chat between players connected directly | Works in the simulator and the browser checks, with stand-in microphones and the Mac's real one; not yet heard by people, and echo on speakers is not measured yet. See [Voice chat](#voice-chat) |
 | Platforms | macOS on Apple Silicon only. See [Platforms](#platforms) |
 
 ## Playing
@@ -55,6 +56,12 @@ Settings in the netplay window, each per player:
 | Smooth other karts' corrections | on | After a rollback, other karts glide to where they now are instead of jumping |
 | Input delay | Automatic | Frames your own input is held back. Automatic picks it from the ping at each race start |
 | Connect directly to other players | on | Race traffic skips the relay when routers allow it. Shares your IP address with the room |
+| Voice chat | on | An open microphone in a room, in the menus and in races. Only between players connected directly: voice never goes through the relay. The system asks for the microphone the first time |
+| Mute my microphone | off | Keep hearing the others, send nothing |
+| Voice volume | 100% | How loud the others' voices are |
+
+Each player's row in the netplay window says where voice stands with them (talking, off, no direct connection) and
+has a box to mute them; a corner of the screen names who is talking.
 
 The host's gameplay settings (enhancements, rules, vehicle counts, unique characters) and whether the host unlocked
 Extra mode apply to everyone in the room. During a race, the netplay window can leave it, which takes everyone back to
@@ -229,7 +236,8 @@ helpers. Game Select's "Z ONLINE" button is the port's own art (`tools/make-onli
   behind, `PageVersion.h`; game files made by an older extractor stay in use until remade, `AssetsVersion.h`); the relay
   forwards packets and checks the build id (commit plus a hash of local changes) and a hash of the game files.
 - `RelayClient.cpp`: the game's side, two channels: lobby messages and GekkoNet packets (tagged per race, so stragglers
-  from an earlier race are dropped), plus a third the browser build sets up WebRTC connections with. It moves packets
+  from an earlier race are dropped), plus a third the browser build sets up WebRTC connections with, and a fourth for
+  voice, which only ever goes directly ([Voice chat](#voice-chat)). It moves packets
   through a `RelayLink` (`RelayLink.h`): UDP on the desktop (`RelayLinkUdp.cpp`), a WebSocket and WebRTC in a browser
   (`RelayLinkWeb.cpp`). Desktop games also answer browsers' WebRTC connections, through libdatachannel
   (`WebRtcPeers.cpp`, `WebRtcTransportDesktop.cpp`; see `docs/WEB.md`).
@@ -264,11 +272,37 @@ helpers. Game Select's "Z ONLINE" button is the port's own art (`tools/make-onli
 - Positional sounds hold one of 50 audio slots until the sound bank is done with them; a request that is never queued
   frees its slot with `release_sound_slot()`, or the slots run out and positional sounds go silent.
 
+### Voice chat
+
+An open microphone among a room's members (`VoiceChat.h`), by the owner's decision of 2026-11-16: no push-to-talk,
+and **only over direct connections**, so that the relay, a Raspberry Pi, carries none of it. Two members whose routers
+keep them on the relay do not hear each other, and the netplay window says so. A room holds 4 members: at most about
+120 kbps each way per player with everyone talking, and next to nothing in silence.
+
+- **Transport.** A fourth payload channel in `RelayClient.cpp`. `SendVoice()` has no way through the relay, and voice
+  that arrives through it is dropped. Punched UDP and WebRTC data channels both carry it: a browser and a desktop game
+  talk too. The relay and its protocol are unchanged.
+- **Codec.** Opus (libopus 1.5.2, built from source, `cmake/dependencies/common.cmake`): 48 kHz, one channel, 20 ms
+  frames at 24 kbps. Silence is not sent (the codec's DTX). Nothing is resent: each frame carries a coarse copy of
+  the one before, which patches over one lost frame, and the codec guesses at up to two more.
+- **Each game frame, on the game thread** (`VoiceChat::Update()`, from `Netplay_BeginFrame()`): the microphone's
+  samples are packed and sent to every member who uses voice chat and is reached directly (members say so in their
+  lobby state); what arrived is unpacked into a queue per member, and the queues are mixed into the device, which is
+  kept about 60 ms ahead. A member's voice starts once 40 ms of it has arrived.
+- **The microphone opens only when there is someone to talk to**, and closes 5 s after the last such member is gone.
+- **Devices** (`VoiceDevice.h`). macOS: the voice processing audio unit (`VoiceDeviceMac.cpp`), which removes what
+  the Mac plays from what the microphone hears, so players on speakers do not echo; it uses the system's selected
+  microphone. Browser: `getUserMedia` with the browser's echo cancellation and an AudioWorklet
+  (`VoiceDeviceWeb.cpp`, `src/port/web/VoiceDevice.js`, `VoiceWorklet.js`). Tests: `VoiceDeviceTest.cpp` hums a note
+  per player and reports the notes that reach its speakers.
+- **Not simulation state.** Nothing in voice chat reads or writes the simulation, and it runs outside simulated
+  frames. Test runs never open a microphone unless `SK_NETPLAY_TEST_VOICE=mic` asks for it.
+
 ## Testing
 
 | Tool | What it does |
 |---|---|
-| `tools/netplay-sim.py` | Plays whole races, cups and battles between bot-driven copies of the game through a relay, fast-forwarded (about 70× real time), and checks that every peer stayed in sync and the races ended as expected. Shared-console scenarios drive the menus with scripted buttons and compare every menu frame. 24 scenarios, about 5 minutes. **Run it after any change to netplay, menu or simulation code.** |
+| `tools/netplay-sim.py` | Plays whole races, cups and battles between bot-driven copies of the game through a relay, fast-forwarded (about 70× real time), and checks that every peer stayed in sync and the races ended as expected. Shared-console scenarios drive the menus with scripted buttons and compare every menu frame. 27 scenarios, about 5 minutes. **Run it after any change to netplay, menu or simulation code.** |
 | Determinism harness | `SK_DETERMINISM_RECORD` / `_VERIFY` / `_ROLLBACK=8`: records a race's inputs and per-frame checksums, replays them, or rolls back 8 frames after every frame. See `DeterminismHarness.h`. |
 | `tools/netplay-stress.sh` | The rollback stress run on every track and arena, 4 at a time: 16 versus tracks, 4 battle arenas, 4 Grand Prix courses. Give it an AddressSanitizer build (below) to look for memory errors too. |
 | `tools/netplay-relay/test_relay.py` | Protocol tests for the relay. |
@@ -376,6 +410,14 @@ Each of these cost a debugging round.
   from this computer's audio, so peers applied it on different frames; `demo-first` desynced after the race once
   netplay played one more sound. Netplay skips those cues: after the finish, the camera stays on the player.
 
+- **`AVAudioEngine`'s voice processing did not work for voice chat**: with its input node's voice processing on, the
+  engine failed to start (-10875) unless the mixer was connected to the output by hand, and then its input tap
+  delivered nothing. The voice processing audio unit used directly (`VoiceDeviceMac.cpp`) starts and takes the
+  format it is given.
+- **The build id covers `cmake/`**: after editing a CMake file, a desktop game built before the edit no longer pairs
+  with a browser build made after it (`tools/web-check/netplay.mjs` with `NATIVE=` then waits until its timeout).
+  Rebuild both.
+
 ## Platforms
 
 - **macOS, Apple Silicon**: the only platform built and tested. The app runs on macOS 15 and later; building it so
@@ -396,6 +438,14 @@ Each of these cost a debugging round.
 
 - Direct connections across two real home networks. Routers that use a new public port per destination (symmetric
   NAT, common on mobile networks) stay on the relay.
+- Voice chat has not been heard by people yet. To check between two Macs on speakers: nobody hears their own voice
+  or the other's game sound come back. The first measurement of that on one Mac failed for an unrelated reason
+  (headphones were the output); if the voice processing unit turns out not to cancel the game's own sound, which SDL
+  plays separately, or turns it down too much, the game's sound has to go through the unit while voice is on.
+- Voice chat: no choice of microphone in the game (the system's selected one is used; with AirPods as the microphone
+  macOS switches all sound to call quality), no keyboard shortcut for mute, and it pauses while the game thread stalls
+  (a course loading). In a room where some pairs are relayed, those pairs do not hear each other while both hear the
+  rest. iPhone Safari is not checked.
 - Own view: the end-of-race banners have not been checked visually; the one-player HUD's slide animations and the
   progress-meter HUD mode are not there.
 - With "Hear only my player", another player's engine is heard, but their own voice and item sounds (their camera's)

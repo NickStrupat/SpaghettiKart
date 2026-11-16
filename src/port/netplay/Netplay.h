@@ -55,6 +55,9 @@
  *   SK_NETPLAY_TEST_SOUND_ROLLBACK_AT=300  Run SoundRollback::SelfTest() on this shown frame of the first race.
  *   SK_NETPLAY_TEST_ENGINES_AT=300      Check on this shown frame that every other player's engine is heard.
  *   SK_NETPLAY_TEST_PRESS_L_AT=400      Press L (it sets the music volume setting) on this frame of every race.
+ *   SK_NETPLAY_TEST_VOICE=1             Voice chat with a stand-in microphone that hums note 1 to 4, and logs the notes
+ *                                       that reach its speakers (VoiceDeviceTest.cpp). "mic": the real microphone,
+ *                                       which test runs otherwise never open.
  * Outside races, with or without netplay:
  *   SK_TEST_INPUT=Z@60,A@120,R_JPAD@150 Press these buttons on controller 1 on these game frames (counted from boot),
  *                                       each once, for two frames.

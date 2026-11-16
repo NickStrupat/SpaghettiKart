@@ -42,6 +42,7 @@ std::shared_ptr<Ship::GuiWindow> mTrackPropertiesWindow;
 std::shared_ptr<Ship::GuiWindow> mContentBrowserWindow;
 std::shared_ptr<Ship::GuiWindow> mNetplayWindow;
 std::shared_ptr<Ship::GuiWindow> mNetplayStatsOverlay;
+std::shared_ptr<Ship::GuiWindow> mNetplayVoiceOverlay;
 
 void SetupGuiElements() {
     auto gui = Ship::Context::GetRawInstance()->GetWindow()->GetGui();
@@ -95,6 +96,9 @@ void SetupGuiElements() {
 
     mNetplayStatsOverlay = std::make_shared<NetplayStatsOverlay>();
     gui->AddGuiWindow(mNetplayStatsOverlay);
+
+    mNetplayVoiceOverlay = std::make_shared<NetplayVoiceOverlay>();
+    gui->AddGuiWindow(mNetplayVoiceOverlay);
 }
 
 void Destroy() {
@@ -108,6 +112,7 @@ void Destroy() {
     mContentBrowserWindow = nullptr;
     mNetplayWindow = nullptr;
     mNetplayStatsOverlay = nullptr;
+    mNetplayVoiceOverlay = nullptr;
 }
 
 std::string GetWindowButtonText(const char* text, bool menuOpen) {

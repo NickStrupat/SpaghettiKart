@@ -27,4 +27,18 @@ class NetplayStatsOverlay : public Ship::GuiWindow {
     void DrawElement() override;
     void UpdateElement() override {};
 };
+
+/** A corner of the screen that names who is talking in a netplay room's voice chat (VoiceChat.h). */
+class NetplayVoiceOverlay : public Ship::GuiWindow {
+  public:
+    NetplayVoiceOverlay() : Ship::GuiWindow("", true, "Netplay Voice") {
+    }
+    /** Draws a small, click-through box, only in a room and while there is something to say. */
+    void Draw() override;
+
+  protected:
+    void InitElement() override {};
+    void DrawElement() override {};
+    void UpdateElement() override {};
+};
 } // namespace GameUI

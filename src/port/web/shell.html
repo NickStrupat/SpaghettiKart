@@ -769,9 +769,11 @@ const soundContext = () => Module.webAudioContext || (Module['SDL2'] && Module['
 // anywhere resumes it for sure.
 let audioRetry = 0;
 function resumeAudio() {
-  const context = soundContext();
-  if (context && context.state !== 'running') {
-    context.resume().catch(() => {});
+  // The game's sound, and voice chat's (VoiceDevice.js) while its microphone is open.
+  for (const context of [soundContext(), Module.voiceAudioContext]) {
+    if (context && context.state !== 'running') {
+      context.resume().catch(() => {});
+    }
   }
 }
 function resumeAudioForAWhile() {

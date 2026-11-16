@@ -22,6 +22,7 @@
 #include "RaceConfig.h"
 #include "SoundRollback.h"
 #include "TestScreenshots.h"
+#include "VoiceChat.h"
 #include "port/Game.h"
 
 extern "C" {
@@ -858,6 +859,8 @@ s32 FindSilentEngine() {
 extern "C" void Netplay_BeginFrame(void) {
     TestScreenshots::BeginFrame();
     Lobby::Update();
+    // Test runs have no player to ask for a microphone.
+    VoiceChat::Update(sNetplay.Test == TestMode::None);
     HandleRaceEndedElsewhere();
     UpdateConsole();
     NetSession::BeginFrame();
@@ -1029,6 +1032,7 @@ extern "C" void Netplay_Shutdown(void) {
     NetSession::Stop(SessionResult::PeerLeft, "The game closed");
     MenuSession::Stop("The game closed");
     sConsole.CVars.Restore();
+    VoiceChat::Shutdown();
     Lobby::Leave();
     HangWatchdog::Stop();
 }

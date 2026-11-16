@@ -15,6 +15,10 @@
 //   BLOCK_DIRECT_MS=<ms>   the last player's direct connections stop working this long after joining, as if a
 //                   router closed them: it has to go on through the relay. A fast-forwarded race starts about 1 s
 //                   after joining and lasts about 5 s: 3000 lands in the middle of it.
+//   VOICE=1         voice chat: each player hums a note in place of a microphone (SK_NETPLAY_TEST_VOICE), and has to
+//                   hear every other player; with DIRECT=0, nobody, as voice never goes through the relay.
+//                   VOICE=mic uses the browsers' real voice device, fed by Chrome's stand-in microphone, which
+//                   beeps; a desktop player still hums
 //   NATIVE=<game executable>   make one player a desktop game instead of a browser
 //   NATIVE_PLAYER=<n>   which one (default: the last; 0 makes the desktop game the host)
 //   PAGE=http://127.0.0.1:8064/   RELAY=build-relay/netplay-relay
@@ -63,6 +67,9 @@ function settings(index, roomCode) {
   if ((process.env.MODE || 'vs') !== 'gp') {
     values.SK_NETPLAY_TRACK = process.env.TRACK || 'mk:luigi_raceway';
   }
+  if (process.env.VOICE) {
+    values.SK_NETPLAY_TEST_VOICE = (process.env.VOICE === 'mic' && index !== nativePlayer) ? 'mic' : String(index + 1);
+  }
   if (index === 0) {
     values.SK_NETPLAY_ROOM_FILE = index === nativePlayer ? nativeRoomFile : '/tmp/room';
   } else {
@@ -83,6 +90,8 @@ async function startBrowserPlayer(index, roomCode) {
     // Chrome hides each browser's local addresses behind .local names, which two headless Chromes on one computer
     // cannot look up in each other: WebRTC would never connect. Players on different computers do not need this.
     args: ['--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist', '--disable-features=WebRtcHideLocalIpsWithMdns',
+      // A microphone that beeps, allowed without asking: no real one is ever opened.
+      ...(process.env.VOICE === 'mic' ? ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'] : []),
       ...(process.env.CHROME_ARGS || '').split(' ').filter((arg) => arg !== '')],
     defaultViewport: { width: 400, height: 300 },
   });
@@ -183,7 +192,8 @@ for (const browser of browsers) {
 }
 relay?.kill();
 
-const kInteresting = /WebRTC|Direct connection|Segment \d+ (started|ended)|DESYNC|desync|FAIL|finished|lost|error/i;
+const kInteresting =
+  /WebRTC|Direct connection|Segment \d+ (started|ended)|DESYNC|desync|FAIL|finished|lost|error|Voice/i;
 let ok = roomCode !== '';
 results.forEach((result, index) => {
   const kind = index === nativePlayer ? 'desktop' : 'browser';
@@ -192,6 +202,14 @@ results.forEach((result, index) => {
     console.log(`  ${line}`);
   }
   ok &&= result.code === '0';
+  if (process.env.VOICE) {
+    const heard = result.lines.filter((text) => text.includes('Voice chat: hearing slot')).length;
+    const expected = process.env.DIRECT === '0' ? 0 : players - 1;
+    if (heard !== expected) {
+      console.log(`  heard ${heard} other players' voices, expected ${expected}`);
+      ok = false;
+    }
+  }
 });
 if (!ok) {
   console.log('relay log:\n' + relayLog.split('\n').slice(-15).join('\n'));

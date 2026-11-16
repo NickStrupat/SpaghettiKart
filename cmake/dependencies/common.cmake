@@ -116,6 +116,27 @@ if(NOT SPAGHETTIKART_WEB)
   add_subdirectory(torch)
 endif()
 
+# =================== Opus (netplay: voice chat) ===================
+# The codec of voice chat (src/port/netplay/VoiceChat.cpp). Static, so that it is built here for the app's macOS
+# version, and for the browser build too.
+function(add_opus)
+  set(BUILD_SHARED_LIBS OFF)
+  set(BUILD_TESTING OFF)
+  set(OPUS_BUILD_SHARED_LIBRARY OFF)
+  set(OPUS_BUILD_TESTING OFF)
+  set(OPUS_BUILD_PROGRAMS OFF)
+  set(OPUS_INSTALL_PKG_CONFIG_MODULE OFF)
+  set(OPUS_INSTALL_CMAKE_CONFIG_MODULE OFF)
+  FetchContent_Declare(
+    opus
+    GIT_REPOSITORY https://github.com/xiph/opus.git
+    GIT_TAG v1.5.2
+    GIT_SHALLOW TRUE)
+  FetchContent_MakeAvailable(opus)
+endfunction()
+add_opus()
+target_link_libraries(${PROJECT_NAME} PRIVATE opus)
+
 # =================== libdatachannel (netplay: WebRTC to browsers) ===================
 # The desktop game answers browsers' WebRTC connections (src/port/netplay/WebRtcTransportDesktop.cpp); browsers have
 # WebRTC built in. Static, with mbedTLS rather than OpenSSL so that everything is built here for the app's macOS
