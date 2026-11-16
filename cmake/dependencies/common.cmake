@@ -145,6 +145,10 @@ function(add_libdatachannel)
   set(BUILD_SHARED_LIBS OFF)
   set(ENABLE_PROGRAMS OFF)
   set(ENABLE_TESTING OFF)
+  # The same C runtime as the game (see CMakeLists.txt): mixing the static and DLL runtimes fails to link. These projects
+  # ask for CMake versions older than the policy that makes CMake honour this setting, so turn that policy on for them.
+  set(CMAKE_POLICY_DEFAULT_CMP0091 NEW)
+  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
   FetchContent_Declare(
     mbedtls
     GIT_REPOSITORY https://github.com/Mbed-TLS/mbedtls.git

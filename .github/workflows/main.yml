@@ -593,9 +593,10 @@ jobs:
             Spaghettify.nro
             spaghetti.o2r
 
-  # Every push to main publishes its builds as a GitHub release, once all of them have built.
+  # Every push to main or netplay publishes its builds as a GitHub release, once all of them have finished. A build
+  # that failed is left out of the release rather than holding back the others.
   release:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: ${{ !cancelled() && github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/netplay') }}
     needs: [build-windows, build-macos-arm64, build-macos-intel, build-linux-release-docker, build-linux-x86-docker]
     runs-on: ubuntu-latest
     permissions:
@@ -610,15 +611,25 @@ jobs:
           OUT=$PWD/release
           mkdir "$OUT"
           # The Mac builds are already zipped, with ditto, which keeps the app runnable.
-          cp artifacts/spaghetti-mac-arm64/SpaghettiKart.app.zip "$OUT/SpaghettiKart-mac-arm64.zip"
-          cp artifacts/spaghetti-mac-intel-x64/SpaghettiKart.app.zip "$OUT/SpaghettiKart-mac-intel.zip"
+          for build in mac-arm64:spaghetti-mac-arm64 mac-intel:spaghetti-mac-intel-x64; do
+            if [ -f "artifacts/${build#*:}/SpaghettiKart.app.zip" ]; then
+              cp "artifacts/${build#*:}/SpaghettiKart.app.zip" "$OUT/SpaghettiKart-${build%%:*}.zip"
+            else
+              echo "::warning::No ${build%%:*} build: it is left out of the release"
+            fi
+          done
           # Artifacts lose the executable bit.
-          chmod +x artifacts/spaghetti-linux-x64/spaghetti.appimage artifacts/spaghetti-linux-x86/spaghetti.appimage
+          chmod +x artifacts/spaghetti-linux-*/spaghetti.appimage || true
           for build in windows-x64:spaghetti-windows-x64 windows-x86:spaghetti-windows-Win32 \
               linux-x64:spaghetti-linux-x64 linux-x86:spaghetti-linux-x86; do
-            (cd "artifacts/${build#*:}" && zip -qr "$OUT/SpaghettiKart-${build%%:*}.zip" .)
+            if [ -d "artifacts/${build#*:}" ]; then
+              (cd "artifacts/${build#*:}" && zip -qr "$OUT/SpaghettiKart-${build%%:*}.zip" .)
+            else
+              echo "::warning::No ${build%%:*} build: it is left out of the release"
+            fi
           done
           ls -l "$OUT"
+          if [ -z "$(ls "$OUT")" ]; then echo "::error::No build succeeded"; exit 1; fi
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
@@ -630,6 +641,6 @@ jobs:
             gh release upload "$TAG" release/* --clobber
           else
             gh release create "$TAG" release/* --target "$GITHUB_SHA" \
-              --title "Build ${{ github.run_number }} (${GITHUB_SHA::8})" --generate-notes \
+              --title "Build ${{ github.run_number }} (${{ github.ref_name }}, ${GITHUB_SHA::8})" --generate-notes \
               --notes "macOS: the app is not notarized. If macOS refuses to open it, allow it in System Settings > Privacy & Security, or run \`xattr -dr com.apple.quarantine SpaghettiKart.app\`."
           fi
