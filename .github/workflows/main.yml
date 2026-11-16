@@ -539,7 +539,9 @@ jobs:
           rm -rf /tmp/.buildx-cache-x86
           mv /tmp/.buildx-cache-x86-new /tmp/.buildx-cache-x86 || true
 
+  # Disabled: the Switch build is broken on this fork. Remove the `if` to bring it back.
   build-switch:
+    if: false
     needs: generate-port-o2r
     runs-on: ubuntu-latest
     strategy:
