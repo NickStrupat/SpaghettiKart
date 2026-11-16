@@ -217,9 +217,13 @@ void AddCoreDependencies() {
 #ifndef __EMSCRIPTEN__
 /** Whether a test harness started the game: they pass their settings as SK_ environment variables, players never do. */
 bool IsTestRun() {
+    // Set by the game itself, on every launch, when it restarts with address randomization off
+    // (SimState_DisableAddressRandomization()): not a test's.
+    constexpr const char kRestartedVariable[] = "SK_RESTARTED_WITHOUT_ASLR=";
     extern char** environ;
     for (char** variable = environ; *variable != nullptr; variable++) {
-        if (strncmp(*variable, "SK_", 3) == 0) {
+        if ((strncmp(*variable, "SK_", 3) == 0) &&
+            (strncmp(*variable, kRestartedVariable, sizeof(kRestartedVariable) - 1) != 0)) {
             return true;
         }
     }
