@@ -64,6 +64,17 @@ void UnloadMods() {
 // at this point, which segfaults — a crash report on what should be a clean quit (e.g. when
 // the user declines the first-run "Generate one now?" prompt).
 void GenerateAssetsMods() {
+#ifndef __EMSCRIPTEN__
+    // A ROM an earlier extraction kept (GameExtractor::LoadSavedRom): made from it without asking.
+    GameExtractor saved;
+    if (saved.LoadSavedRom()) {
+        SPDLOG_INFO("Making mk64.o2r from the kept ROM");
+        if (saved.GenerateOTR()) {
+            return;
+        }
+        SPDLOG_ERROR("Making mk64.o2r from the kept ROM failed");
+    }
+#endif
     if (GameEngine::ShowYesNoBox("No O2R Files", "No O2R files found. Generate one now?") == IDYES) {
         if (!GameEngine::GenAssetFile()) {
             GameEngine::ShowMessage("Error", "An error occured, no O2R file was generated.\n\nExiting...");
@@ -231,30 +242,12 @@ bool IsTestRun() {
 }
 #endif
 
+#ifndef __EMSCRIPTEN__
 /**
- * mk64.o2r was made by an older version of the extractor (AssetsVersion.h): offers to make it again from the ROM. A
- * player who declines, or picks no ROM, plays on with the old files; the ONLINE screen keeps saying they are old.
+ * Makes mainPath again with the extractor's ROM, keeping the old archive when that fails.
+ * @returns false when making it failed.
  */
-void OfferRemakingAssets(const std::string& mainPath) {
-#ifdef __EMSCRIPTEN__
-    // The page offers it, before the game starts (src/port/web/shell.html).
-    (void) mainPath;
-#else
-    if (IsTestRun() ||
-        (GameEngine::ShowYesNoBox("Old game files",
-                                  "mk64.o2r was made by an older version of SpaghettiKart. It still plays, but online "
-                                  "rooms of players with newer files will not show.\n\nMake it again from your ROM "
-                                  "now?") != IDYES)) {
-        return;
-    }
-    GameExtractor extractor;
-    if (!extractor.SelectGameFromUI()) {
-        return;
-    }
-    if (!extractor.ValidateChecksum().has_value()) {
-        GameEngine::ShowMessage("Unsupported ROM", "The provided ROM is not supported. The old files stay in use.");
-        return;
-    }
+bool RemakeAssets(const GameExtractor& extractor, const std::string& mainPath) {
     // Kept until the new archive is written, in case making it fails.
     const std::string oldPath = mainPath + ".old";
     std::error_code error;
@@ -262,10 +255,50 @@ void OfferRemakingAssets(const std::string& mainPath) {
     if (!extractor.GenerateOTR() || !std::filesystem::exists(mainPath)) {
         std::filesystem::remove(mainPath, error);
         std::filesystem::rename(oldPath, mainPath, error);
-        GameEngine::ShowMessage("Error", "Making the game files failed. The old files stay in use.");
-        return;
+        return false;
     }
     std::filesystem::remove(oldPath, error);
+    return true;
+}
+#endif
+
+/**
+ * mk64.o2r was made by an older version of the extractor (AssetsVersion.h): makes it again from the ROM an earlier
+ * extraction kept, or offers to make it from one the player picks. A player who declines, or picks no ROM, plays on
+ * with the old files; the ONLINE screen keeps saying they are old.
+ */
+void OfferRemakingAssets(const std::string& mainPath) {
+#ifdef __EMSCRIPTEN__
+    // The page does it, before the game starts (src/port/web/shell.html).
+    (void) mainPath;
+#else
+    if (IsTestRun()) {
+        return;
+    }
+    GameExtractor extractor;
+    if (extractor.LoadSavedRom()) {
+        SPDLOG_INFO("Making {} again from the kept ROM", mainPath);
+        if (RemakeAssets(extractor, mainPath)) {
+            return;
+        }
+        SPDLOG_ERROR("Making {} again from the kept ROM failed", mainPath);
+    }
+    if (GameEngine::ShowYesNoBox("Old game files",
+                                 "mk64.o2r was made by an older version of SpaghettiKart. It still plays, but online "
+                                 "rooms of players with newer files will not show.\n\nMake it again from your ROM "
+                                 "now?") != IDYES) {
+        return;
+    }
+    if (!extractor.SelectGameFromUI()) {
+        return;
+    }
+    if (!extractor.ValidateChecksum().has_value()) {
+        GameEngine::ShowMessage("Unsupported ROM", "The provided ROM is not supported. The old files stay in use.");
+        return;
+    }
+    if (!RemakeAssets(extractor, mainPath)) {
+        GameEngine::ShowMessage("Error", "Making the game files failed. The old files stay in use.");
+    }
 #endif
 }
 

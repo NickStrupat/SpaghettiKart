@@ -31,6 +31,9 @@ std::unordered_map<std::string, std::string> mGameList = {
     { "579c48e211ae952530ffc8738709f078d5dd215e", "Mario Kart 64 (US)" },
 };
 
+// The copy of the player's ROM kept next to mk64.o2r (GameExtractor::SaveRom), in .z64 byte order as picked.
+static constexpr const char kSavedRomFile[] = "baserom.us.z64";
+
 bool GameExtractor::SelectGameFromUI() {
     std::vector<std::string> roms;
     GetRoms(roms);
@@ -201,5 +204,47 @@ bool GameExtractor::GenerateOTR() const {
         return false;
     }
 
+    SaveRom();
     return true;
+}
+
+bool GameExtractor::LoadSavedRom() {
+    const std::string path = Ship::Context::GetPathRelativeToAppDirectory(kSavedRomFile);
+    std::ifstream file(path, std::ios::binary);
+    if (!file.is_open()) {
+        return false;
+    }
+    std::vector<uint8_t> data((std::istreambuf_iterator<char>(file)), {});
+    if (mGameList.find(Companion::CalculateHash(data)) == mGameList.end()) {
+        SPDLOG_WARN("The kept ROM {} is not a supported one; ignoring it", path);
+        return false;
+    }
+    this->mGamePath = path;
+    this->mGameData = std::move(data);
+    return true;
+}
+
+void GameExtractor::SaveRom() const {
+    const std::string path = Ship::Context::GetPathRelativeToAppDirectory(kSavedRomFile);
+    std::error_code error;
+    if (std::filesystem::equivalent(this->mGamePath, path, error)) {
+        return;
+    }
+    // Written beside it first, so that a failed write never leaves half a ROM under the kept name.
+    const std::string temporary = path + ".tmp";
+    {
+        std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
+        file.write(reinterpret_cast<const char*>(this->mGameData.data()), (std::streamsize) this->mGameData.size());
+        if (!file) {
+            SPDLOG_WARN("Keeping a copy of the ROM at {} failed", path);
+            file.close();
+            std::filesystem::remove(temporary, error);
+            return;
+        }
+    }
+    std::filesystem::rename(temporary, path, error);
+    if (error) {
+        SPDLOG_WARN("Keeping a copy of the ROM at {} failed: {}", path, error.message());
+        std::filesystem::remove(temporary, error);
+    }
 }

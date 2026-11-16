@@ -126,6 +126,9 @@ const kKeptArchives = '.archives';
 // (startGame).
 const kArchiveDb = 'SpaghettiKart-archives';
 const kArchiveStore = 'archives';
+// The player's ROM (.z64 order) is kept beside it, under this key, so that a new version of the archive maker can make
+// mk64.o2r again without asking for the ROM (remakeFromKeptRom).
+const kRomKey = 'baserom.us.z64';
 // Where pages before 2026-11-12 kept it: Emscripten's IDBFS keeps a folder in a database named after the folder, each
 // file a { timestamp, mode, contents } entry under its path.
 const kOldArchiveStore = 'FILE_DATA';
@@ -387,7 +390,8 @@ async function askForGameArchive(currentVersion = null) {
       'Your game files were made by an older version of SpaghettiKart. They still play, but online rooms of players ' +
       'with newer files will not show.\n\n';
     showStatus(`${problem}${intro}Choose your Mario Kart 64 ROM (US version; .z64, .n64 or .v64, or a zip of one). The game's files are made ` +
-               'from it right here and kept in this browser; nothing is uploaded.\n\n' +
+               'from it right here, and both are kept in this browser, so that new versions need no ROM; nothing ' +
+               'is uploaded.\n\n' +
                'An mk64.o2r made by the desktop game works too, and needs no making.');
     let file = currentVersion === null ? await pickFile() : await pickFileOrLater();
     if (file === null) {
@@ -422,7 +426,10 @@ async function askForGameArchive(currentVersion = null) {
     }
     showStatus('Making the game\'s files from your ROM: about 20 seconds, only this once…');
     try {
-      return await extractArchive(rom);
+      // A copy: the worker takes the ROM's memory.
+      const archive = await extractArchive(rom.slice());
+      await keepRom(rom).catch((error) => console.error('Keeping the ROM in the browser\'s storage failed', error));
+      return archive;
     } catch (error) {
       console.error(error);
       problem = `Making the game's files failed: ${error.message}\n\n`;
@@ -459,12 +466,31 @@ async function readKeptArchive() {
   }
 }
 
+/** The ROM kept in this browser (keepRom); null when there is none. */
+async function readKeptRom() {
+  const db = await openArchiveDb();
+  try {
+    return (await requestResult(db.transaction(kArchiveStore).objectStore(kArchiveStore).get(kRomKey))) || null;
+  } finally {
+    db.close();
+  }
+}
+
 /** Keeps mk64.o2r in this browser, for the next visits. */
-async function keepArchive(bytes) {
+function keepArchive(bytes) {
+  return keepInArchiveDb(kGameArchive, bytes);
+}
+
+/** Keeps the player's ROM (.z64 order) in this browser, for remakeFromKeptRom. */
+function keepRom(rom) {
+  return keepInArchiveDb(kRomKey, rom);
+}
+
+async function keepInArchiveDb(key, bytes) {
   const db = await openArchiveDb();
   try {
     const transaction = db.transaction(kArchiveStore, 'readwrite');
-    transaction.objectStore(kArchiveStore).put(bytes, kGameArchive);
+    transaction.objectStore(kArchiveStore).put(bytes, key);
     await new Promise((resolve, reject) => {
       transaction.oncomplete = resolve;
       transaction.onerror = transaction.onabort = () => reject(transaction.error);
@@ -496,6 +522,27 @@ async function readOldKeptArchive() {
   }
 }
 
+/**
+ * mk64.o2r made again from the ROM an earlier visit kept (keepRom), without asking the player; null when there is no
+ * kept ROM or making it failed. why starts the message shown meanwhile.
+ */
+async function remakeFromKeptRom(why) {
+  const rom = await readKeptRom().catch((error) => {
+    console.error('Reading the kept ROM failed', error);
+    return null;
+  });
+  if (rom === null || await sha1(rom) !== kRomSha1) {
+    return null;
+  }
+  showStatus(`${why}Making the game's files again from your ROM, kept in this browser: about 20 seconds…`);
+  try {
+    return await extractArchive(rom);
+  } catch (error) {
+    console.error('Making mk64.o2r from the kept ROM failed', error);
+    return null;
+  }
+}
+
 // Whether the player's mk64.o2r is kept in its own database, so that an old page's copy can go (prepareGameFolder).
 let archiveKept = false;
 
@@ -522,11 +569,12 @@ async function findGameArchive() {
     kept = null;
     archiveKept = false;
   }
-  let archive = kept || await askForGameArchive();
+  let archive = kept || await remakeFromKeptRom('') || await askForGameArchive();
   // Made by an older archive maker: netplay would hide the rooms of players with current files (AssetsVersion.h).
   const currentVersion = kept !== null ? await fetchAssetsVersion() : null;
   if (currentVersion !== null && await readAssetsVersion(kept) !== currentVersion) {
-    const remade = await askForGameArchive(currentVersion);
+    const remade = await remakeFromKeptRom('This version of SpaghettiKart needs new game files. ') ||
+                   await askForGameArchive(currentVersion);
     if (remade !== null) {
       archive = remade;
       archiveKept = false;

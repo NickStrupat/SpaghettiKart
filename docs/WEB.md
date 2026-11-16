@@ -61,8 +61,8 @@ when it has no archive; the service worker keeps them for offline play either wa
 
 - `src/port/web/shell.html` puts the ROM in `.z64` byte order and checks its SHA-1 against the US version's; then
   `src/port/web/ExtractWorker.js` runs Torch on a worker, so the page keeps drawing its message. The archive is kept
-  in the browser's storage (an IndexedDB database of its own, `SpaghettiKart-archives`); the ROM is not. A zipped ROM
-  is unpacked in the browser. The player can also pick an `mk64.o2r` the desktop game made, which needs no Torch.
+  in the browser's storage (an IndexedDB database of its own, `SpaghettiKart-archives`), and so is the ROM, in `.z64`
+  order, for remaking the archive (below). A zipped ROM is unpacked in the browser. The player can also pick an `mk64.o2r` the desktop game made, which needs no Torch.
 - **Memory.** Torch before HarbourMasters/Torch#263 and #271 (October 2026) took about 760 MB to make the archive: it
   kept every YAML file it read until the end, and the zip in memory. With the game loaded besides, an iPhone stopped and
   reloaded the page at the end of the making, which then asked for the ROM again. Torch since takes about 140 MB and
@@ -76,11 +76,13 @@ when it has no archive; the service worker keeps them for offline play either wa
   players whose files differ. So each archive carries the version of what made it: `cmake/AssetsVersion.cmake` hashes
   Torch's commit, `config.yml`, `yamls/`, `include/defines.h` and `meta/mods.toml`, both extractors write that into
   the archive as `assetsVersion` (`src/port/AssetsVersion.h`), and the build puts it next to the page as
-  `assets-version.txt`. A kept archive with another version (or none: everything made before 2026-11-13) gets the
-  ROM asked for again, with "Not now" to play on with the old files; it is asked again on the next start. A picked
-  `mk64.o2r` of another version is refused. The page skips the check for an archive its server provides. The desktop
-  game offers the same when it starts (`ModManager.cpp`), except when a test harness started it (any `SK_`
-  environment variable).
+  `assets-version.txt`. A kept archive with another version (or none: everything made before 2026-11-13) is made
+  again from the kept ROM, without asking. With no kept ROM (archives made before 2026-11-16, or an `mk64.o2r` the
+  player picked), the ROM is asked for again, with "Not now" to play on with the old files; it is asked again on the
+  next start. A missing archive is likewise made from the kept ROM. A picked `mk64.o2r` of another version is
+  refused. The page skips the check for an archive its server provides. The desktop game does the same when it
+  starts (`ModManager.cpp`), keeping its copy of the ROM as `baserom.us.z64` next to `mk64.o2r`
+  (`GameExtractor::SaveRom`), except when a test harness started it (any `SK_` environment variable).
 - Torch is a submodule this fork does not own: `tools/web/extractor/CMakeLists.txt` works around what it needs here
   (a missing `<cstdlib>`, a thread check its link flags break, embind for the file that defines `Companion::Instance`).
 
