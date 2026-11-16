@@ -1,6 +1,6 @@
 # Browser build
 
-SpaghettiKart compiled to WebAssembly with Emscripten, on the `wasm` branch: the game runs in a browser tab. This
+SpaghettiKart compiled to WebAssembly with Emscripten: the game runs in a browser tab. This
 file records how to build and serve it, what was changed to make it run, and what is still open.
 
 ## Status
