@@ -259,6 +259,13 @@ static const std::unordered_map<Ship::AudioBackend, const char*> audioBackendsMa
     { Ship::AudioBackend::WASAPI, "Windows Audio Session API" },
     { Ship::AudioBackend::SDL, "SDL" },
     { Ship::AudioBackend::COREAUDIO, "CoreAudio" },
+    // @port The combobox looks the current backend up here and stops the game when it is missing. The browser build
+    // runs libultraship's null player and plays the sound from an AudioWorklet (src/port/audio/WebAudioOutput.h).
+#ifdef __EMSCRIPTEN__
+    { Ship::AudioBackend::NUL, "Web Audio" },
+#else
+    { Ship::AudioBackend::NUL, "None" },
+#endif
 };
 
 static const std::unordered_map<int32_t, const char*> windowBackendsMap = {
