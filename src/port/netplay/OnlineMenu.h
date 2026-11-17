@@ -33,6 +33,8 @@ void render_online_menu(MenuItem* item);
  * the players' names along the bottom of the screen.
  */
 void render_online_button(MenuItem* item);
+/** Game Select in a room: L or R asked for OPTION or DATA, which a room does not have. Shows a note saying so. */
+void online_menu_refuse_option_data(void);
 
 #ifdef __cplusplus
 }

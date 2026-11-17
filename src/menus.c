@@ -1363,6 +1363,7 @@ void main_menu_act(struct Controller* controller, u16 controllerIdx) {
                     // @port OPTION and DATA work on each player's own save and Controller Pak; a netplay room's
                     // console would run them on every player's computer.
                     play_sound2(SOUND_MENU_FILE_NOT_FOUND);
+                    online_menu_refuse_option_data();
                     newMode = gGameModePlayerSelection[gPlayerCount - 1][gGameModeMenuColumn[gPlayerCount - 1]];
                 } else if (btnAndStick & CONT_L) {
                     // L800B2C58

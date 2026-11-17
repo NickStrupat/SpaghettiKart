@@ -27,6 +27,8 @@ namespace {
 // Room names come from the host's name, shown in the menus' font.
 constexpr size_t kMaxNameLength = 12;
 constexpr auto kRefreshInterval = std::chrono::seconds(3);
+// How long the note after L or R in a room stays up.
+constexpr auto kRefusedNoteTime = std::chrono::milliseconds(2500);
 constexpr size_t kMaxRoomsShown = 5;
 
 // Game Select's button: one picture with the key and the word, the size of the OPTION and DATA ones, drawn and folded
@@ -61,6 +63,8 @@ struct OnlineMenuState {
     std::string NameDraft;
     s32 GridColumn = 0;
     s32 GridRow = 0;
+    // When L or R last asked for OPTION or DATA in a room, for the note that says why nothing happened. Drawing only.
+    std::chrono::steady_clock::time_point OptionDataRefusedAt;
 };
 
 OnlineMenuState sOnline;
@@ -327,19 +331,30 @@ void DrawConsolePlayers() {
 }
 
 /**
- * Game Select's mode list in a room: why Time Trials will not start, while it is the mode chosen. Choosing it only
- * makes the menu's "no" sound (menus.c): time trials race the ghosts in each player's own save.
+ * Game Select in a room: why a choice will not start, where choosing it only makes the menu's "no" sound (menus.c).
+ * Time trials race the ghosts in each player's own save, so the note shows while Time Trials is the mode chosen;
+ * OPTION and DATA work on each player's own save and Controller Pak, so it shows for a while after L or R.
  */
-void DrawTimeTrialsNote() {
-    if ((gMainMenuSelection != MAIN_MENU_MODE_SELECT) ||
-        (gGameModePlayerSelection[gPlayerCount - 1][gGameModeMenuColumn[gPlayerCount - 1]] != TIME_TRIALS)) {
-        return;
+void DrawUnavailableNote() {
+    const char* text = nullptr;
+    if ((gMainMenuSelection == MAIN_MENU_MODE_SELECT) &&
+        (gGameModePlayerSelection[gPlayerCount - 1][gGameModeMenuColumn[gPlayerCount - 1]] == TIME_TRIALS)) {
+        text = "TIME TRIALS ARE NOT AVAILABLE ONLINE";
+    } else if ((gMainMenuSelection == MAIN_MENU_PLAYER_SELECT) &&
+               (std::chrono::steady_clock::now() - sOnline.OptionDataRefusedAt < kRefusedNoteTime)) {
+        text = "OPTION AND DATA ARE NOT AVAILABLE ONLINE";
     }
-    set_text_color(TEXT_YELLOW);
-    print_text1_center_mode_1(0xA0, 0xC4, (char*) "TIME TRIALS ARE NOT AVAILABLE ONLINE", 0, 0.6f, 0.6f);
+    if (text != nullptr) {
+        set_text_color(TEXT_YELLOW);
+        print_text1_center_mode_1(0xA0, 0xC4, (char*) text, 0, 0.6f, 0.6f);
+    }
 }
 
 } // namespace
+
+extern "C" void online_menu_refuse_option_data(void) {
+    sOnline.OptionDataRefusedAt = std::chrono::steady_clock::now();
+}
 
 extern "C" void online_menu_enter(void) {
     sOnline.Current = Screen::Rooms;
@@ -407,7 +422,7 @@ extern "C" void render_online_menu(MenuItem* item) {
 extern "C" void render_online_button(MenuItem* item) {
     const bool console = Netplay_IsSharedConsole();
     if (console) {
-        DrawTimeTrialsNote();
+        DrawUnavailableNote();
         DrawConsolePlayers();
     }
     // As for OPTION and DATA: a box behind the picture, flashing while chosen, and both fold away together.
