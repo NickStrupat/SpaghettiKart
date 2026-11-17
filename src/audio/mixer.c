@@ -144,13 +144,16 @@ void aClearBufferImpl(uint16_t addr, int nbytes) {
     memset(BUF_U8(addr), 0, nbytes);
 }
 
+// @port All of nbytes, as the RSP's DMA copies at least what it is asked for. Rounding down to 16 bytes dropped the end
+// of a note's compressed samples, whose size is a multiple of 4 and whose start depends on where the sample sits in
+// memory (synthesis.c): a 16-sample piece then decoded stale bytes and popped, on whichever build put the sample there.
 void aLoadBufferImpl(const void* source_addr, uint16_t dest_addr, uint16_t nbytes) {
 #if __SANITIZE_ADDRESS__
-    for (size_t i = 0; i < ROUND_DOWN_16(nbytes); i++) {
+    for (size_t i = 0; i < nbytes; i++) {
         BUF_U8(dest_addr)[i] = ((const unsigned char*) source_addr)[i];
     }
 #else
-    memcpy(BUF_U8(dest_addr), source_addr, ROUND_DOWN_16(nbytes));
+    memcpy(BUF_U8(dest_addr), source_addr, nbytes);
 #endif
 }
 
