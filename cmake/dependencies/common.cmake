@@ -127,6 +127,9 @@ function(add_opus)
   set(OPUS_BUILD_PROGRAMS OFF)
   set(OPUS_INSTALL_PKG_CONFIG_MODULE OFF)
   set(OPUS_INSTALL_CMAKE_CONFIG_MODULE OFF)
+  # The same C runtime as the game, as for libdatachannel below.
+  set(CMAKE_POLICY_DEFAULT_CMP0091 NEW)
+  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
   FetchContent_Declare(
     opus
     GIT_REPOSITORY https://github.com/xiph/opus.git
