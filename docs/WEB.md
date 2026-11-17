@@ -176,6 +176,15 @@ instruments cost some time themselves.
 Chrome's DevTools can slow the CPU down (`Emulation.setCPUThrottlingRate` through Puppeteer) to see how the page copes
 on a phone: at 16 times slower, a one-player race kept 30 game frames a second and its sound, with one picture each.
 
+### Checking the sound
+
+A headless browser plays nothing, so a sound problem needs a recording. What found the pops (see the pitfalls):
+record the samples the game's sound thread writes into the worklet's ring (`src/port/audio/WebAudioOutput.cpp`),
+record the same key presses on the desktop build (the samples `HandleAudioThread` in `src/port/Engine.cpp` hands to
+the player), and compare the two. A click shows as a spike in the second difference of the samples. When the
+browser's recording already has the fault, the cause is in the game's code, not in the browser's playback. The
+recording code was temporary and is not in the tree.
+
 ## How it differs from the desktop game
 
 | Part | Desktop | Browser |
@@ -214,6 +223,17 @@ Everything specific to the browser is behind `__EMSCRIPTEN__` in the code and `S
 - **libultraship is a submodule that this fork does not own.** What it needs to compile with Emscripten is in
   `src/port/web/LibultrashipShim.h`, which the build includes into each of its files, rather than in the submodule.
 - **The sound mixer uses SSE2 intrinsics.** Emscripten translates them (`-msimd128 -msse2`), except the MMX ones.
+- **A pop at the start of short sounds came from the mixer, not the browser.** `aLoadBufferImpl`
+  (`src/audio/mixer.c`) rounded every load down to 16 bytes. A note's compressed samples are loaded in sizes that are
+  a multiple of 4, from a start that depends on where the sample sits in memory, so the end of a load could be
+  dropped and a 16-sample piece decoded stale bytes. The browser lays memory out differently and popped on most menu
+  sounds; the desktop build has the same code and popped on fewer. Ruled out before that, so not worth chasing again:
+  Safari's audio deadlines (Chrome popped the same), the sound thread racing the game (running them one after the
+  other changed nothing), the varying number of samples per frame (a fixed number changed nothing) and the SIMD
+  translation (the mixer gave the same output from the same input in both builds).
+- **Settings > Audio stopped the game.** Its combobox looks the current sound player up in `audioBackendsMap`
+  (`src/port/ui/MenuTypes.h`), and a missing one throws. The browser runs libultraship's null player, now listed
+  there as "Web Audio".
 - **Python's `http.server` looks up the computer's network name** when it starts, which can take a minute;
   `tools/web-serve.py` skips that.
 - **Clang's WebAssembly backend drops the section names of `#pragma clang section`** (`SimSection.h`): it keeps a
