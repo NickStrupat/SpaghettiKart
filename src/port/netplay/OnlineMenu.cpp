@@ -326,6 +326,19 @@ void DrawConsolePlayers() {
     }
 }
 
+/**
+ * Game Select's mode list in a room: why Time Trials will not start, while it is the mode chosen. Choosing it only
+ * makes the menu's "no" sound (menus.c): time trials race the ghosts in each player's own save.
+ */
+void DrawTimeTrialsNote() {
+    if ((gMainMenuSelection != MAIN_MENU_MODE_SELECT) ||
+        (gGameModePlayerSelection[gPlayerCount - 1][gGameModeMenuColumn[gPlayerCount - 1]] != TIME_TRIALS)) {
+        return;
+    }
+    set_text_color(TEXT_YELLOW);
+    print_text1_center_mode_1(0xA0, 0xC4, (char*) "TIME TRIALS ARE NOT AVAILABLE ONLINE", 0, 0.6f, 0.6f);
+}
+
 } // namespace
 
 extern "C" void online_menu_enter(void) {
@@ -394,6 +407,7 @@ extern "C" void render_online_menu(MenuItem* item) {
 extern "C" void render_online_button(MenuItem* item) {
     const bool console = Netplay_IsSharedConsole();
     if (console) {
+        DrawTimeTrialsNote();
         DrawConsolePlayers();
     }
     // As for OPTION and DATA: a box behind the picture, flashing while chosen, and both fold away together.
