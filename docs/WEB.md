@@ -259,6 +259,15 @@ Everything specific to the browser is behind `__EMSCRIPTEN__` in the code and `S
   page reserve 1 GB of address space, more than phones allow.
 - **Threads.** Without them the page would not need the two headers. libultraship's resource pool and logger, and
   the game's sound thread, would have to run on the main thread.
+- **Sound delay.** The browser keeps about 76 ms of sound in reserve (2,048 frames at 26,800 a second, the third
+  value of `audioSettings` in `src/port/Engine.cpp`), against the desktop's 41 ms (1,100). It is bigger because the
+  browser calls the game less regularly, and each game frame adds about 33 ms of sound (896 or 864 frames), so one
+  late call can empty a small reserve: the sound then drops out, which `?dbg=1` counts as `ran out`. The worklet's
+  thresholds follow the same number (`AudioOutput.js`: it waits for half of it after running out, and skips ahead past
+  three times it). The plan, never tried: a temporary address option for the reserve (such as `SK_AUDIO_BUFFER`,
+  read in `Engine.cpp`), races with `?dbg=1` at 1,100, 1,400 and 1,700 on a Mac, then the lowest size that never ran
+  out, plus a margin, as the default. A phone or an older Mac may need more, so the default may have to depend on the
+  device.
 - **Touch controls**, and a way to add mods (the page has no way to put files into the game's folder).
 
 ## Online play
