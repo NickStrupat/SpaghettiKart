@@ -52,6 +52,13 @@ constexpr u32 kTestPressFrames = 2;
 constexpr u32 kTestLingerFrames = 60;
 // A shared console test runs the menus this many frames after its races.
 constexpr u32 kTestMenuFramesAfterRaces = 150;
+// A player matched while racing offline who is still away after this long leaves the room, so the others are not
+// kept waiting for good.
+constexpr auto kAwayLimit = std::chrono::minutes(3);
+// How long the note saying so stays up.
+constexpr auto kAwayNoteTime = std::chrono::seconds(10);
+// The netplay window's pad capture ends by itself once the window stops reading it (closed, or showing a room).
+constexpr auto kPadCaptureTimeout = std::chrono::milliseconds(500);
 
 /** A button SK_TEST_INPUT presses, and the game frame it presses it on. */
 struct TestPress {
@@ -99,6 +106,9 @@ struct NetplayState {
     // Lobby test
     std::string RelayAddress;
     bool HostRoom = false;
+    bool PrivateRoom = false; // SK_NETPLAY_PRIVATE: the host's room is private, joined only by its code
+    bool Matchmake = false;   // SK_NETPLAY_MATCHMAKE: matchmake on frame SK_NETPLAY_TEST_JOIN_AT instead of hosting
+    bool MatchmakeInDemo = false; // SK_NETPLAY_MATCHMAKE=demo: matchmake once the title screen's attract demo races
     bool TestConsole = false; // SK_NETPLAY_CONSOLE: the room plays on a shared console
     u32 TestJoinAt = 0;       // SK_NETPLAY_TEST_JOIN_AT: a guest joins on this game frame
     std::vector<u32> TestConsoleSizes; // SK_NETPLAY_TEST_CONSOLE_PLAYERS: consoles to see, in order, before passing
@@ -154,6 +164,28 @@ struct ConsoleState {
 };
 
 ConsoleState sConsole;
+
+/** Matchmaking in the background (Lobby::Matchmake()): what the player is told while it goes on. Not race state. */
+struct MatchState {
+    std::optional<std::chrono::steady_clock::time_point> AwaySince;
+    bool Alert = false; // A match was found: TakeMatchAlert() draws attention to the window
+    std::chrono::steady_clock::time_point GaveUpAt;
+    bool GaveUp = false;
+};
+
+MatchState sMatch;
+
+/** The netplay window typing a room code with controller 1 (SetPadCapture()). */
+struct PadCapture {
+    bool Active = false;
+    s8 StickX = 0;
+    s8 StickY = 0;
+    u16 Held = 0;
+    u16 Pressed = 0; // Since the last TakeCapturedPad()
+    std::chrono::steady_clock::time_point LastTaken;
+};
+
+PadCapture sPadCapture;
 
 const char* GetEnv(const char* name) {
     const char* value = getenv(name);
@@ -509,8 +541,14 @@ void UpdateLobbyTest() {
         } else if (state == Lobby::State::Offline) {
             if (!Lobby::GetError().empty()) {
                 FinishTest(false, Lobby::GetError());
+            } else if (sNetplay.Matchmake) {
+                const bool inDemo = (gDemoMode == DEMO_MODE_ACTIVE) && (gGamestate == RACING);
+                if ((sNetplay.GameFrames >= sNetplay.TestJoinAt) && (inDemo || !sNetplay.MatchmakeInDemo)) {
+                    Lobby::Matchmake(sNetplay.RelayAddress, "Bot");
+                }
             } else if (sNetplay.HostRoom) {
-                Lobby::Host(sNetplay.RelayAddress, "Host", sNetplay.TestConsole);
+                Lobby::Host(sNetplay.RelayAddress, "Host", sNetplay.TestConsole,
+                            sNetplay.PrivateRoom ? Lobby::Visibility::Private : Lobby::Visibility::Public);
             } else if (sNetplay.GameFrames >= sNetplay.TestJoinAt) {
                 const std::string code = sNetplay.RoomCode.empty() ? ReadRoomFile() : sNetplay.RoomCode;
                 if (code.size() == RelayProtocol::kCodeLength) {
@@ -699,10 +737,53 @@ bool IsOnGameSelect() {
            (gMainMenuSelection == MAIN_MENU_PLAYER_SELECT);
 }
 
+/** Announces a match, and gives up on one this player has kept the others waiting for too long. */
+void UpdateAway(bool away) {
+    const auto now = std::chrono::steady_clock::now();
+    if (Lobby::TakeMatchFound()) {
+        NetLog("Match found%s", away ? " while away" : "");
+        play_sound2(SOUND_MENU_OK_CLICKED);
+        sMatch.Alert = true;
+        sMatch.GaveUp = false;
+    }
+    if (!away) {
+        sMatch.AwaySince.reset();
+        return;
+    }
+    if (!sMatch.AwaySince.has_value()) {
+        sMatch.AwaySince = now;
+    } else if (now - *sMatch.AwaySince > kAwayLimit) {
+        NetLog("Away from the match for too long: leaving the room");
+        sMatch.AwaySince.reset();
+        sMatch.GaveUp = true;
+        sMatch.GaveUpAt = now;
+        Lobby::Leave();
+    }
+}
+
+/** @returns the name of a member other than this peer who is away, or empty. */
+std::string FindAwayMember() {
+    const auto& members = Lobby::GetMembers();
+    for (size_t slot = 0; slot < members.size(); slot++) {
+        if (members[slot].Present && members[slot].Away && ((s32) slot != Lobby::GetLocalSlot())) {
+            return members[slot].Name.empty() ? "another player" : members[slot].Name;
+        }
+    }
+    return "";
+}
+
 /** Starts, hands over and ends the shared console's sessions. Runs before the sessions' own frame updates. */
 void UpdateConsole() {
-    if (std::optional<Lobby::ConsoleStart> start = Lobby::TakeConsoleStart()) {
-        StartConsole(*start);
+    // A player matched while racing offline (or watching the attract demo) is away until the game is back in the
+    // menus: a console start restores the boot state, which only the menus are ready for. The host waits for them.
+    const bool away = (Lobby::GetState() == Lobby::State::InRoom) && Lobby::IsSharedConsole() && !sConsole.Active &&
+                      !NetSession::IsActive() && !IsInMenus();
+    Lobby::SetAway(away);
+    UpdateAway(away);
+    if (!away) {
+        if (std::optional<Lobby::ConsoleStart> start = Lobby::TakeConsoleStart()) {
+            StartConsole(*start);
+        }
     }
     if (sConsole.Active && !Lobby::IsSharedConsole()) {
         EndConsole();
@@ -760,13 +841,17 @@ void InitDirectTest(const char* peers) {
 void InitLobbyTest(const char* relay) {
     sNetplay.RelayAddress = relay;
     sNetplay.HostRoom = GetEnvU32("SK_NETPLAY_HOST", 0) != 0;
+    sNetplay.PrivateRoom = GetEnvU32("SK_NETPLAY_PRIVATE", 0) != 0;
+    const char* matchmake = GetEnv("SK_NETPLAY_MATCHMAKE");
+    sNetplay.MatchmakeInDemo = (matchmake != nullptr) && (std::string(matchmake) == "demo");
+    sNetplay.Matchmake = sNetplay.MatchmakeInDemo || (GetEnvU32("SK_NETPLAY_MATCHMAKE", 0) != 0);
     if (const char* code = GetEnv("SK_NETPLAY_ROOM")) {
         sNetplay.RoomCode = code;
     }
     if (const char* file = GetEnv("SK_NETPLAY_ROOM_FILE")) {
         sNetplay.RoomFile = file;
     }
-    if (!sNetplay.HostRoom && sNetplay.RoomCode.empty() && sNetplay.RoomFile.empty()) {
+    if (!sNetplay.HostRoom && !sNetplay.Matchmake && sNetplay.RoomCode.empty() && sNetplay.RoomFile.empty()) {
         FinishTest(false, "A guest needs SK_NETPLAY_ROOM or SK_NETPLAY_ROOM_FILE");
         return;
     }
@@ -943,7 +1028,9 @@ extern "C" s32 Netplay_GetResetMenu(s32 menu) {
     if (sConsole.Active || MenuSession::IsActive()) {
         return MAIN_MENU;
     }
-    if (sNetplay.ReturnToOnlineMenu || (Lobby::GetState() != Lobby::State::Offline)) {
+    // Matchmaking goes on while the player plays offline, on whatever menu they pick.
+    const Lobby::State state = Lobby::GetState();
+    if (sNetplay.ReturnToOnlineMenu || (state == Lobby::State::Connecting) || (state == Lobby::State::InRoom)) {
         sNetplay.ReturnToOnlineMenu = false;
         return ONLINE_MENU;
     }
@@ -955,6 +1042,22 @@ extern "C" bool Netplay_ConsumeLocalPads(OSContPad* pads) {
         return true;
     }
     if (MenuSession::TakePads(pads)) {
+        for (s32 i = 0; i < kNumControllers; i++) {
+            apply_pad_to_controller(&gControllers[i], &pads[i]);
+        }
+        combine_controllers();
+        return true;
+    }
+    if (sPadCapture.Active && (std::chrono::steady_clock::now() - sPadCapture.LastTaken > kPadCaptureTimeout)) {
+        sPadCapture.Active = false;
+    }
+    if (sPadCapture.Active) {
+        // The netplay window takes controller 1; the game sees it idle, so the menus behind the window stay put.
+        sPadCapture.StickX = pads[0].stick_x;
+        sPadCapture.StickY = pads[0].stick_y;
+        sPadCapture.Pressed |= pads[0].button & ~sPadCapture.Held;
+        sPadCapture.Held = pads[0].button;
+        pads[0] = {};
         for (s32 i = 0; i < kNumControllers; i++) {
             apply_pad_to_controller(&gControllers[i], &pads[i]);
         }
@@ -1049,6 +1152,57 @@ void RestartRace() {
 
 bool CanRestartRace() {
     return NetSession::CanRestart();
+}
+
+std::string GetMatchNotice() {
+    const auto now = std::chrono::steady_clock::now();
+    if (IsMenuGamestate(gGamestate) && (gMenuSelection == ONLINE_MENU)) {
+        return ""; // The ONLINE screen says it already
+    }
+    if (sMatch.GaveUp && (now - sMatch.GaveUpAt < kAwayNoteTime)) {
+        return "You left the match: the others waited 3 minutes for you";
+    }
+    const Lobby::State state = Lobby::GetState();
+    if (state == Lobby::State::Matchmaking) {
+        const u32 waiting = Lobby::GetWaitingPlayers();
+        const std::string count = (waiting > 1) ? " (" + std::to_string(waiting) + " looking)" : "";
+        return "Searching for a match" + count + ". Cancel it on the ONLINE screen (Z on Game Select).";
+    }
+    if ((state != Lobby::State::InRoom) || sConsole.Active) {
+        return "";
+    }
+    if (sMatch.AwaySince.has_value()) {
+        return "Match found! Finish or quit this race to join.";
+    }
+    const std::string away = FindAwayMember();
+    if (!away.empty()) {
+        return "Match found: waiting for " + away + " to finish their race.";
+    }
+    return "";
+}
+
+void SetPadCapture(bool capture) {
+    if (capture && !sPadCapture.Active) {
+        sPadCapture = {};
+        // Buttons already down when the capture starts are not presses.
+        sPadCapture.Held = 0xFFFF;
+        sPadCapture.LastTaken = std::chrono::steady_clock::now();
+    }
+    sPadCapture.Active = capture;
+}
+
+void TakeCapturedPad(s8* stickX, s8* stickY, u16* pressed) {
+    *stickX = sPadCapture.StickX;
+    *stickY = sPadCapture.StickY;
+    *pressed = sPadCapture.Pressed;
+    sPadCapture.Pressed = 0;
+    sPadCapture.LastTaken = std::chrono::steady_clock::now();
+}
+
+bool TakeMatchAlert() {
+    const bool alert = sMatch.Alert;
+    sMatch.Alert = false;
+    return alert;
 }
 
 s32 GetConsolePlayer(u8 slot) {

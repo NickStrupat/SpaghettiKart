@@ -13,6 +13,7 @@
 #include "NetplayIdentity.h"
 #include "PageVersion.h"
 #include "RelayClient.h"
+#include "RoomCodeInput.h"
 
 extern "C" {
 #include "main.h"
@@ -29,7 +30,8 @@ constexpr size_t kMaxNameLength = 12;
 constexpr auto kRefreshInterval = std::chrono::seconds(3);
 // How long the note after L or R in a room stays up.
 constexpr auto kRefusedNoteTime = std::chrono::milliseconds(2500);
-constexpr size_t kMaxRoomsShown = 5;
+// The list scrolls past this many.
+constexpr s32 kMaxRoomsShown = 3;
 
 // Game Select's button: one picture with the key and the word, the size of the OPTION and DATA ones, drawn and folded
 // the same way. The art is the port's own (tools/make-online-button.py).
@@ -47,22 +49,67 @@ MenuTexture sLeaveButton[] = {
     { 0, nullptr, 0, 0, 0, 0, 0 },
 };
 
+// Room codes are stick directions, shown as arrows (tools/make-code-arrows.py): the menus' font has none. Small ones
+// fit beside Game Select's buttons.
+constexpr s32 kArrowSize = 16;
+constexpr s32 kSmallArrowSize = 10;
+alignas(8) const char kArrowUpPath[] = "__OTR__textures/menu/code_arrow_up.rgba16";
+alignas(8) const char kArrowDownPath[] = "__OTR__textures/menu/code_arrow_down.rgba16";
+alignas(8) const char kArrowLeftPath[] = "__OTR__textures/menu/code_arrow_left.rgba16";
+alignas(8) const char kArrowRightPath[] = "__OTR__textures/menu/code_arrow_right.rgba16";
+alignas(8) const char kSmallArrowUpPath[] = "__OTR__textures/menu/code_arrow_small_up.rgba16";
+alignas(8) const char kSmallArrowDownPath[] = "__OTR__textures/menu/code_arrow_small_down.rgba16";
+alignas(8) const char kSmallArrowLeftPath[] = "__OTR__textures/menu/code_arrow_small_left.rgba16";
+alignas(8) const char kSmallArrowRightPath[] = "__OTR__textures/menu/code_arrow_small_right.rgba16";
+#define ARROW_TEXTURE(path, size)                                                                       \
+    {                                                                                                  \
+        { 1, reinterpret_cast<u64*>(const_cast<char*>(path)), size, size, 0, 0, 0 },                   \
+        { 0, nullptr, 0, 0, 0, 0, 0 },                                                                 \
+    }
+// In the order of RelayProtocol::kCodeAlphabet: up, down, left, right
+MenuTexture sArrows[4][2] = {
+    ARROW_TEXTURE(kArrowUpPath, kArrowSize),
+    ARROW_TEXTURE(kArrowDownPath, kArrowSize),
+    ARROW_TEXTURE(kArrowLeftPath, kArrowSize),
+    ARROW_TEXTURE(kArrowRightPath, kArrowSize),
+};
+MenuTexture sSmallArrows[4][2] = {
+    ARROW_TEXTURE(kSmallArrowUpPath, kSmallArrowSize),
+    ARROW_TEXTURE(kSmallArrowDownPath, kSmallArrowSize),
+    ARROW_TEXTURE(kSmallArrowLeftPath, kSmallArrowSize),
+    ARROW_TEXTURE(kSmallArrowRightPath, kSmallArrowSize),
+};
+#undef ARROW_TEXTURE
+
 // The name grid: letters and digits, then the two commands
 const char* const kGridRows[] = { "ABCDEFGHIJ", "KLMNOPQRST", "UVWXYZ0123", "456789-. " };
 constexpr s32 kNumGridRows = sizeof(kGridRows) / sizeof(kGridRows[0]);
 constexpr s32 kCommandRow = kNumGridRows; // DEL, END
 constexpr s32 kGridColumns = 10;
 
-enum class Screen { Rooms, Name };
+enum class Screen { Rooms, Name, Code };
+
+// The ONLINE screen's items, top to bottom; the rooms follow them.
+enum Item : s32 {
+    kQuickMatchItem,
+    kHostPublicItem,
+    kHostPrivateItem,
+    kJoinByCodeItem,
+    kNameItem,
+    kFirstRoomItem,
+};
 
 struct OnlineMenuState {
     Screen Current = Screen::Rooms;
-    s32 Cursor = 0; // Over the rooms, then HOST A ROOM, then NAME
+    s32 Cursor = 0; // An Item, or kFirstRoomItem plus a room's place in the list
+    s32 FirstRoomShown = 0;
     RelayRoomList RoomList;
     std::chrono::steady_clock::time_point LastRefresh;
     std::string NameDraft;
     s32 GridColumn = 0;
     s32 GridRow = 0;
+    std::string CodeDraft;
+    RoomCodeInput::Reader CodeReader;
     // When L or R last asked for OPTION or DATA in a room, for the note that says why nothing happened. Drawing only.
     std::chrono::steady_clock::time_point OptionDataRefusedAt;
 };
@@ -88,16 +135,25 @@ std::string ToMenuText(const std::string& text, size_t maxLength) {
     return shown;
 }
 
-size_t GetNumRooms() {
-    return std::min(sOnline.RoomList.GetRooms().size(), kMaxRoomsShown);
+s32 GetNumRooms() {
+    return (s32) sOnline.RoomList.GetRooms().size();
 }
 
-s32 GetHostItem() {
-    return (s32) GetNumRooms();
+s32 GetLastItem() {
+    return kFirstRoomItem + GetNumRooms() - 1;
 }
 
-s32 GetNameItem() {
-    return GetHostItem() + 1;
+/** Scrolls the room list so that the cursor, when on a room, is in view. */
+void ScrollToCursor() {
+    const s32 room = sOnline.Cursor - kFirstRoomItem;
+    if (room < 0) {
+        sOnline.FirstRoomShown = 0;
+    } else if (room < sOnline.FirstRoomShown) {
+        sOnline.FirstRoomShown = room;
+    } else if (room >= sOnline.FirstRoomShown + kMaxRoomsShown) {
+        sOnline.FirstRoomShown = room - kMaxRoomsShown + 1;
+    }
+    sOnline.FirstRoomShown = std::clamp(sOnline.FirstRoomShown, 0, std::max(GetNumRooms() - kMaxRoomsShown, 0));
 }
 
 void RefreshRooms() {
@@ -111,9 +167,9 @@ void SaveName(const std::string& name) {
     Ship::Context::GetRawInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
 }
 
+/** Leaving the ONLINE screen with B keeps matchmaking going: a match takes the player into the room from anywhere. */
 void ActRooms(u16 pressed) {
-    const s32 last = GetNameItem();
-    if ((pressed & D_JPAD) && (sOnline.Cursor < last)) {
+    if ((pressed & D_JPAD) && (sOnline.Cursor < GetLastItem())) {
         sOnline.Cursor++;
         play_sound2(SOUND_MENU_CURSOR_MOVE);
     }
@@ -121,6 +177,7 @@ void ActRooms(u16 pressed) {
         sOnline.Cursor--;
         play_sound2(SOUND_MENU_CURSOR_MOVE);
     }
+    ScrollToCursor();
     if (pressed & B_BUTTON) {
         fade_to_online_menu();
         play_sound2(SOUND_MENU_GO_BACK);
@@ -129,11 +186,26 @@ void ActRooms(u16 pressed) {
     if (!(pressed & A_BUTTON)) {
         return;
     }
-    if (sOnline.Cursor < GetHostItem()) {
-        Lobby::Join(GetRelayAddress(), sOnline.RoomList.GetRooms()[sOnline.Cursor].Code, GetName());
+    if (sOnline.Cursor >= kFirstRoomItem) {
+        Lobby::Join(GetRelayAddress(), sOnline.RoomList.GetRooms()[sOnline.Cursor - kFirstRoomItem].Code, GetName());
         play_sound2(SOUND_MENU_SELECT);
-    } else if (sOnline.Cursor == GetHostItem()) {
-        Lobby::Host(GetRelayAddress(), GetName(), true);
+    } else if (sOnline.Cursor == kQuickMatchItem) {
+        if (Lobby::GetState() == Lobby::State::Matchmaking) {
+            Lobby::Leave();
+            play_sound2(SOUND_MENU_GO_BACK);
+        } else {
+            Lobby::Matchmake(GetRelayAddress(), GetName());
+            play_sound2(SOUND_MENU_SELECT);
+        }
+    } else if ((sOnline.Cursor == kHostPublicItem) || (sOnline.Cursor == kHostPrivateItem)) {
+        const bool isPrivate = sOnline.Cursor == kHostPrivateItem;
+        Lobby::Host(GetRelayAddress(), GetName(), true,
+                    isPrivate ? Lobby::Visibility::Private : Lobby::Visibility::Public);
+        play_sound2(SOUND_MENU_SELECT);
+    } else if (sOnline.Cursor == kJoinByCodeItem) {
+        sOnline.Current = Screen::Code;
+        sOnline.CodeDraft.clear();
+        sOnline.CodeReader.Reset();
         play_sound2(SOUND_MENU_SELECT);
     } else {
         sOnline.Current = Screen::Name;
@@ -188,6 +260,43 @@ void ActName(u16 pressed) {
     }
 }
 
+/** JOIN BY CODE: each flick or press adds a direction; the seventh joins the room. B on an empty code goes back. */
+void ActCode(const Controller* controller) {
+    const RoomCodeInput::Entry entry =
+        sOnline.CodeReader.Read((s8) controller->rawStickX, (s8) controller->rawStickY, controller->buttonPressed);
+    if ((entry == RoomCodeInput::Entry::Erase) && sOnline.CodeDraft.empty()) {
+        sOnline.Current = Screen::Rooms;
+        play_sound2(SOUND_MENU_GO_BACK);
+        return;
+    }
+    if (!RoomCodeInput::Apply(entry, &sOnline.CodeDraft)) {
+        return;
+    }
+    if (entry == RoomCodeInput::Entry::Erase) {
+        play_sound2(SOUND_MENU_GO_BACK);
+    } else if (sOnline.CodeDraft.size() < RelayProtocol::kCodeLength) {
+        play_sound2(SOUND_MENU_CURSOR_MOVE);
+    } else {
+        Lobby::Join(GetRelayAddress(), sOnline.CodeDraft, GetName());
+        play_sound2(SOUND_MENU_SELECT);
+        // A failed join comes back here, with the error, to type the code again.
+        sOnline.CodeDraft.clear();
+    }
+}
+
+/** A room code's arrows, left to right from this corner, this far apart. */
+void DrawCodeArrows(const std::string& code, s32 column, s32 row, s32 spacing, bool small) {
+    for (size_t i = 0; i < code.size(); i++) {
+        const char* letter = strchr(RelayProtocol::kCodeAlphabet, code[i]);
+        if ((letter == nullptr) || (code[i] == 0)) {
+            continue;
+        }
+        const size_t direction = (size_t) (letter - RelayProtocol::kCodeAlphabet);
+        MenuTexture* texture = small ? sSmallArrows[direction] : sArrows[direction];
+        gDisplayListHead = func_8009BC9C(gDisplayListHead, texture, column + (s32) i * spacing, row, 2, 0);
+    }
+}
+
 /** The cursor box the OPTION screen uses, around text at this position. */
 void DrawCursor(MenuItem* item, s32 column, s32 row) {
     Unk_D_800E70A0 position = {};
@@ -232,52 +341,91 @@ void DrawVersionNote() {
     print_text1_center_mode_1(0xA0, 0x40, (char*) text.c_str(), 0, 0.5f, 0.5f);
 }
 
+void DrawError(s32 row) {
+    const std::string& error = !Lobby::GetError().empty() ? Lobby::GetError() : sOnline.RoomList.GetError();
+    if (!error.empty()) {
+        set_text_color(TEXT_RED);
+        print_text_mode_1(0x1E, row, (char*) ToMenuText(error, 40).c_str(), 0, 0.45f, 0.45f);
+    }
+}
+
 void DrawRooms(MenuItem* item) {
-    const std::vector<RelayRoomList::Room>& rooms = sOnline.RoomList.GetRooms();
-    const s32 listRow = 0x66;
-    const s32 listRows = std::max((s32) GetNumRooms(), 1);
-    const s32 hostRow = listRow + listRows * 0x14 + 0x8;
-    const s32 nameRow = hostRow + 0x18;
-
+    constexpr s32 kItemColumn = 0x32;
+    constexpr s32 kFirstItemRow = 0x52;
+    constexpr s32 kItemSpacing = 0x10;
+    constexpr s32 kRoomsRow = kFirstItemRow + kFirstRoomItem * kItemSpacing + 0x6;
+    constexpr s32 kFirstRoomRow = kRoomsRow + 0x10;
+    const bool matchmaking = Lobby::GetState() == Lobby::State::Matchmaking;
+    const char* const labels[] = { matchmaking ? "CANCEL MATCH" : "QUICK MATCH", "HOST PUBLIC ROOM",
+                                   "HOST PRIVATE ROOM", "JOIN BY CODE", "NAME" };
+    for (s32 i = 0; i < kFirstRoomItem; i++) {
+        set_text_color_rainbow_if_selected(sOnline.Cursor, i, TEXT_YELLOW);
+        print_text_mode_1(kItemColumn, kFirstItemRow + i * kItemSpacing, (char*) labels[i], 0, 0.7f, 0.7f);
+    }
     set_text_color(TEXT_YELLOW);
-    print_text_mode_1(0x28, 0x50, (char*) "ROOMS", 0, 0.75f, 0.75f);
-    set_text_color_rainbow_if_selected(sOnline.Cursor, GetHostItem(), TEXT_YELLOW);
-    print_text_mode_1(0x32, hostRow, (char*) "HOST A ROOM", 0, 0.75f, 0.75f);
-    set_text_color_rainbow_if_selected(sOnline.Cursor, GetNameItem(), TEXT_YELLOW);
-    print_text_mode_1(0x32, nameRow, (char*) "NAME", 0, 0.75f, 0.75f);
-    set_text_color(TEXT_GREEN);
-    print_text_mode_1(0x78, nameRow, (char*) ToMenuText(GetName(), kMaxNameLength).c_str(), 0, 0.75f, 0.75f);
+    print_text_mode_1(0x28, kRoomsRow, (char*) "ROOMS", 0, 0.6f, 0.6f);
 
-    s32 row = listRow;
-    for (size_t i = 0; i < GetNumRooms(); i++) {
+    // Text that changes comes last (see above).
+    set_text_color(TEXT_GREEN);
+    print_text_mode_1(0x98, kFirstItemRow + kNameItem * kItemSpacing,
+                      (char*) ToMenuText(GetName(), kMaxNameLength).c_str(), 0, 0.7f, 0.7f);
+    if (matchmaking) {
+        const u32 waiting = Lobby::GetWaitingPlayers();
+        const std::string text = (waiting == 0) ? "SEARCHING..." : "SEARCHING - " + std::to_string(waiting) + " WAITING";
+        set_text_color(TEXT_GREEN);
+        print_text_mode_1(0xA8, kFirstItemRow, (char*) text.c_str(), 0, 0.5f, 0.5f);
+    }
+    const std::vector<RelayRoomList::Room>& rooms = sOnline.RoomList.GetRooms();
+    if (GetNumRooms() > kMaxRoomsShown) {
+        const std::string count = std::to_string(GetNumRooms()) + " OPEN";
+        set_text_color(TEXT_BLUE);
+        print_text_mode_1(0x60, kRoomsRow, (char*) count.c_str(), 0, 0.5f, 0.5f);
+    }
+    s32 row = kFirstRoomRow;
+    for (s32 i = sOnline.FirstRoomShown; i < std::min(GetNumRooms(), sOnline.FirstRoomShown + kMaxRoomsShown); i++) {
         const RelayRoomList::Room& room = rooms[i];
-        set_text_color_rainbow_if_selected(sOnline.Cursor, (s32) i, TEXT_GREEN);
-        print_text_mode_1(0x32, row, (char*) ToMenuText(room.HostName, kMaxNameLength).c_str(), 0, 0.7f, 0.7f);
+        set_text_color_rainbow_if_selected(sOnline.Cursor, kFirstRoomItem + i, TEXT_GREEN);
+        print_text_mode_1(kItemColumn, row, (char*) ToMenuText(room.HostName, kMaxNameLength).c_str(), 0, 0.65f,
+                          0.65f);
         // The font has no slash.
         const std::string players = std::to_string(room.Members) + ((room.Members == 1) ? " PLAYER" : " PLAYERS") +
                                     (room.Racing ? " RACING" : "");
-        print_text_mode_1(0xA8, row, (char*) players.c_str(), 0, 0.55f, 0.55f);
-        if (sOnline.Cursor == (s32) i) {
-            DrawCursor(item, 0x32, row);
+        print_text_mode_1(0xA8, row, (char*) players.c_str(), 0, 0.5f, 0.5f);
+        if (sOnline.Cursor == kFirstRoomItem + i) {
+            DrawCursor(item, kItemColumn, row);
         }
-        row += 0x14;
+        row += kItemSpacing;
     }
     if (rooms.empty()) {
         set_text_color(TEXT_BLUE);
         const char* text = sOnline.RoomList.HasList() ? "NO ROOMS YET" : "LOOKING FOR ROOMS...";
-        print_text_mode_1(0x32, row, (char*) text, 0, 0.6f, 0.6f);
+        print_text_mode_1(kItemColumn, row, (char*) text, 0, 0.55f, 0.55f);
     }
-    if (sOnline.Cursor == GetHostItem()) {
-        DrawCursor(item, 0x32, hostRow);
-    } else if (sOnline.Cursor == GetNameItem()) {
-        DrawCursor(item, 0x32, nameRow);
+    if (sOnline.Cursor < kFirstRoomItem) {
+        DrawCursor(item, kItemColumn, kFirstItemRow + sOnline.Cursor * kItemSpacing);
     }
+    DrawError(0xE4);
+}
 
-    const std::string& error = !Lobby::GetError().empty() ? Lobby::GetError() : sOnline.RoomList.GetError();
-    if (!error.empty()) {
-        set_text_color(TEXT_RED);
-        print_text_mode_1(0x1E, 0xD8, (char*) ToMenuText(error, 40).c_str(), 0, 0.45f, 0.45f);
+/** JOIN BY CODE: a slot per direction, filled with arrows as they are entered; the next one blinks. */
+void DrawCode() {
+    constexpr s32 kSlotSpacing = 0x1C;
+    constexpr s32 kFirstSlotColumn = 0xA0 - (s32) (RelayProtocol::kCodeLength * kSlotSpacing) / 2 + 6;
+    constexpr s32 kSlotRow = 0x78;
+    set_text_color(TEXT_YELLOW);
+    print_text_mode_1(0x28, 0x50, (char*) "JOIN BY CODE", 0, 0.75f, 0.75f);
+    set_text_color(TEXT_BLUE);
+    print_text1_center_mode_1(0xA0, 0xA8, (char*) "FLICK THE STICK OR PRESS THE D-PAD", 0, 0.5f, 0.5f);
+    print_text1_center_mode_1(0xA0, 0xB8, (char*) "THE ARROW KEYS WORK TOO", 0, 0.5f, 0.5f);
+    print_text1_center_mode_1(0xA0, 0xC8, (char*) "B ERASES", 0, 0.5f, 0.5f);
+    // A dash under every slot, always drawn so the letters keep their order; the next slot's blinks.
+    for (s32 i = 0; i < (s32) RelayProtocol::kCodeLength; i++) {
+        const bool next = i == (s32) sOnline.CodeDraft.size();
+        set_text_color((next && ((gGlobalTimer / 8) % 2 == 0)) ? TEXT_YELLOW : TEXT_BLUE);
+        print_text_mode_1(kFirstSlotColumn + i * kSlotSpacing + 3, kSlotRow + 0x1A, (char*) "-", 0, 0.75f, 0.75f);
     }
+    DrawCodeArrows(sOnline.CodeDraft, kFirstSlotColumn, kSlotRow, kSlotSpacing, false);
+    DrawError(0xE4);
 }
 
 void DrawName(MenuItem* item) {
@@ -331,6 +479,21 @@ void DrawConsolePlayers() {
 }
 
 /**
+ * On a private room's Game Select: its code, for the players to pass on to friends. Right of the LEAVE button, the one
+ * free place on the screen: a small label over small arrows.
+ */
+void DrawRoomCode(const MenuItem* item) {
+    constexpr s32 kSpacing = kSmallArrowSize + 1;
+    if (!Lobby::IsRoomPrivate() || (item->param1 >= 0x20)) {
+        return;
+    }
+    const s32 column = item->column + kButtonWidth + 6;
+    set_text_color(TEXT_YELLOW);
+    print_text_mode_1(column, item->row + 6, (char*) "ROOM CODE", 0, 0.4f, 0.4f);
+    DrawCodeArrows(Lobby::GetRoomCode(), column, item->row + 8, kSpacing, true);
+}
+
+/**
  * Game Select in a room: why a choice will not start, where choosing it only makes the menu's "no" sound (menus.c).
  * Time trials race the ghosts in each player's own save, so the note shows while Time Trials is the mode chosen;
  * OPTION and DATA work on each player's own save and Controller Pak, so it shows for a while after L or R.
@@ -359,6 +522,7 @@ extern "C" void online_menu_refuse_option_data(void) {
 extern "C" void online_menu_enter(void) {
     sOnline.Current = Screen::Rooms;
     sOnline.Cursor = 0;
+    sOnline.FirstRoomShown = 0;
     RefreshRooms();
     PageVersion::Check();
 }
@@ -366,7 +530,8 @@ extern "C" void online_menu_enter(void) {
 extern "C" void online_menu_act(struct Controller* controller) {
     sOnline.RoomList.Update();
     const Lobby::State state = Lobby::GetState();
-    if ((state == Lobby::State::Offline) && !sOnline.RoomList.IsBusy() &&
+    const bool choosing = (state == Lobby::State::Offline) || (state == Lobby::State::Matchmaking);
+    if (choosing && !sOnline.RoomList.IsBusy() &&
         (std::chrono::steady_clock::now() - sOnline.LastRefresh >= kRefreshInterval)) {
         RefreshRooms();
     }
@@ -374,7 +539,7 @@ extern "C" void online_menu_act(struct Controller* controller) {
         return;
     }
     u16 pressed = controller->buttonPressed | controller->stickPressed;
-    if (state != Lobby::State::Offline) {
+    if (!choosing) {
         // Connecting, or in a room whose race has to end before its console takes this player in
         if (pressed & B_BUTTON) {
             Lobby::Leave();
@@ -386,10 +551,14 @@ extern "C" void online_menu_act(struct Controller* controller) {
         ActName(pressed);
         return;
     }
+    if (sOnline.Current == Screen::Code) {
+        ActCode(controller);
+        return;
+    }
     if (pressed & START_BUTTON) {
         pressed |= A_BUTTON;
     }
-    sOnline.Cursor = std::min(sOnline.Cursor, GetNameItem());
+    sOnline.Cursor = std::min(sOnline.Cursor, GetLastItem());
     ActRooms(pressed);
 }
 
@@ -405,7 +574,16 @@ extern "C" void render_online_menu(MenuItem* item) {
             const auto& members = Lobby::GetMembers();
             const bool racing =
                 std::any_of(members.begin(), members.end(), [](const Lobby::Member& member) { return member.Racing; });
-            DrawStatus(racing ? "WAITING FOR THE RACE TO END" : "JOINING...");
+            const auto away = std::find_if(members.begin(), members.end(),
+                                           [](const Lobby::Member& member) { return member.Present && member.Away; });
+            if (racing) {
+                DrawStatus("WAITING FOR THE RACE TO END");
+            } else if (away != members.end()) {
+                // A player matched while racing offline
+                DrawStatus(("WAITING FOR " + ToMenuText(away->Name, kMaxNameLength) + " TO FINISH A RACE").c_str());
+            } else {
+                DrawStatus("JOINING...");
+            }
             return;
         }
         default:
@@ -413,6 +591,8 @@ extern "C" void render_online_menu(MenuItem* item) {
     }
     if (sOnline.Current == Screen::Name) {
         DrawName(item);
+    } else if (sOnline.Current == Screen::Code) {
+        DrawCode();
     } else {
         DrawRooms(item);
         DrawVersionNote();
@@ -424,6 +604,7 @@ extern "C" void render_online_button(MenuItem* item) {
     if (console) {
         DrawUnavailableNote();
         DrawConsolePlayers();
+        DrawRoomCode(item);
     }
     // As for OPTION and DATA: a box behind the picture, flashing while chosen, and both fold away together.
     if (item->param1 < 0x20) {

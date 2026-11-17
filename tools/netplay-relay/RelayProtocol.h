@@ -4,26 +4,33 @@
 /**
  * Wire format between SpaghettiKart and the netplay relay server. Shared by both; depends only on the standard library.
  *
- * Players meet in rooms named by a 6-character code, which they pick from the relay's list of open rooms. The relay
- * forwards packets between the members of a room and knows nothing about the game: lobby and rollback traffic are
- * opaque payloads to it.
+ * Players meet in rooms named by a code of 7 stick directions (U, D, L, R), entered with a controller or the arrow
+ * keys. They get into one in three ways: picking a public room from the relay's list, typing the code of a private
+ * room (never listed), or matchmaking, where the relay puts them into a public room with a free slot or pairs them with
+ * another player waiting. The relay forwards packets between the members of a room and knows nothing about the game:
+ * lobby and rollback traffic are opaque payloads to it.
  *
  * Every datagram starts with a 4-byte header: magic (u16), protocol version (u8), message type (u8).
  * All integers are little-endian.
  *
  *   Client -> relay
- *     Create     u32 request, char build[32], u64 content, char name[16]
+ *     Create     u32 request, char build[32], u64 content, char name[16], u8 CreateFlags
  *                Open a room; the creator gets slot 0 and hosts. The name is the host's, shown in the room list.
- *     Join       u32 request, char code[6], char build[32], u64 content
+ *     Join       u32 request, char code[7], char build[32], u64 content
  *     Relay      u64 token, u8 destination (slot or kBroadcast), payload
  *     KeepAlive  u64 token, u32 echo, u8 KeepAliveFlags, u32 local IPv4, u16 local port
  *                Sent every second; the relay answers with RoomState. The local address is the client's own on its
  *                network, for members behind the same router.
  *     Leave      u64 token
  *     ListRooms  u32 request, char build[32], u64 content          Ask for the open rooms of this build.
+ *     Matchmake  u32 request, char build[32], u64 content, char name[16]
+ *                Look for other players. Resent every second while looking, which keeps the client in the queue. The
+ *                relay answers Joined once it found a room, or MatchWaiting.
+ *     MatchCancel u32 request                                      Stop looking (the Matchmake's request).
  *
  *   Relay -> client
- *     Joined     u32 request, u64 token, char code[6], u8 slot     Answer to Create or Join.
+ *     Joined     u32 request, u64 token, char code[7], u8 slot, u8 RoomFlags
+ *                Answer to Create, Join or Matchmake. The flags say whether the room is private, or matchmade.
  *     Error      u32 request, u8 ErrorCode                         request is 0 for errors about a token.
  *     Relayed    u8 source slot, payload
  *     RoomState  u32 echo, u8 your slot, u8 occupied-slot mask, then for each occupied slot in order:
@@ -31,11 +38,12 @@
  *                On KeepAlive (echo copied) and on membership changes (0). The public address is where the relay sees
  *                the member; both addresses are 0 for members that do not share them.
  *     RoomClosed u8 CloseReason
- *     RoomList   u32 request, u8 count, then per room: char code[6], char host name[16], u8 members, u8 RoomFlags
- *                The rooms with the asker's build and content that have a free slot, at most kMaxListedRooms.
- *                Then u8 other builds, u8 other content: how many rooms with a free slot are of another build, and
- *                of this build with other game files or mods (relays since 2026-11-13; older ones end the list
- *                before them, and older games ignore them).
+ *     RoomList   u32 request, u8 count, then per room: char code[7], char host name[16], u8 members, u8 RoomFlags
+ *                The public rooms with the asker's build and content that have a free slot, at most kMaxListedRooms.
+ *                Then u8 other builds, u8 other content: how many public rooms with a free slot are of another build,
+ *                and of this build with other game files or mods.
+ *     MatchWaiting u32 request, u16 waiting                        Answer to a Matchmake with no room yet: how many
+ *                                                                  players of this build and content are looking.
  *
  *   Client -> client, directly
  *     Punch      u8 source slot, u64 source key, u32 time          To each address a member may have, until one answers,
@@ -43,7 +51,8 @@
  *     PunchReply u8 source slot, u64 source key, u32 echo          To where the Punch came from.
  *     Direct     u8 source slot, u64 source key, payload           What Relay would carry, without the relay.
  *
- * Create and Join are resent until answered; the relay answers a repeated request with the same reply.
+ * Create and Join are resent until answered; the relay answers a repeated request with the same reply. So is
+ * Matchmake: once the relay put the client in a room, it answers each repeat with the same Joined.
  * The token identifies the client in later messages, so a client whose address changes (NAT rebinding) keeps its slot.
  * It stays between client and relay. Members recognize each other's direct packets by the key the relay hands out.
  *
@@ -60,10 +69,10 @@
 namespace RelayProtocol {
 
 constexpr uint16_t kMagic = 0x4B53; // "SK"
-constexpr uint8_t kVersion = 3;
+constexpr uint8_t kVersion = 4;
 constexpr uint16_t kDefaultPort = 7777;
 constexpr size_t kHeaderSize = 4;
-constexpr size_t kCodeLength = 6;
+constexpr size_t kCodeLength = 7;
 constexpr size_t kBuildIdLength = 32;
 constexpr size_t kNameLength = 16;
 constexpr size_t kMaxSlots = 4;
@@ -71,10 +80,11 @@ constexpr uint8_t kBroadcast = 0xFF;
 // Keeps datagrams under the 1280-byte IPv6 minimum MTU, so they are never fragmented.
 constexpr size_t kMaxPayload = 1200;
 constexpr size_t kMaxPacketSize = kHeaderSize + 16 + kMaxPayload;
-// One RoomList datagram: 24 bytes per room stays well under kMaxPayload.
+// One RoomList datagram: 25 bytes per room stays well under kMaxPayload.
 constexpr size_t kMaxListedRooms = 40;
-// No 0/O or 1/I, which are easy to mix up when reading a code out loud.
-constexpr char kCodeAlphabet[] = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+// Up, down, left, right: entered with the stick, the D-pad or the arrow keys, and easy to read out. 4^7 = 16384 codes;
+// the relay limits how fast one address may try codes that do not exist.
+constexpr char kCodeAlphabet[] = "UDLR";
 constexpr uint32_t kKeepAliveIntervalMs = 1000;
 // The relay drops clients it has not heard from for this long.
 constexpr uint32_t kClientTimeoutMs = 15000;
@@ -86,6 +96,8 @@ enum class MessageType : uint8_t {
     KeepAlive = 4,
     Leave = 5,
     ListRooms = 6,
+    Matchmake = 7,
+    MatchCancel = 8,
 
     Punch = 0x41,
     PunchReply = 0x42,
@@ -97,6 +109,7 @@ enum class MessageType : uint8_t {
     RoomState = 0x84,
     RoomClosed = 0x85,
     RoomList = 0x86,
+    MatchWaiting = 0x87,
 };
 
 enum KeepAliveFlags : uint8_t {
@@ -104,8 +117,14 @@ enum KeepAliveFlags : uint8_t {
     kInRace = 1 << 1,         // The host is racing: the room list shows the room as racing
 };
 
+enum CreateFlags : uint8_t {
+    kCreatePrivate = 1 << 0, // Never listed: joined only by its code
+};
+
 enum RoomFlags : uint8_t {
-    kRoomRacing = 1 << 0,
+    kRoomRacing = 1 << 0,    // In RoomList
+    kRoomPrivate = 1 << 1,   // In Joined
+    kRoomMatchmade = 1 << 2, // In Joined: the relay made the room for players matchmaking
 };
 
 enum class ErrorCode : uint8_t {
@@ -135,7 +154,7 @@ inline const char* GetErrorText(ErrorCode error) {
         case ErrorCode::ContentMismatch:
             return "The host has different game files or mods";
         case ErrorCode::RateLimited:
-            return "Too many requests; try again in a minute";
+            return "Too many tries; wait a few minutes";
         case ErrorCode::ServerFull:
             return "The relay server is full";
         case ErrorCode::UnknownClient:
@@ -148,6 +167,16 @@ inline const char* GetErrorText(ErrorCode error) {
 using RoomCode = std::array<char, kCodeLength>;
 using BuildId = std::array<char, kBuildIdLength>;
 using Name = std::array<char, kNameLength>;
+
+/** @returns whether every letter of the code is one of kCodeAlphabet's. */
+inline bool IsValidCode(const RoomCode& code) {
+    for (char c : code) {
+        if ((c == 0) || (strchr(kCodeAlphabet, c) == nullptr)) {
+            return false;
+        }
+    }
+    return true;
+}
 
 inline BuildId MakeBuildId(const std::string& text) {
     BuildId id = {};

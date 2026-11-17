@@ -1,7 +1,8 @@
 # Netplay
 
 Online races for SpaghettiKart, on the `netplay` branch of this fork: rollback netcode, every mode (Versus, Battle,
-Grand Prix with CPUs), players meeting in a room picked from a small relay server's list, then connecting directly.
+Grand Prix with CPUs), players meeting through a small relay server (a public room from its list, a private room by its
+code, or matchmaking), then connecting directly.
 In a room, everyone plays on one shared console, as if each player's controller were plugged into it: the game's own
 menus pick the mode, characters and course.
 
@@ -16,6 +17,7 @@ details live in the headers under `src/port/netplay/`, which each start with a d
 | Rollback, desync detection | Works; an 8-frame rollback every frame stays in sync on every track and mode |
 | Desync recovery (everyone takes over the host's state, the race goes on) | Works, tested by the simulator on one Mac; not yet tried between two |
 | Room list, ONLINE screen (Z on Game Select), relay server | Works; tested with scripted buttons |
+| Public and private rooms, room codes of stick directions, matchmaking in the background | Works in the simulator, the relay's tests and screenshots of the ONLINE screen; not yet tried by people. The netplay window's new parts and the bottom-of-screen notice are not seen yet (ImGui is not in test screenshots) |
 | Shared console: Game Select, character select and course select in lockstep, then the race | Works, tested by the simulator |
 | Direct connections (UDP hole punching), relay fallback | Works on one machine and between two Macs on one wifi; not yet tried across two home networks |
 | Own view (each player sees and hears only their own player) | Works |
@@ -31,8 +33,18 @@ details live in the headers under `src/port/netplay/`, which each start with a d
    where both players can reach it: on one of the players' computers on the same network, or on a small server for
    players in different places. See `tools/netplay-relay/README.md`.
 2. For another relay only: **Enhancements > Netplay > Open Netplay Lobby**, and enter the relay's `host:port` there.
-3. On Game Select, press **Z** (**ONLINE**, beside L OPTION and R DATA). The ONLINE screen lists the relay's open
-   rooms by their host's name; pick one, or **HOST A ROOM**. **NAME** sets the name others see.
+3. On Game Select, press **Z** (**ONLINE**, beside L OPTION and R DATA). The ONLINE screen offers:
+   - **QUICK MATCH**: look for other players. Press B and keep playing: the menus, or offline races. The search goes
+     on in the background, with a notice at the bottom of the screen, and the window's Dock icon bounces when it
+     finds someone. A match takes you into the room from the menus; if you are racing offline, the room waits for you
+     to finish or quit the race (3 minutes at most, then you leave it). The relay first fills an open public room, and
+     otherwise pairs you with another player looking; if that room closes before you played, the search starts
+     again. **CANCEL MATCH** stops it.
+   - **HOST PUBLIC ROOM**: a room listed under your name, which matchmaking also fills.
+   - **HOST PRIVATE ROOM**: a room that is never listed. Its code shows beside Z LEAVE on Game Select.
+   - **JOIN BY CODE**: type a room's code, 7 directions, by flicking the stick or pressing the D-pad, the C buttons or
+     the keyboard's arrow keys (the C buttons by default). B erases.
+   - The relay's open public rooms, by their host's name, to pick from. **NAME** sets the name others see.
 4. In a room, every player's game shows the same screens. You are the controller of your place in the room (the host
    is controller 1); the names along the bottom of Game Select say who is who. Pick the player count, mode,
    characters and course in the normal menus, as on one console: anyone can move the Game Select and course cursors,
@@ -91,6 +103,11 @@ Made by the fork's owner, in this order. Later work assumes them.
    pointers and all, into the other games, rather than guess which numbers in it are pointers. The game restarts
    itself without it at launch. This weakens the protection against someone in the room, or the relay's operator,
    exploiting a memory bug in netplay's packet handling; accepted for playing with friends on one's own relay.
+9. **Public rooms, private rooms and matchmaking** (2026-11-17). Matchmaking runs in the background while the player
+   plays offline; a match never interrupts an offline race (the room waits, as a console start restores the boot
+   state, which only the menus are ready for). It makes rooms of 2 that stay open to more, and fills open public rooms
+   first. Room codes are 7 stick directions (up, down, left, right: perpendicular, so easy to hit, and typed with the
+   keyboard's arrow keys too), chosen for their rhythm; that and the new messages are protocol 4.
 
 ## How it works
 
@@ -230,11 +247,20 @@ helpers. Game Select's "Z ONLINE" button is the port's own art (`tools/make-onli
 
 - `tools/netplay-relay/`: a standalone UDP server (C++20, standalone ASIO, Dockerfile), which also accepts browsers'
   WebSockets on the same port number over TCP (`WebSocket.h`, see `docs/WEB.md`). Wire format in
-  `RelayProtocol.h`, shared with the game. Rooms by 6-character code, listed (`ListRooms`, protocol 3) with the
-  host's name to clients of the same build, plus counts of the open rooms of other builds and of this build with other
-  game files, which the ONLINE screen shows (the browser build updates itself, so a friend is often one restart
-  behind, `PageVersion.h`; game files made by an older extractor stay in use until remade, `AssetsVersion.h`); the relay
-  forwards packets and checks the build id (commit plus a hash of local changes) and a hash of the game files.
+  `RelayProtocol.h`, shared with the game. Rooms by a code of 7 directions (protocol 4); public ones are listed
+  (`ListRooms`) with the host's name to clients of the same build, plus counts of the open rooms of other builds and
+  of this build with other game files, which the ONLINE screen shows (the browser build updates itself, so a friend is
+  often one restart behind, `PageVersion.h`; game files made by an older extractor stay in use until remade,
+  `AssetsVersion.h`); the relay forwards packets and checks the build id (commit plus a hash of local changes) and a
+  hash of the game files.
+  Private rooms are never listed. **Matchmaking** (`Matchmake`, resent every second as a keep-alive): the relay puts
+  the player into the fullest open public room of its build and game files that is not racing, else pairs it with the
+  player that has waited longest, who hosts the new room. Joins of rooms that do not exist have their own rate limit,
+  which keeps guessing codes slow.
+- **Away players** (`Lobby::Member::Away`): a player in a room but outside the menus, with no console running (matched
+  while racing offline, or during the title screen's attract demo), is away. The host starts no console while anyone
+  is, and an away player who stays away 3 minutes leaves the room. `Netplay::GetMatchNotice()` says what is going on
+  at the bottom of the screen (`NetplayMatchOverlay`).
 - `RelayClient.cpp`: the game's side, two channels: lobby messages and GekkoNet packets (tagged per race, so stragglers
   from an earlier race are dropped), plus a third the browser build sets up WebRTC connections with, and a fourth for
   voice, which only ever goes directly ([Voice chat](#voice-chat)). It moves packets
@@ -302,7 +328,7 @@ keep them on the relay do not hear each other, and the netplay window says so. A
 
 | Tool | What it does |
 |---|---|
-| `tools/netplay-sim.py` | Plays whole races, cups and battles between bot-driven copies of the game through a relay, fast-forwarded (about 70× real time), and checks that every peer stayed in sync and the races ended as expected. Shared-console scenarios drive the menus with scripted buttons and compare every menu frame. 27 scenarios, about 5 minutes. **Run it after any change to netplay, menu or simulation code.** |
+| `tools/netplay-sim.py` | Plays whole races, cups and battles between bot-driven copies of the game through a relay, fast-forwarded (about 70× real time), and checks that every peer stayed in sync and the races ended as expected. Shared-console scenarios drive the menus with scripted buttons and compare every menu frame. 31 scenarios, about 5 minutes. **Run it after any change to netplay, menu or simulation code.** |
 | Determinism harness | `SK_DETERMINISM_RECORD` / `_VERIFY` / `_ROLLBACK=8`: records a race's inputs and per-frame checksums, replays them, or rolls back 8 frames after every frame. See `DeterminismHarness.h`. |
 | `tools/netplay-stress.sh` | The rollback stress run on every track and arena, 4 at a time: 16 versus tracks, 4 battle arenas, 4 Grand Prix courses. Give it an AddressSanitizer build (below) to look for memory errors too. |
 | `tools/netplay-relay/test_relay.py` | Protocol tests for the relay. |
@@ -453,7 +479,16 @@ Each of these cost a debugging round.
 - Shared console: while a menu frame waits for another player's input, the window shows the last frame and the game
   does not respond; with a few frames of ping this is not noticeable, a long freeze would be. The in-room screens have
   been checked in window captures, not yet by people on two Macs.
-- Shared console: the netplay window can still join a room by typing its code (the old way), next to the room list.
+- Matchmaking, private rooms and code entry have not been tried by people. Typing a code with the stick is not
+  covered by scripted buttons (they press buttons, not the stick); the D-pad and C buttons are. The netplay window's
+  code entry with a controller, its arrows, and the notice at the bottom of the screen are not seen in a picture yet.
+- Not covered by a scenario: the 3-minute limit for an away player, and a matched player going back to looking when
+  the room closes before its first console (its host left).
+- A player matched while on an offline menu other than the ONLINE screen is taken to Game Select at once, from
+  wherever they were (a console start resets the menus). Two matched players can each start an offline race while
+  waiting for the other; the room then waits for both.
+- The room code on Game Select uses small 10-pixel arrows beside Z LEAVE, the only free place; at the N64's
+  resolution they are small.
 - libultraship's renderer reads past two texture buffers (`ImportTextureI4` at boot, `gfx_load_tlut` on some
   courses), reported by AddressSanitizer on every run; not netplay's, not fixed.
 

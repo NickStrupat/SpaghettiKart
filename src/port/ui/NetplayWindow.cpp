@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 
+#include <SDL2/SDL.h>
+
 #include "PortMenu.h"
 #include "UIWidgets.h"
 #include "port/Game.h"
@@ -15,6 +17,7 @@
 #include "port/netplay/Lobby.h"
 #include "port/netplay/NetSession.h"
 #include "port/netplay/Netplay.h"
+#include "port/netplay/RoomCodeInput.h"
 #include "port/netplay/VoiceChat.h"
 
 namespace GameUI {
@@ -33,7 +36,11 @@ const ImVec4 kErrorColor = ImVec4(1.0f, 0.45f, 0.45f, 1.0f);
 const ImVec4 kDimColor = ImVec4(0.65f, 0.65f, 0.65f, 1.0f);
 const ImVec4 kTalkingColor = ImVec4(0.45f, 1.0f, 0.45f, 1.0f);
 
-char sRoomCodeInput[RelayProtocol::kCodeLength + 1] = "";
+// Joining by code: the directions entered so far, and whether controller 1 is entering them (Netplay::SetPadCapture())
+std::string sCodeDraft;
+bool sCapturingCode = false;
+RoomCodeInput::Reader sCodeReader;
+constexpr f32 kArrowCellSize = 22.0f;
 
 struct TrackChoice {
     std::string ResourceName;
@@ -88,28 +95,170 @@ std::string GetPlayerName() {
     return name.empty() ? "Player" : name;
 }
 
+/** One direction of a room code, as an arrow in a cell at the cursor; an empty cell for 0. */
+void DrawCodeCell(char letter, bool next) {
+    const ImVec2 corner = ImGui::GetCursorScreenPos();
+    const ImVec2 size(kArrowCellSize, kArrowCellSize);
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    const ImU32 frame = ImGui::GetColorU32(next ? ImGuiCol_Text : ImGuiCol_Border);
+    draw->AddRect(corner, ImVec2(corner.x + size.x, corner.y + size.y), frame, 3.0f);
+    const ImVec2 c(corner.x + size.x / 2.0f, corner.y + size.y / 2.0f);
+    const f32 r = size.x * 0.32f;
+    const ImU32 color = ImGui::GetColorU32(UIWidgets::ColorValues.at(UIWidgets::Colors::Yellow));
+    switch (letter) {
+        case 'U':
+            draw->AddTriangleFilled(ImVec2(c.x, c.y - r), ImVec2(c.x + r, c.y + r), ImVec2(c.x - r, c.y + r), color);
+            break;
+        case 'D':
+            draw->AddTriangleFilled(ImVec2(c.x - r, c.y - r), ImVec2(c.x + r, c.y - r), ImVec2(c.x, c.y + r), color);
+            break;
+        case 'L':
+            draw->AddTriangleFilled(ImVec2(c.x - r, c.y), ImVec2(c.x + r, c.y - r), ImVec2(c.x + r, c.y + r), color);
+            break;
+        case 'R':
+            draw->AddTriangleFilled(ImVec2(c.x - r, c.y - r), ImVec2(c.x + r, c.y), ImVec2(c.x - r, c.y + r), color);
+            break;
+        default:
+            break;
+    }
+    ImGui::Dummy(size);
+}
+
+/** A room code as a row of arrows: the default font has none. Unfilled cells are empty; the next one is outlined. */
+void DrawCodeCells(const std::string& code, bool showNext) {
+    for (size_t i = 0; i < RelayProtocol::kCodeLength; i++) {
+        if (i > 0) {
+            ImGui::SameLine(0.0f, 4.0f);
+        }
+        DrawCodeCell((i < code.size()) ? code[i] : 0, showNext && (i == code.size()));
+    }
+}
+
+/** A room code as text with arrows, for pasting into a chat. */
+std::string GetCodeText(const std::string& code) {
+    std::string text;
+    for (char letter : code) {
+        text += (letter == 'U') ? "\u2191" : (letter == 'D') ? "\u2193" : (letter == 'L') ? "\u2190" : "\u2192";
+    }
+    return text;
+}
+
+void StopCodeCapture() {
+    sCapturingCode = false;
+    Netplay::SetPadCapture(false);
+}
+
+/** Adds an entry to the code being typed; the seventh direction joins the room. */
+void EnterCode(RoomCodeInput::Entry entry, const std::string& relay) {
+    if (!RoomCodeInput::Apply(entry, &sCodeDraft) || (sCodeDraft.size() < RelayProtocol::kCodeLength)) {
+        return;
+    }
+    StopCodeCapture();
+    Lobby::Join(relay, sCodeDraft, GetPlayerName());
+    sCodeDraft.clear();
+}
+
+/** While capturing: controller 1 (through the game) and the keyboard's arrow keys (through the window) type. */
+void ReadCodeCapture(const std::string& relay) {
+    s8 stickX;
+    s8 stickY;
+    u16 pressed;
+    Netplay::TakeCapturedPad(&stickX, &stickY, &pressed);
+    EnterCode(sCodeReader.Read(stickX, stickY, pressed), relay);
+    const std::pair<ImGuiKey, RoomCodeInput::Entry> keys[] = {
+        { ImGuiKey_UpArrow, RoomCodeInput::Entry::Up },     { ImGuiKey_DownArrow, RoomCodeInput::Entry::Down },
+        { ImGuiKey_LeftArrow, RoomCodeInput::Entry::Left }, { ImGuiKey_RightArrow, RoomCodeInput::Entry::Right },
+        { ImGuiKey_Backspace, RoomCodeInput::Entry::Erase },
+    };
+    for (const auto& [key, entry] : keys) {
+        if (sCapturingCode && ImGui::IsKeyPressed(key, false)) {
+            EnterCode(entry, relay);
+        }
+    }
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        StopCodeCapture();
+    }
+}
+
+void DrawJoinByCode(const std::string& relay) {
+    ImGui::TextUnformatted("Join a room by its code:");
+    DrawCodeCells(sCodeDraft, true);
+    if (sCapturingCode) {
+        ReadCodeCapture(relay);
+    }
+    const std::pair<ImGuiDir, RoomCodeInput::Entry> buttons[] = {
+        { ImGuiDir_Up, RoomCodeInput::Entry::Up },     { ImGuiDir_Down, RoomCodeInput::Entry::Down },
+        { ImGuiDir_Left, RoomCodeInput::Entry::Left }, { ImGuiDir_Right, RoomCodeInput::Entry::Right },
+    };
+    for (const auto& [direction, entry] : buttons) {
+        ImGui::PushID((int) direction);
+        if (ImGui::ArrowButton("##direction", direction)) {
+            EnterCode(entry, relay);
+        }
+        ImGui::PopID();
+        ImGui::SameLine();
+    }
+    ImGui::BeginDisabled(sCodeDraft.empty());
+    if (ImGui::Button("Erase")) {
+        EnterCode(RoomCodeInput::Entry::Erase, relay);
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button(sCapturingCode ? "Stop" : "Enter with controller")) {
+        if (sCapturingCode) {
+            StopCodeCapture();
+        } else {
+            sCapturingCode = true;
+            sCodeReader.Reset();
+            Netplay::SetPadCapture(true);
+        }
+    }
+    if (sCapturingCode) {
+        ImGui::TextColored(kDimColor, "Flick the stick, or press the D-pad, C buttons or arrow keys.");
+        ImGui::TextColored(kDimColor, "B or Backspace erases, Esc stops.");
+    }
+}
+
 void DrawConnect() {
     InputCVarString("Your name", kNameCVar, "Player", Lobby::kMaxNameLength);
     InputCVarString("Relay server", kRelayCVar, kDefaultRelay, 63);
     const std::string relay = CVarGetString(kRelayCVar, kDefaultRelay);
     ImGui::Spacing();
 
-    if (ImGui::Button("Host a room")) {
-        Lobby::Host(relay, GetPlayerName(), true);
+    if (ImGui::Button("Quick match")) {
+        StopCodeCapture();
+        Lobby::Matchmake(relay, GetPlayerName());
+    }
+    ImGui::SameLine();
+    ImGui::TextColored(kDimColor, "Keep playing while it looks for other players");
+    if (ImGui::Button("Host a public room")) {
+        StopCodeCapture();
+        Lobby::Host(relay, GetPlayerName(), true, Lobby::Visibility::Public);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Host a private room")) {
+        StopCodeCapture();
+        Lobby::Host(relay, GetPlayerName(), true, Lobby::Visibility::Private);
     }
     ImGui::Spacing();
-    ImGui::SetNextItemWidth(120.0f);
-    ImGui::InputText("##code", sRoomCodeInput, sizeof(sRoomCodeInput), ImGuiInputTextFlags_CharsUppercase);
-    ImGui::SameLine();
-    ImGui::BeginDisabled(strlen(sRoomCodeInput) != RelayProtocol::kCodeLength);
-    if (ImGui::Button("Join room")) {
-        Lobby::Join(relay, sRoomCodeInput, GetPlayerName());
-    }
-    ImGui::EndDisabled();
+    DrawJoinByCode(relay);
 
     if (!Lobby::GetError().empty()) {
         ImGui::Spacing();
         ImGui::TextColored(kErrorColor, "%s", Lobby::GetError().c_str());
+    }
+}
+
+void DrawMatchmaking() {
+    const u32 waiting = Lobby::GetWaitingPlayers();
+    if (waiting > 1) {
+        ImGui::Text("Looking for a match: %u players looking...", waiting);
+    } else {
+        ImGui::TextUnformatted("Looking for a match...");
+    }
+    ImGui::TextColored(kDimColor, "Keep playing: a match takes you into the room once you are in the menus.");
+    if (ImGui::Button("Cancel")) {
+        Lobby::Leave();
     }
 }
 
@@ -345,12 +494,13 @@ void DrawSharedConsole(bool racing, bool host) {
 
 void DrawRoom() {
     const std::string code = Lobby::GetRoomCode();
-    ImGui::Text("Room code:");
+    ImGui::AlignTextToFramePadding();
+    ImGui::Text(Lobby::IsRoomPrivate() ? "Private room, code:" : "Room code:");
     ImGui::SameLine();
-    ImGui::TextColored(UIWidgets::ColorValues.at(UIWidgets::Colors::LightBlue), "%s", code.c_str());
+    DrawCodeCells(code, false);
     ImGui::SameLine();
     if (ImGui::SmallButton("Copy")) {
-        ImGui::SetClipboardText(code.c_str());
+        ImGui::SetClipboardText(GetCodeText(code).c_str());
     }
     if (Lobby::GetPingMs() >= 0) {
         ImGui::SameLine();
@@ -665,6 +815,37 @@ void NetplayVoiceOverlay::Draw() {
     ImGui::End();
 }
 
+void NetplayMatchOverlay::Draw() {
+    if (Netplay::TakeMatchAlert()) {
+        // The SDL backend keeps the window's id in the main viewport.
+        const auto windowId = (Uint32) (intptr_t) ImGui::GetMainViewport()->PlatformHandle;
+        SDL_Window* window = SDL_GetWindowFromID(windowId);
+        if ((window != nullptr) && ((SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS) == 0)) {
+            SDL_FlashWindow(window, SDL_FLASH_UNTIL_FOCUSED);
+        }
+    }
+    const std::string notice = Netplay::GetMatchNotice();
+    if (notice.empty()) {
+        return;
+    }
+    constexpr f32 kMargin = 8.0f;
+    constexpr f32 kBackgroundAlpha = 0.7f;
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + viewport->WorkSize.x / 2.0f,
+                                   viewport->WorkPos.y + viewport->WorkSize.y - kMargin),
+                            ImGuiCond_Always, ImVec2(0.5f, 1.0f));
+    ImGui::SetNextWindowViewport(viewport->ID);
+    ImGui::SetNextWindowBgAlpha(kBackgroundAlpha);
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs |
+                                   ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
+                                   ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav |
+                                   ImGuiWindowFlags_NoDocking;
+    if (ImGui::Begin(GetName().c_str(), nullptr, flags)) {
+        ImGui::TextColored(kTalkingColor, "%s", notice.c_str());
+    }
+    ImGui::End();
+}
+
 void NetplayWindow::DrawElement() {
     DrawControllerChoice();
     DrawViewChoice();
@@ -680,6 +861,9 @@ void NetplayWindow::DrawElement() {
             if (ImGui::Button("Cancel")) {
                 Lobby::Leave();
             }
+            break;
+        case Lobby::State::Matchmaking:
+            DrawMatchmaking();
             break;
         case Lobby::State::InRoom:
             DrawRoom();

@@ -1,5 +1,6 @@
 /**
- * Netplay relay server: lists rooms, matches players by room code and forwards their packets.
+ * Netplay relay server: lists public rooms, matches players by room code or by matchmaking, and forwards their
+ * packets.
  *
  *   netplay-relay [--port 7777] [--ws-port 7777] [--trusted-proxy CIDR] [--delay-ms N] [--jitter-ms N] [--loss PERCENT]
  *                 [--no-rate-limits]
@@ -47,14 +48,22 @@ namespace {
 
 constexpr size_t kMaxRooms = 5000;
 constexpr size_t kMaxClients = kMaxRooms * kMaxSlots;
+// Picking a free code by chance stays quick while at most a third of the codes are taken.
+static_assert(kMaxRooms * 3 < (1u << (2 * kCodeLength)), "too many rooms for the room codes");
 // Per source IP. A 4-player rollback session sends about 100 packets per second per player; a LAN party shares an IP.
 constexpr double kPacketsPerSecond = 1500.0;
 constexpr double kPacketBurst = 3000.0;
 constexpr double kCreatesPerSecond = 10.0 / 60.0;
 constexpr double kCreateBurst = 10.0;
-// Slow enough that guessing a room code (32^6 possibilities) is hopeless.
 constexpr double kJoinsPerSecond = 20.0 / 60.0;
 constexpr double kJoinBurst = 20.0;
+// Joins of rooms that do not exist. Once they run out, every join from the address is refused until they come back,
+// so trying every code (4^7) takes one address about 27 hours; a player who mistypes a code a few times never notices.
+constexpr double kFailedJoinsPerSecond = 10.0 / 60.0;
+constexpr double kFailedJoinBurst = 10.0;
+// A matchmaking client resends every second.
+constexpr double kMatchmakesPerSecond = 2.0;
+constexpr double kMatchmakeBurst = 10.0;
 // The ONLINE screen asks again every few seconds while it is open.
 constexpr double kListsPerSecond = 1.0;
 constexpr double kListBurst = 10.0;
@@ -113,8 +122,21 @@ struct Room {
     uint64_t Content = 0;
     Name HostName = {};
     bool Racing = false; // From the host's KeepAlive
+    bool Private = false; // Never listed, never filled by matchmaking
+    bool Matchmade = false;
     Clock::time_point Created;
     std::array<uint64_t, kMaxSlots> Members = {}; // Client token per slot; 0 when free
+};
+
+/** A client looking for other players (Matchmake), until the relay puts it in a room. */
+struct QueuedClient {
+    Address Endpoint;
+    uint32_t Request = 0;
+    BuildId Build = {};
+    uint64_t Content = 0;
+    Name PlayerName = {};
+    Clock::time_point Since;
+    Clock::time_point LastSeen;
 };
 
 class TokenBucket {
@@ -123,14 +145,19 @@ class TokenBucket {
     }
 
     bool Take(double perSecond, double burst, Clock::time_point now) {
-        const double elapsed = std::chrono::duration<double>(now - mLast).count();
-        mTokens = std::min(burst, mTokens + elapsed * perSecond);
-        mLast = now;
-        if (mTokens < 1.0) {
+        if (!Has(perSecond, burst, now)) {
             return false;
         }
         mTokens -= 1.0;
         return true;
+    }
+
+    /** @returns whether a Take() would succeed now, without taking. */
+    bool Has(double perSecond, double burst, Clock::time_point now) {
+        const double elapsed = std::chrono::duration<double>(now - mLast).count();
+        mTokens = std::min(burst, mTokens + elapsed * perSecond);
+        mLast = now;
+        return mTokens >= 1.0;
     }
 
     Clock::time_point GetLastUse() const {
@@ -146,7 +173,9 @@ struct AddressLimits {
     TokenBucket Packets{ kPacketBurst };
     TokenBucket Creates{ kCreateBurst };
     TokenBucket Joins{ kJoinBurst };
+    TokenBucket FailedJoins{ kFailedJoinBurst };
     TokenBucket Lists{ kListBurst };
+    TokenBucket Matchmakes{ kMatchmakeBurst };
 };
 
 void Log(const char* format, ...) {
@@ -449,6 +478,12 @@ class RelayServer {
             case MessageType::ListRooms:
                 HandleListRooms(reader, from, limits, now);
                 break;
+            case MessageType::Matchmake:
+                HandleMatchmake(reader, from, limits, now);
+                break;
+            case MessageType::MatchCancel:
+                HandleMatchCancel(reader, from);
+                break;
             default:
                 break;
         }
@@ -470,7 +505,7 @@ class RelayServer {
         reader.ReadBytes(room.Build.data(), room.Build.size());
         room.Content = reader.Read64();
         reader.ReadBytes(room.HostName.data(), room.HostName.size());
-        room.Created = now;
+        room.Private = (reader.Read8() & kCreatePrivate) != 0;
         if (reader.Failed() || AnswerRepeatedRequest(from, request)) {
             return;
         }
@@ -483,19 +518,24 @@ class RelayServer {
             return;
         }
 
+        Room& added = AddRoom(room, now);
+        Client& client = AddClient(added, 0, from, request, now);
+        Log("%s room %s created by %s (%zu rooms)", added.Private ? "private" : "public", ToString(added.Code).c_str(),
+            ToString(from).c_str(), mRooms.size());
+        SendJoined(client);
+        BroadcastRoomState(added);
+    }
+
+    /** Gives the room a free code and adds it, with no members yet. */
+    Room& AddRoom(Room room, Clock::time_point now) {
+        room.Created = now;
         std::uniform_int_distribution<size_t> letter(0, sizeof(kCodeAlphabet) - 2);
         do {
             for (char& c : room.Code) {
                 c = kCodeAlphabet[letter(mRandom)];
             }
         } while (mRooms.count(ToString(room.Code)) != 0);
-
-        const std::string key = ToString(room.Code);
-        Room& added = mRooms.emplace(key, room).first->second;
-        Client& client = AddClient(added, 0, from, request, now);
-        Log("room %s created by %s (%zu rooms)", key.c_str(), ToString(from).c_str(), mRooms.size());
-        SendJoined(client);
-        BroadcastRoomState(added);
+        return mRooms.emplace(ToString(room.Code), room).first->second;
     }
 
     void HandleJoin(ByteReader& reader, const Address& from, AddressLimits& limits, Clock::time_point now) {
@@ -508,7 +548,8 @@ class RelayServer {
         if (reader.Failed() || AnswerRepeatedRequest(from, request)) {
             return;
         }
-        if (mOptions.RateLimits && !limits.Joins.Take(kJoinsPerSecond, kJoinBurst, now)) {
+        if (mOptions.RateLimits && (!limits.FailedJoins.Has(kFailedJoinsPerSecond, kFailedJoinBurst, now) ||
+                                    !limits.Joins.Take(kJoinsPerSecond, kJoinBurst, now))) {
             SendError(from, request, ErrorCode::RateLimited);
             return;
         }
@@ -516,8 +557,11 @@ class RelayServer {
             c = (char) toupper((unsigned char) c);
         }
 
-        const auto it = mRooms.find(ToString(code));
+        const auto it = IsValidCode(code) ? mRooms.find(ToString(code)) : mRooms.end();
         if (it == mRooms.end()) {
+            if (mOptions.RateLimits) {
+                limits.FailedJoins.Take(kFailedJoinsPerSecond, kFailedJoinBurst, now);
+            }
             SendError(from, request, ErrorCode::NoSuchRoom);
             return;
         }
@@ -613,6 +657,9 @@ class RelayServer {
         size_t otherBuilds = 0;
         size_t otherContent = 0;
         for (const auto& [key, room] : mRooms) {
+            if (room.Private) {
+                continue;
+            }
             const bool hasFreeSlot = std::count(room.Members.begin(), room.Members.end(), 0) > 0;
             if ((room.Build == build) && (room.Content == content) && hasFreeSlot) {
                 rooms.push_back(&room);
@@ -639,6 +686,122 @@ class RelayServer {
         writer.Write8((uint8_t) std::min<size_t>(otherBuilds, 255));
         writer.Write8((uint8_t) std::min<size_t>(otherContent, 255));
         Send(from, packet, writer.GetSize());
+    }
+
+    /**
+     * A player looking for others: into the public room of its build and content with the most players and a free
+     * slot, outside a race; else into a new room with the player that has waited longest, who hosts it; else it waits.
+     */
+    void HandleMatchmake(ByteReader& reader, const Address& from, AddressLimits& limits, Clock::time_point now) {
+        QueuedClient asker;
+        asker.Endpoint = from;
+        asker.Request = reader.Read32();
+        reader.ReadBytes(asker.Build.data(), asker.Build.size());
+        asker.Content = reader.Read64();
+        reader.ReadBytes(asker.PlayerName.data(), asker.PlayerName.size());
+        if (reader.Failed() || AnswerRepeatedRequest(from, asker.Request)) {
+            return;
+        }
+        if (mOptions.RateLimits && !limits.Matchmakes.Take(kMatchmakesPerSecond, kMatchmakeBurst, now)) {
+            SendError(from, asker.Request, ErrorCode::RateLimited);
+            return;
+        }
+        if (mClients.size() >= kMaxClients) {
+            SendError(from, asker.Request, ErrorCode::ServerFull);
+            return;
+        }
+        const auto sameGame = [&asker](const BuildId& build, uint64_t content) {
+            return (build == asker.Build) && (content == asker.Content);
+        };
+        // An address looks for one match at a time: a newer request replaces its older one. A repeat keeps its place.
+        auto queued = std::find_if(mQueue.begin(), mQueue.end(),
+                                   [&from](const QueuedClient& entry) { return entry.Endpoint == from; });
+        if ((queued != mQueue.end()) && (queued->Request != asker.Request)) {
+            mQueue.erase(queued);
+            queued = mQueue.end();
+        }
+
+        Room* best = nullptr;
+        size_t bestMembers = 0;
+        for (auto& [key, room] : mRooms) {
+            const size_t members = kMaxSlots - std::count(room.Members.begin(), room.Members.end(), 0);
+            const bool open =
+                !room.Private && !room.Racing && (members < kMaxSlots) && sameGame(room.Build, room.Content);
+            if (open && ((best == nullptr) || (members > bestMembers) ||
+                         ((members == bestMembers) && (room.Created > best->Created)))) {
+                best = &room;
+                bestMembers = members;
+            }
+        }
+        if (best != nullptr) {
+            if (queued != mQueue.end()) {
+                mQueue.erase(queued);
+            }
+            const auto freeSlot = std::find(best->Members.begin(), best->Members.end(), 0);
+            const uint8_t slot = (uint8_t) (freeSlot - best->Members.begin());
+            Client& client = AddClient(*best, slot, from, asker.Request, now);
+            Log("room %s: %s matched in as slot %u", ToString(best->Code).c_str(), ToString(from).c_str(), slot);
+            SendJoined(client);
+            BroadcastRoomState(*best);
+            return;
+        }
+
+        const auto waiting = std::find_if(mQueue.begin(), mQueue.end(), [&](const QueuedClient& entry) {
+            return (entry.Endpoint != from) && sameGame(entry.Build, entry.Content);
+        });
+        if ((waiting != mQueue.end()) && (mRooms.size() < kMaxRooms)) {
+            const QueuedClient host = *waiting;
+            std::erase_if(mQueue, [&](const QueuedClient& entry) {
+                return (entry.Endpoint == host.Endpoint) || (entry.Endpoint == from);
+            });
+            Room room;
+            room.Build = host.Build;
+            room.Content = host.Content;
+            room.HostName = host.PlayerName;
+            room.Matchmade = true;
+            Room& added = AddRoom(room, now);
+            Client& first = AddClient(added, 0, host.Endpoint, host.Request, now);
+            Client& second = AddClient(added, 1, from, asker.Request, now);
+            Log("room %s made for %s and %s (%zu rooms)", ToString(added.Code).c_str(), ToString(host.Endpoint).c_str(),
+                ToString(from).c_str(), mRooms.size());
+            SendJoined(first);
+            SendJoined(second);
+            BroadcastRoomState(added);
+            return;
+        }
+
+        // The queue stays in arrival order, so the front of it has waited longest.
+        if (queued != mQueue.end()) {
+            queued->LastSeen = now;
+        } else {
+            asker.Since = now;
+            asker.LastSeen = now;
+            mQueue.push_back(asker);
+        }
+        const size_t count = std::count_if(mQueue.begin(), mQueue.end(), [&sameGame](const QueuedClient& entry) {
+            return sameGame(entry.Build, entry.Content);
+        });
+        uint8_t packet[kHeaderSize + 4 + 2];
+        ByteWriter writer(packet, sizeof(packet));
+        writer.WriteHeader(MessageType::MatchWaiting);
+        writer.Write32(asker.Request);
+        writer.Write16((uint16_t) std::min<size_t>(count, 0xFFFF));
+        Send(from, packet, writer.GetSize());
+    }
+
+    /** Stops looking; a client the relay has already put in a room leaves it. */
+    void HandleMatchCancel(ByteReader& reader, const Address& from) {
+        const uint32_t request = reader.Read32();
+        if (reader.Failed()) {
+            return;
+        }
+        std::erase_if(mQueue, [&](const QueuedClient& queued) {
+            return (queued.Endpoint == from) && (queued.Request == request);
+        });
+        const auto it = mRequests.find({ from, request });
+        if (it != mRequests.end()) {
+            RemoveClient(it->second, "cancelled matchmaking");
+        }
     }
 
     /** Looks up the sender of a message and notes that it is alive. Unknown tokens get an error reply. */
@@ -713,13 +876,14 @@ class RelayServer {
 
     void SendJoined(const Client& client) {
         const Room& room = mRooms.at(client.RoomKey);
-        uint8_t packet[kHeaderSize + 4 + 8 + kCodeLength + 1];
+        uint8_t packet[kHeaderSize + 4 + 8 + kCodeLength + 1 + 1];
         ByteWriter writer(packet, sizeof(packet));
         writer.WriteHeader(MessageType::Joined);
         writer.Write32(client.Request);
         writer.Write64(client.Token);
         writer.WriteBytes(room.Code.data(), room.Code.size());
         writer.Write8(client.Slot);
+        writer.Write8((room.Private ? kRoomPrivate : 0) | (room.Matchmade ? kRoomMatchmade : 0));
         Send(client.Endpoint, packet, writer.GetSize());
     }
 
@@ -835,6 +999,9 @@ class RelayServer {
             for (uint64_t token : timedOut) {
                 RemoveClient(token, "timed out");
             }
+            std::erase_if(mQueue, [now](const QueuedClient& queued) {
+                return now - queued.LastSeen > std::chrono::milliseconds(kClientTimeoutMs);
+            });
             std::vector<uint64_t> idle;
             for (const auto& [id, connection] : mWebSockets) {
                 if (now - connection->LastHeard > kWebSocketIdleTimeout) {
@@ -845,8 +1012,11 @@ class RelayServer {
                 CloseWebSocket(id, "idle");
             }
             for (auto it = mLimits.begin(); it != mLimits.end();) {
-                const Clock::time_point lastUse = std::max(
-                    { it->second.Packets.GetLastUse(), it->second.Creates.GetLastUse(), it->second.Joins.GetLastUse() });
+                const AddressLimits& limits = it->second;
+                const Clock::time_point lastUse =
+                    std::max({ limits.Packets.GetLastUse(), limits.Creates.GetLastUse(), limits.Joins.GetLastUse(),
+                               limits.FailedJoins.GetLastUse(), limits.Lists.GetLastUse(),
+                               limits.Matchmakes.GetLastUse() });
                 it = (now - lastUse > kRateLimitExpiry) ? mLimits.erase(it) : std::next(it);
             }
             ScheduleHousekeeping();
@@ -873,6 +1043,7 @@ class RelayServer {
     std::unordered_map<std::string, Room> mRooms;
     std::unordered_map<uint64_t, Client> mClients;
     std::map<std::pair<Address, uint32_t>, uint64_t> mRequests;
+    std::vector<QueuedClient> mQueue; // In the order the clients started looking
     std::map<asio::ip::address, AddressLimits> mLimits;
     std::multimap<Clock::time_point, DelayedPacket> mDelayed;
 };

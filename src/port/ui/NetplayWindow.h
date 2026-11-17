@@ -41,4 +41,22 @@ class NetplayVoiceOverlay : public Ship::GuiWindow {
     void DrawElement() override {};
     void UpdateElement() override {};
 };
+
+/**
+ * A line at the bottom of the screen about matchmaking going on in the background (Netplay::GetMatchNotice()): while
+ * it searches, and once a match waits for a player to finish an offline race. A match bounces the Dock icon while the
+ * window is in the background.
+ */
+class NetplayMatchOverlay : public Ship::GuiWindow {
+  public:
+    NetplayMatchOverlay() : Ship::GuiWindow("", true, "Netplay Match") {
+    }
+    /** Draws a small, click-through box, only while there is something to say. */
+    void Draw() override;
+
+  protected:
+    void InitElement() override {};
+    void DrawElement() override {};
+    void UpdateElement() override {};
+};
 } // namespace GameUI

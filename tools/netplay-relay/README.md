@@ -1,6 +1,6 @@
 # Netplay relay server
 
-Players meet through this relay. The host creates a room, which gets a 6-character code; the relay lists its open rooms, under their host's name, to games of the same build, and the other players join one from that list. The relay then forwards packets between the members of the room. It is a small, single-threaded server and knows nothing about the game. The desktop game talks to it over UDP; the browser build (`docs/WEB.md`), which cannot send UDP, connects with a WebSocket on the same port number over TCP and sends the same messages, one per WebSocket message. Browser and desktop players can share a room.
+Players meet through this relay. The host creates a room, which gets a code of 7 stick directions (up, down, left, right); the relay lists the open public rooms, under their host's name, to games of the same build, and the other players join one from that list. A private room is never listed: friends join it by typing its code. Players can also matchmake: the relay puts them into an open public room of their build, or pairs them with another player looking, in a new room that the one who waited longest hosts. The relay then forwards packets between the members of the room. It is a small, single-threaded server and knows nothing about the game. The desktop game talks to it over UDP; the browser build (`docs/WEB.md`), which cannot send UDP, connects with a WebSocket on the same port number over TCP and sends the same messages, one per WebSocket message. Browser and desktop players can share a room.
 
 The wire format is described in `RelayProtocol.h`, which the game includes too.
 
@@ -69,8 +69,9 @@ Direct connections share each player's IP address with the others in the room. A
 
 - Joining needs the same game build and the same game files and mods as the host. The relay compares both and refuses a mismatch with a clear error.
 - A room closes when its host leaves.
+- Matchmaking fills the public room with the most players that has a free slot and is not racing, before it pairs players who are looking. Private rooms are never filled by it. A player looking resends its request every second; one that stops is dropped from the queue after 15 s.
 - A client the relay has not heard from in 15 s is dropped. A browser is dropped at once when its WebSocket closes.
-- Rate limits apply per source IP: packets, room creations (10 per minute), and join attempts (20 per minute; too slow to guess codes).
+- Rate limits apply per source IP: packets, room creations (10 per minute), join attempts (20 per minute) and matchmaking requests (2 per second). Joins of rooms that do not exist are limited to 10 per minute on top of that: once they run out, every join from that address is refused until they come back, so trying all 16,384 codes takes one address about 27 hours.
 - Payloads over 1200 bytes are dropped.
 - Traffic is not encrypted. The relay sees inputs and lobby messages, nothing more.
 - Each member gets a random key that the relay shows only to its room, so a member can tell the others' direct packets from strangers'.

@@ -14,13 +14,15 @@ import sys
 import time
 
 MAGIC = 0x4B53
-VERSION = 3
-CREATE, JOIN, RELAY, KEEPALIVE, LEAVE, LIST_ROOMS = 1, 2, 3, 4, 5, 6
-JOINED, ERROR, RELAYED, ROOM_STATE, ROOM_CLOSED, ROOM_LIST = 0x81, 0x82, 0x83, 0x84, 0x85, 0x86
-NO_SUCH_ROOM, ROOM_FULL, BUILD_MISMATCH, CONTENT_MISMATCH, UNKNOWN_CLIENT = 1, 2, 3, 4, 7
+VERSION = 4
+CREATE, JOIN, RELAY, KEEPALIVE, LEAVE, LIST_ROOMS, MATCHMAKE, MATCH_CANCEL = 1, 2, 3, 4, 5, 6, 7, 8
+JOINED, ERROR, RELAYED, ROOM_STATE, ROOM_CLOSED, ROOM_LIST, MATCH_WAITING = 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87
+NO_SUCH_ROOM, ROOM_FULL, BUILD_MISMATCH, CONTENT_MISMATCH, RATE_LIMITED, UNKNOWN_CLIENT = 1, 2, 3, 4, 5, 7
 HOST_LEFT = 1
 SHARE_ADDRESSES, IN_RACE = 1, 2
-ROOM_RACING = 1
+CREATE_PRIVATE = 1
+ROOM_RACING, ROOM_PRIVATE, ROOM_MATCHMADE = 1, 2, 4
+CODE_LENGTH = 7
 BUILD = b"test-build".ljust(32, b"\0")
 CONTENT = 0x1234
 
@@ -37,6 +39,7 @@ class Peer:
         self.token = None
         self.slot = None
         self.code = None
+        self.flags = None
 
     def send(self, data):
         self.sock.sendto(data, self.address)
@@ -63,12 +66,24 @@ class Peer:
             self.sock.settimeout(1.0)
 
     def joined(self, body):
-        _, self.token, code, self.slot = struct.unpack("<IQ6sB", body)
-        self.code = code
+        """@returns the request the Joined answers."""
+        request, self.token, self.code, self.slot, self.flags = struct.unpack("<IQ7sBB", body)
+        return request
 
-    def create(self, request=1, name=b"Host", build=BUILD):
-        self.send(header(CREATE) + struct.pack("<I", request) + build + struct.pack("<Q16s", CONTENT, name))
+    def create(self, request=1, name=b"Host", build=BUILD, private=False):
+        flags = CREATE_PRIVATE if private else 0
+        self.send(header(CREATE) + struct.pack("<I", request) + build + struct.pack("<Q16sB", CONTENT, name, flags))
         self.joined(self.receive(JOINED))
+
+    def matchmake(self, request=1, name=b"Player", build=BUILD):
+        self.send(header(MATCHMAKE) + struct.pack("<I", request) + build + struct.pack("<Q16s", CONTENT, name))
+
+    def waiting(self):
+        """@returns (request, players waiting) from the next MatchWaiting."""
+        return struct.unpack("<IH", self.receive(MATCH_WAITING))
+
+    def cancel_match(self, request=1):
+        self.send(header(MATCH_CANCEL) + struct.pack("<I", request))
 
     def list_rooms(self, request=1, build=BUILD, content=CONTENT):
         """@returns [(code, host name, members, flags)] for each listed room. Sets other_builds: the rooms left out for
@@ -79,13 +94,13 @@ class Peer:
         assert got_request == request, "the list answers its request"
         rooms = []
         for i in range(count):
-            code, name, members, flags = struct.unpack_from("<6s16sBB", body, 5 + i * 24)
+            code, name, members, flags = struct.unpack_from("<7s16sBB", body, 5 + i * 25)
             rooms.append((code, name.rstrip(b"\0"), members, flags))
-        self.other_builds, self.other_content = struct.unpack_from("<BB", body, 5 + count * 24)
+        self.other_builds, self.other_content = struct.unpack_from("<BB", body, 5 + count * 25)
         return rooms
 
     def join(self, code, request=1, build=BUILD, content=CONTENT):
-        self.send(header(JOIN) + struct.pack("<I6s", request, code) + build + struct.pack("<Q", content))
+        self.send(header(JOIN) + struct.pack("<I7s", request, code) + build + struct.pack("<Q", content))
 
     def error(self):
         return struct.unpack("<IB", self.receive(ERROR))[1]
@@ -212,17 +227,142 @@ def test_websockets(port):
     print("relay WebSocket tests: PASS")
 
 
-def main():
+def unused_code(*taken):
+    """@returns a valid code that none of these rooms has."""
+    code = b"U" * CODE_LENGTH
+    while code in taken:
+        code = code[:-1] + b"DLR"[b"UDL".index(code[-1:])].to_bytes(1, "little")
+    return code
+
+
+def test_private_rooms(port):
+    build = b"private-build".ljust(32, b"\0")
+    asker = Peer(port)
+    asker.list_rooms(request=39, build=b"probe".ljust(32, b"\0"))
+    others_before = asker.other_builds
+    host = Peer(port)
+    host.create(request=40, name=b"Secret", build=build, private=True)
+    assert host.flags == ROOM_PRIVATE, "a private room says so in Joined"
+    public = Peer(port)
+    public.create(request=41, name=b"Open", build=build)
+    assert public.flags == 0, "a room created without the flag is public"
+    assert [room[1] for room in asker.list_rooms(request=42, build=build)] == [b"Open"], "private rooms are not listed"
+    asker.list_rooms(request=44, build=b"probe".ljust(32, b"\0"))
+    assert asker.other_builds == others_before + 1, "nor counted among the rooms of other builds"
+    guest = Peer(port)
+    guest.join(host.code, request=43, build=build)
+    guest.joined(guest.receive(JOINED))
+    assert (guest.slot, guest.flags) == (1, ROOM_PRIVATE), "a private room is joined by its code"
+    for peer in (host, public):
+        peer.send(header(LEAVE) + struct.pack("<Q", peer.token))
+    print("relay private room tests: PASS")
+
+
+def test_matchmaking(port):
+    build = b"match-build".ljust(32, b"\0")
+    first = Peer(port)
+    first.matchmake(request=50, name=b"First", build=build)
+    assert first.waiting() == (50, 1), "a player alone waits, and is told how many are looking"
+    first.matchmake(request=50, name=b"First", build=build)
+    assert first.waiting() == (50, 1), "a repeat keeps the same place in the queue"
+    other_build = Peer(port)
+    other_build.matchmake(request=51, build=b"match-other".ljust(32, b"\0"))
+    assert other_build.waiting() == (51, 1), "players of another build are not matched"
+
+    second = Peer(port)
+    second.matchmake(request=52, name=b"Second", build=build)
+    assert second.joined(second.receive(JOINED)) == 52
+    assert first.joined(first.receive(JOINED)) == 50, "the player waiting is told at once"
+    assert (first.slot, second.slot) == (0, 1), "the player who waited longest hosts"
+    assert first.code == second.code and first.flags == ROOM_MATCHMADE == second.flags, "both are in a matchmade room"
+    token = first.token
+    first.matchmake(request=50, name=b"First", build=build)
+    first.joined(first.receive(JOINED))
+    assert first.token == token, "a repeat after the match gets the same Joined"
+    rooms = Peer(port).list_rooms(request=53, build=build)
+    assert rooms == [(first.code, b"First", 2, 0)], "a matchmade room is public, named after its host"
+
+    # Matchmaking fills the public room with the most players first, never a private or racing one.
+    private = Peer(port)
+    private.create(request=54, build=build, private=True)
+    racing = Peer(port)
+    racing.create(request=55, build=build)
+    racing.room_state(echo=1, racing=True)
+    third = Peer(port)
+    third.matchmake(request=56, build=build)
+    third.joined(third.receive(JOINED))
+    assert (third.code, third.slot) == (first.code, 2), "a matchmaker joins the fullest open public room"
+    lonely = Peer(port)
+    lonely.create(request=57, build=build)
+    fourth = Peer(port)
+    fourth.matchmake(request=58, build=build)
+    fourth.joined(fourth.receive(JOINED))
+    assert (fourth.code, fourth.slot) == (first.code, 3), "and fills it up before an emptier one"
+    fifth = Peer(port)
+    fifth.matchmake(request=59, build=build)
+    fifth.joined(fifth.receive(JOINED))
+    assert (fifth.code, fifth.slot) == (lonely.code, 1), "then the next open room, never the private or racing one"
+    for peer in (first, private, racing, lonely):
+        peer.send(header(LEAVE) + struct.pack("<Q", peer.token))
+    time.sleep(0.1)
+
+    waiting = Peer(port)
+    waiting.matchmake(request=60, build=build)
+    assert waiting.waiting() == (60, 1)
+    waiting.cancel_match(request=60)
+    late = Peer(port)
+    late.matchmake(request=61, build=build)
+    assert late.waiting() == (61, 1), "a cancelled player leaves the queue"
+    matched = Peer(port)
+    matched.matchmake(request=62, build=build)
+    matched.joined(matched.receive(JOINED))
+    late.joined(late.receive(JOINED))
+    matched.cancel_match(request=62)
+    assert late.receive(ROOM_STATE), "cancelling after a match leaves the room"
+    assert late.room_state(echo=2)[:2] == (0, 0b01)
+    print("relay matchmaking tests: PASS")
+
+
+def test_failed_join_limit(port):
+    host = Peer(port)
+    host.create(request=70)
+    guesser = Peer(port)
+    wrong = unused_code(host.code)
+    for request in range(71, 81):
+        guesser.join(wrong, request=request)
+        assert guesser.error() == NO_SUCH_ROOM
+    guesser.join(wrong, request=81)
+    assert guesser.error() == RATE_LIMITED, "after 10 joins of rooms that do not exist, joins are refused"
+    guesser.join(host.code, request=82)
+    assert guesser.error() == RATE_LIMITED, "even with the right code, so that guessing stays slow"
+    print("relay failed join limit test: PASS")
+
+
+def start_relay(*arguments):
+    """@returns (process, port) of a relay running on a free port."""
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
-    relay = subprocess.Popen([sys.argv[1], "--port", str(port), "--trusted-proxy", "127.0.0.1"], stdout=subprocess.PIPE,
-                             text=True)
+    relay = subprocess.Popen([sys.argv[1], "--port", str(port), *arguments], stdout=subprocess.PIPE, text=True)
     assert "listening" in relay.stdout.readline(), "relay started"
+    return relay, port
+
+
+def main():
+    # The failed join limit is tested on a relay of its own: the other tests join from the same address.
+    relay, port = start_relay()
+    try:
+        test_failed_join_limit(port)
+    finally:
+        relay.terminate()
+        relay.wait()
+
+    relay, port = start_relay("--trusted-proxy", "127.0.0.1")
     try:
         host = Peer(port)
         host.create()
-        assert host.slot == 0 and len(host.code) == 6, "create gives slot 0 and a code"
+        assert host.slot == 0 and len(host.code) == CODE_LENGTH, "create gives slot 0 and a code"
+        assert set(host.code) <= set(b"UDLR"), "codes are stick directions"
         token = host.token
         host.create()
         assert host.token == token, "a repeated create gets the same reply"
@@ -240,8 +380,10 @@ def main():
         host.room_state(echo=10)
 
         guest = Peer(port)
-        guest.join(b"ZZZZZZ")
+        guest.join(unused_code(host.code))
         assert guest.error() == NO_SUCH_ROOM
+        guest.join(b"ZZZZZZZ")
+        assert guest.error() == NO_SUCH_ROOM, "a code with other letters names no room"
         guest.join(host.code.lower(), request=2, build=b"other".ljust(32, b"\0"))
         assert guest.error() == BUILD_MISMATCH, "codes are case-insensitive; build is checked"
         guest.join(host.code, request=3, content=CONTENT + 1)
@@ -287,6 +429,8 @@ def main():
         guest.relay(0, b"x")
         assert guest.error() == UNKNOWN_CLIENT
         print("relay protocol tests: PASS")
+        test_private_rooms(port)
+        test_matchmaking(port)
         test_websockets(port)
     finally:
         relay.terminate()

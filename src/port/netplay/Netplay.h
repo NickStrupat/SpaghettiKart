@@ -21,7 +21,10 @@
  *   SK_NETPLAY_RELAY=127.0.0.1:7777     Relay server address.
  *   SK_NETPLAY_HOST=1                   Create the room; otherwise join it.
  *   SK_NETPLAY_ROOM_FILE=<file>         The host writes the room code here; guests wait for it.
- *   SK_NETPLAY_ROOM=ABC234              Or: the code of the room to join.
+ *   SK_NETPLAY_ROOM=UDLRRDU             Or: the code of the room to join.
+ *   SK_NETPLAY_PRIVATE=1                Host: the room is private, never listed.
+ *   SK_NETPLAY_MATCHMAKE=1              Matchmake instead of hosting or joining, on frame SK_NETPLAY_TEST_JOIN_AT;
+ *                                       =demo: once the title screen's attract demo races, as if racing offline.
  *   SK_NETPLAY_PLAYERS=2                Host: start once this many players are ready.
  *   SK_NETPLAY_RACES=1                  Host: races to run before exiting.
  *   SK_NETPLAY_MODE / _TRACK / _CUP     Host: race settings.
@@ -29,7 +32,7 @@
  *                                       SK_TEST_CONSOLE_INPUT and bots its races; the
  *                                       test passes once SK_NETPLAY_RACES races ended and the menus ran on after,
  *                                       or once the player leaves the room with Z.
- *   SK_NETPLAY_TEST_JOIN_AT=900         Guest: join on this game frame, such as during the others' race.
+ *   SK_NETPLAY_TEST_JOIN_AT=900         Guest or matchmaker: join on this game frame, such as during a race.
  *   SK_NETPLAY_TEST_CONSOLE_PLAYERS=1,2,1  Pass only after shared consoles of these sizes started, in this order.
  * Options for both:
  *   SK_NETPLAY_BOT=1                    Drive the local player with seeded synthetic inputs: 1 races (follows the
@@ -126,6 +129,8 @@ void Netplay_Shutdown(void);
 #ifdef __cplusplus
 }
 
+#include <string>
+
 namespace Netplay {
 /** Ends the race for everyone, on the same frame, and returns them all to the room. */
 void LeaveRace();
@@ -136,6 +141,22 @@ bool CanRestartRace();
 bool IsRaceRunning();
 /** On a shared console: the player (controller) number of the member in this relay slot, from 0, or -1. */
 s32 GetConsolePlayer(u8 slot);
+/**
+ * What to tell a player about matchmaking going on in the background, outside the ONLINE screen, or empty: that it
+ * is searching, that a match waits for this player to finish an offline race or for another player to, or that this
+ * player was away from a match for too long.
+ */
+std::string GetMatchNotice();
+/** @returns true once after a match was found, to draw the player to the window if it is in the background. */
+bool TakeMatchAlert();
+/**
+ * The netplay window types a room code with controller 1 (RoomCodeInput.h): while capturing, the game sees that pad
+ * idle, outside netplay sessions, and TakeCapturedPad() hands it to the window. A capture nobody takes from for half a
+ * second ends by itself, so a closed window never keeps the controller.
+ */
+void SetPadCapture(bool capture);
+/** Controller 1's stick now, and the buttons pressed since the last call, while capturing. */
+void TakeCapturedPad(s8* stickX, s8* stickY, u16* pressed);
 } // namespace Netplay
 #endif
 

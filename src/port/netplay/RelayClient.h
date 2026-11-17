@@ -12,7 +12,8 @@
 #include "tools/netplay-relay/RelayProtocol.h"
 
 /**
- * The game's connection to the netplay relay: creates or joins a room, keeps the membership alive, and carries
+ * The game's connection to the netplay relay: creates, joins or matchmakes into a room, keeps the membership alive, and
+ * carries
  * three channels of packets between room members: lobby messages, GekkoNet's rollback traffic and voice.
  *
  * Packets to one member go to it directly once a direct connection works, and through the relay otherwise, or again
@@ -23,7 +24,7 @@
  */
 class RelayClient {
   public:
-    enum class Status { Idle, Resolving, Joining, InRoom, Failed };
+    enum class Status { Idle, Resolving, Joining, Matchmaking, InRoom, Failed };
 
     struct LobbyPacket {
         u8 Source; // Sender's slot
@@ -39,14 +40,20 @@ class RelayClient {
     ~RelayClient();
 
     /**
-     * Opens a new room on the relay at "host[:port]"; this client becomes its host, in slot 0. The room list shows it
-     * under the host's name.
+     * Opens a new room on the relay at "host[:port]"; this client becomes its host, in slot 0. The room list shows a
+     * public room under the host's name; a private one is joined only by its code.
      */
     void Create(const std::string& relayAddress, const RelayProtocol::BuildId& build, u64 content,
-                const std::string& hostName);
+                const std::string& hostName, bool isPrivate);
     void Join(const std::string& relayAddress, const std::string& code, const RelayProtocol::BuildId& build,
               u64 content);
-    /** Leaves the room, if in one, and returns to Idle. */
+    /**
+     * Looks for other players: Matchmaking until the relay puts this client in a room (a public room with a free slot,
+     * or a new one with another player looking), then InRoom. Looks for as long as it takes.
+     */
+    void Matchmake(const std::string& relayAddress, const RelayProtocol::BuildId& build, u64 content,
+                   const std::string& name);
+    /** Leaves the room, or stops looking for one, and returns to Idle. */
     void Leave();
     /** Receives packets, sends keep-alives and retries, and notices a lost connection. */
     void Update();
@@ -55,6 +62,10 @@ class RelayClient {
     /** Why the client is Failed. */
     const std::string& GetError() const;
     std::string GetRoomCode() const;
+    /** The room's RelayProtocol::RoomFlags: whether it is private, or matchmade. */
+    u8 GetRoomFlags() const;
+    /** While Matchmaking: how many players of this build and content are looking, this one included; 0 until known. */
+    u32 GetWaitingPlayers() const;
     s32 GetSlot() const;
     /** Bit n is set while slot n is occupied. */
     u8 GetOccupiedSlots() const;

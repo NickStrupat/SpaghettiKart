@@ -64,6 +64,7 @@ class Scenario:
     cvars: dict = dataclasses.field(default_factory=dict)  # Extra settings for every peer
     peer_cvars: dict = dataclasses.field(default_factory=dict)  # Extra settings, by peer index
     expect: dict = dataclasses.field(default_factory=dict)  # Minimum count of each event, on every peer
+    peer_expect: dict = dataclasses.field(default_factory=dict)  # Minimum count of each event, by peer index
     expect_none: tuple = ()  # Events no peer may log
     timeout: int = 300  # Seconds
     quiet_limit: int = 90  # Seconds without a new log line from any game before the scenario counts as stuck
@@ -90,6 +91,10 @@ EVENTS = {
     "consoles": r"Console \d+: player",
     "menus_in_sync": r"Test: menus in sync",
     "left_room": r"Leaving the room",
+    "private_room": r"Joined private room",
+    "matched": r"Matched into room",
+    "matched_away": r"Match found while away",
+    "waited_for_away": r"Waiting for \S+ to come back from playing offline",
     "recoveries": r"Recovered from the desync",
     "voice_heard": r"Voice test: hearing note \d+",
     "voice_stopped": r"Voice test: note \d+ stopped",
@@ -211,6 +216,29 @@ SCENARIOS = [
                        0: {"SK_TEST_CONSOLE_INPUT": CONSOLE_2P_VS, "SK_NETPLAY_TEST_CONSOLE_PLAYERS": "1,2,1"},
                        1: {"SK_TEST_CONSOLE_INPUT": "R_JPAD@290,A@310"}},
              expect={"consoles": 1, "segments": 1, "menus_in_sync": 1}),
+    Scenario("private-room", "2 players, versus, in a private room: not listed, the guest joins by its code",
+             2, "vs", track="mk:royal_raceway", series_races=1, peer_env={0: {"SK_NETPLAY_PRIVATE": "1"}},
+             expect={"races_over": 1, "private_room": 1}),
+    Scenario("matchmake", "2 players matchmake: the relay puts them in a new room, hosted by the one who waited "
+             "longest, and they race on its shared console", 2, "vs", series_races=1,
+             peer_env={-1: {"SK_NETPLAY_CONSOLE": "1", "SK_NETPLAY_MATCHMAKE": "1"},
+                       0: {"SK_TEST_CONSOLE_INPUT": CONSOLE_2P_VS},
+                       1: {"SK_TEST_CONSOLE_INPUT": "R_JPAD@290,A@310", "SK_NETPLAY_TEST_JOIN_AT": "600"}},
+             expect={"matched": 1, "consoles": 1, "races_over": 1, "menus_in_sync": 1}),
+    Scenario("matchmake-fill", "A public room on a shared console; 2 players matchmake and the relay fills the room "
+             "with them, rather than pairing them in a room of their own", 3, "vs", races=0,
+             peer_env={-1: {"SK_NETPLAY_CONSOLE": "1", "SK_NETPLAY_TEST_CONSOLE_PLAYERS": "3"},
+                       1: {"SK_NETPLAY_MATCHMAKE": "1", "SK_NETPLAY_TEST_JOIN_AT": "600"},
+                       2: {"SK_NETPLAY_MATCHMAKE": "1", "SK_NETPLAY_TEST_JOIN_AT": "600"}},
+             expect={"consoles": 1, "menus_in_sync": 1}),
+    Scenario("matchmake-away", "2 players matchmake; the second is matched while its title screen's attract demo "
+             "runs, as if racing offline: the room waits until it is back in the menus, then starts its console",
+             2, "vs", series_races=1, peer_cvars={1: {"gSkipIntro": 1}},
+             peer_env={-1: {"SK_NETPLAY_CONSOLE": "1", "SK_NETPLAY_MATCHMAKE": "1"},
+                       0: {"SK_TEST_CONSOLE_INPUT": CONSOLE_2P_VS},
+                       1: {"SK_TEST_CONSOLE_INPUT": "R_JPAD@290,A@310", "SK_NETPLAY_MATCHMAKE": "demo"}},
+             expect={"matched": 1, "consoles": 1, "races_over": 1, "menus_in_sync": 1},
+             peer_expect={0: {"waited_for_away": 1}, 1: {"matched_away": 1}}),
     Scenario("lag", "2 players, versus at 60 ms +-20 ms and 5% loss, in real time", 2, "vs",
              track="mk:frappe_snowland", frames=1800,
              peer_env={-1: {"SK_FAST": "0", "SK_NETPLAY_DELAY_MS": "60", "SK_NETPLAY_JITTER_MS": "20",
@@ -417,7 +445,7 @@ def run_scenario(scenario: Scenario, args, run_dir: Path):
         for line in lines:
             if ("DESYNC" in line) and not scenario.desync_expected:
                 problems.append(f"p{i}: {line[10:]}")
-        for event, minimum in scenario.expect.items():
+        for event, minimum in {**scenario.expect, **scenario.peer_expect.get(i, {})}.items():
             count = len(EVENTS[event].findall(text))
             if count < minimum:
                 problems.append(f"p{i}: {count} {event}, expected at least {minimum}")

@@ -18,7 +18,9 @@ extern "C" {
 }
 
 /**
- * A netplay room: players gather through the relay, pick characters and get ready; the host picks the race.
+ * A netplay room: players gather through the relay, pick characters and get ready; the host picks the race. They get
+ * in by hosting a public or private room, by joining one with its code, or by matchmaking, which can run while the
+ * player plays offline: a member that is still in an offline race when matched is away, and the room waits for it.
  *
  * The host is authoritative. Every member broadcasts its own state (name, character, ready) a few times a second,
  * and the host broadcasts the room's settings plus, once started, the race to run. Because each message carries
@@ -39,7 +41,12 @@ constexpr const char* kNameCVar = "gNetplay.Name";
 constexpr const char* kRelayCVar = "gNetplay.Relay";
 constexpr const char* kDefaultRelay = "netkart64.duckdns.org:7777";
 
-enum class State { Offline, Connecting, InRoom };
+enum class State { Offline, Connecting, Matchmaking, InRoom };
+
+enum class Visibility {
+    Public,  // In the room list, and filled by matchmaking
+    Private, // Joined only by its code
+};
 
 struct Member {
     bool Present = false;
@@ -55,6 +62,7 @@ struct Member {
     s32 PingMs = -1;         // Round trip to the relay; -1 until measured
     s32 GekkoWaitMs = -1;    // How long GekkoNet packets wait for it to read them (RelayClient::GetGekkoWaitMs())
     bool Voice = false;      // Uses voice chat (VoiceChat.h): only such members are sent voice
+    bool Away = false;       // Matched while playing offline: not in the menus yet, so no console can start
 };
 
 /** What the host picks. Guests see the host's choice. */
@@ -90,8 +98,15 @@ struct RaceStart {
  * @param sharedConsole true: the room plays on a shared console (ConsoleStart). false: the host picks races, which
  *        start from RaceConfig (StartRace(); the netplay window's old flow and the simulator's bots).
  */
-void Host(const std::string& relayAddress, const std::string& name, bool sharedConsole);
+void Host(const std::string& relayAddress, const std::string& name, bool sharedConsole, Visibility visibility);
 void Join(const std::string& relayAddress, const std::string& code, const std::string& name);
+/**
+ * Looks for other players (State::Matchmaking) until the relay puts this peer in a room with a shared console: a public
+ * room with a free slot, or a new one with another player looking, hosted by whoever waited longest. A room that goes
+ * away before its first console started (its host left) sends this peer back to looking.
+ */
+void Matchmake(const std::string& relayAddress, const std::string& name);
+/** Leaves the room, or stops matchmaking. */
 void Leave();
 /** Talks to the relay and the other members. Call once per frame. */
 void Update();
@@ -100,6 +115,12 @@ State GetState();
 /** Why the last attempt to connect, or the connection, failed. */
 const std::string& GetError();
 std::string GetRoomCode();
+/** @returns true while in a private room, whose code is the only way in. */
+bool IsRoomPrivate();
+/** While matchmaking: how many players of this build are looking, this one included; 0 until the relay says. */
+u32 GetWaitingPlayers();
+/** @returns true once, after matchmaking put this peer in a room. */
+bool TakeMatchFound();
 s32 GetLocalSlot();
 bool IsHost();
 s32 GetPingMs();
@@ -141,6 +162,8 @@ std::optional<ConsoleStart> TakeConsoleStart();
 bool IsSharedConsole();
 /** Tells the room whether this peer is racing; the host waits for nobody to be before changing the console. */
 void SetRacing(bool racing);
+/** Tells the room whether this peer is away (Member::Away); the host starts no console while anyone is. */
+void SetAway(bool away);
 /** @returns the GekkoNet adapter for one segment of a race, carrying packets between the room's members. */
 GekkoNetAdapter* GetGekkoAdapter(u32 raceId, u32 segment);
 /** Tells the room that this peer confirmed a segment of its race ended on this frame. */

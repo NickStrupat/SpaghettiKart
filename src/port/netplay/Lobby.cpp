@@ -34,7 +34,7 @@ constexpr u8 kUnknownWait = 0xFF;
 enum class MessageType : u8 {
     MemberState = 1,  // u8 character, u8 ready, u32 race running or run last, u8 in race, u8 racing,
                       // u32 last confirmed segment end and s32 its frame, u16 relay ping (kUnknownPing),
-                      // u8 GekkoNet wait (kUnknownWait), u8 uses voice chat, u8 name length, name
+                      // u8 GekkoNet wait (kUnknownWait), u8 uses voice chat, u8 away, u8 name length, name
     RoomSettings = 2, // Host only: u8 mode, u8 cc, u8 cup, u8 track length, track,
                       // u8 shared console, u32 console (0 for none), then for a console: u8 player count, the slot
                       // of each player, RaceConfig (the rules), u8 Extra mode unlocked;
@@ -81,7 +81,14 @@ struct LobbyState {
     u32 SeenConsoleId = 0;
     std::optional<ConsoleStart> PendingConsole;
     bool Racing = false;
+    bool Away = false;  // SetAway()
     bool Voice = false; // This peer uses voice chat (SetVoice())
+    bool MatchFound = false; // TakeMatchFound()
+    // Matchmaking put this peer in its room, on this relay: if the room goes away before its first console, it looks
+    // again rather than give up.
+    bool Matched = false;
+    std::string MatchRelay;
+    bool WaitingForAway = false; // Host: a console waits for an away member
 
     Clock::time_point LastBroadcast;
     bool Changed = true;
@@ -128,6 +135,7 @@ void BroadcastMemberState() {
     const s32 wait = sLobby.Relay.GetGekkoWaitMs();
     writer.Write8((wait < 0) ? kUnknownWait : (u8) std::min(wait, (s32) kUnknownWait - 1));
     writer.Write8(sLobby.Voice ? 1 : 0);
+    writer.Write8(sLobby.Away ? 1 : 0);
     WriteString(writer, sLobby.Name, kMaxNameLength);
     sLobby.Relay.SendLobby(kBroadcast, message, writer.GetSize());
 }
@@ -171,6 +179,7 @@ void HandleMemberState(u8 source, ByteReader& reader) {
     const u8 wait = reader.Read8();
     member.GekkoWaitMs = (wait == kUnknownWait) ? -1 : wait;
     member.Voice = reader.Read8() != 0;
+    member.Away = reader.Read8() != 0;
     member.Name = ReadString(reader);
     if (reader.Failed() || (source >= kMaxMembers) || (member.Character < 0) || (member.Character >= kNumCharacters)) {
         return;
@@ -333,20 +342,27 @@ void UpdateMembers() {
     self.PingMs = sLobby.Relay.GetPingMs();
     self.GekkoWaitMs = sLobby.Relay.GetGekkoWaitMs();
     self.Voice = sLobby.Voice;
+    self.Away = sLobby.Away;
 }
 
 /**
  * Host: starts a new shared console when the members changed, once every member's state has arrived and nobody is
- * racing; a race in progress finishes first.
+ * racing; a race in progress finishes first, and a member still playing offline after a match comes back first.
  */
 void UpdateConsole() {
+    const auto away = std::find_if(sLobby.Members.begin(), sLobby.Members.end(),
+                                   [](const Member& member) { return member.Present && member.Away; });
+    if ((away != sLobby.Members.end()) && !sLobby.WaitingForAway) {
+        NetLog("Waiting for %s to come back from playing offline", away->Name.c_str());
+    }
+    sLobby.WaitingForAway = away != sLobby.Members.end();
     std::vector<u8> slots;
     for (size_t slot = 0; slot < kMaxMembers; slot++) {
         const Member& member = sLobby.Members[slot];
         if (!member.Present) {
             continue;
         }
-        if (!member.Known || member.Racing) {
+        if (!member.Known || member.Racing || member.Away) {
             return;
         }
         slots.push_back((u8) slot);
@@ -377,11 +393,14 @@ void ResetRoom() {
     sLobby.SeenConsoleId = 0;
     sLobby.PendingConsole.reset();
     sLobby.Racing = false;
+    sLobby.Away = false;
+    sLobby.MatchFound = false;
     sLobby.Changed = true;
 }
 
 void Connect(const std::string& name) {
     ResetRoom();
+    sLobby.Matched = false;
     sLobby.Error.clear();
     sLobby.LastRaceMessage.clear();
     sLobby.Name = name.substr(0, kMaxNameLength);
@@ -391,11 +410,11 @@ void Connect(const std::string& name) {
 
 } // namespace
 
-void Host(const std::string& relayAddress, const std::string& name, bool sharedConsole) {
+void Host(const std::string& relayAddress, const std::string& name, bool sharedConsole, Visibility visibility) {
     Connect(name);
     sLobby.SharedConsole = sharedConsole;
     sLobby.Relay.Create(relayAddress, MakeBuildId(NetplayIdentity::GetBuildId()),
-                        NetplayIdentity::ComputeContentHash(), sLobby.Name);
+                        NetplayIdentity::ComputeContentHash(), sLobby.Name, visibility == Visibility::Private);
 }
 
 void Join(const std::string& relayAddress, const std::string& code, const std::string& name) {
@@ -403,6 +422,17 @@ void Join(const std::string& relayAddress, const std::string& code, const std::s
     sLobby.SharedConsole = false; // Until the host's settings say otherwise
     sLobby.Relay.Join(relayAddress, code, MakeBuildId(NetplayIdentity::GetBuildId()),
                       NetplayIdentity::ComputeContentHash());
+}
+
+void Matchmake(const std::string& relayAddress, const std::string& name) {
+    NetLog("Looking for a match on %s", relayAddress.c_str());
+    Connect(name);
+    sLobby.Status = State::Matchmaking;
+    sLobby.MatchRelay = relayAddress;
+    // A room made for this peer plays on a shared console; in a room the relay put it in, the host's settings say.
+    sLobby.SharedConsole = true;
+    sLobby.Relay.Matchmake(relayAddress, MakeBuildId(NetplayIdentity::GetBuildId()),
+                           NetplayIdentity::ComputeContentHash(), sLobby.Name);
 }
 
 void Leave() {
@@ -421,19 +451,28 @@ void Update() {
     sLobby.Relay.Update();
     switch (sLobby.Relay.GetStatus()) {
         case RelayClient::Status::Failed:
-        case RelayClient::Status::Idle:
+        case RelayClient::Status::Idle: {
             sLobby.Error = sLobby.Relay.GetError();
             NetLog("Left the room: %s", sLobby.Error.c_str());
             if (sLobby.RunningRaceId != 0) {
                 sLobby.EndedElsewhere = RaceEnd{ sLobby.RunningRaceId, SessionResult::PeerLeft, sLobby.Error };
             }
+            const bool lookAgain = sLobby.Matched && (sLobby.Status == State::InRoom) && (sLobby.SeenConsoleId == 0);
             sLobby.Status = State::Offline;
             ResetRoom();
+            if (lookAgain) {
+                NetLog("The match ended before it started: looking again");
+                Matchmake(sLobby.MatchRelay, sLobby.Name);
+            }
             return;
+        }
         case RelayClient::Status::InRoom:
-            if (sLobby.Status == State::Connecting) {
+            if ((sLobby.Status == State::Connecting) || (sLobby.Status == State::Matchmaking)) {
+                sLobby.MatchFound = sLobby.Status == State::Matchmaking;
+                sLobby.Matched = sLobby.MatchFound;
                 sLobby.Status = State::InRoom;
-                NetLog("Joined room %s as slot %d", sLobby.Relay.GetRoomCode().c_str(), sLobby.Relay.GetSlot());
+                NetLog("%s %sroom %s as slot %d", sLobby.MatchFound ? "Matched into" : "Joined",
+                       IsRoomPrivate() ? "private " : "", sLobby.Relay.GetRoomCode().c_str(), sLobby.Relay.GetSlot());
                 if (IsLocalHost()) {
                     sLobby.SeenRaceId = 0;
                 }
@@ -476,6 +515,20 @@ const std::string& GetError() {
 
 std::string GetRoomCode() {
     return sLobby.Relay.GetRoomCode();
+}
+
+bool IsRoomPrivate() {
+    return (sLobby.Status == State::InRoom) && ((sLobby.Relay.GetRoomFlags() & kRoomPrivate) != 0);
+}
+
+u32 GetWaitingPlayers() {
+    return sLobby.Relay.GetWaitingPlayers();
+}
+
+bool TakeMatchFound() {
+    const bool found = sLobby.MatchFound;
+    sLobby.MatchFound = false;
+    return found;
 }
 
 s32 GetLocalSlot() {
@@ -698,6 +751,11 @@ bool IsSharedConsole() {
 void SetRacing(bool racing) {
     sLobby.Changed |= (racing != sLobby.Racing);
     sLobby.Racing = racing;
+}
+
+void SetAway(bool away) {
+    sLobby.Changed |= (away != sLobby.Away);
+    sLobby.Away = away;
 }
 
 GekkoNetAdapter* GetGekkoAdapter(u32 raceId, u32 segment) {

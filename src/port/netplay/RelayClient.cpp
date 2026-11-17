@@ -31,6 +31,8 @@ constexpr size_t kGekkoHeaderSize = 3; // Channel, session tag
 // its race's session starts.
 constexpr size_t kNumGekkoLanes = 2;
 constexpr auto kRequestRetryInterval = std::chrono::milliseconds(500);
+// Matchmake is resent this often while looking, which keeps this client in the relay's queue.
+constexpr auto kMatchmakeInterval = std::chrono::milliseconds(kKeepAliveIntervalMs);
 constexpr auto kRequestTimeout = std::chrono::seconds(10);
 constexpr auto kConnectionTimeout = std::chrono::seconds(10);
 constexpr int kLeaveRepeats = 3; // Leave is never answered, so send it a few times in case of loss
@@ -56,12 +58,15 @@ struct RelayClient::Impl {
     std::string Address;
     std::unique_ptr<RelayLink> Link;
 
-    // The pending Create or Join
-    bool Creating = false;
+    // The pending Create, Join or Matchmake
+    MessageType RequestType = MessageType::Join;
+    bool Private = false;
     RoomCode Code = {};
     BuildId Build = {};
     u64 Content = 0;
-    Name HostName = {};
+    Name HostName = {}; // Create: the host's name; Matchmake: this player's, which names a room made for it
+    u32 WaitingPlayers = 0;
+    u8 RoomFlags = 0;
     bool InRace = false;
     u32 Request = 0;
     Clock::time_point RequestStarted;
@@ -95,11 +100,11 @@ struct RelayClient::Impl {
         FreeGekkoPackets();
     }
 
-    void Start(const std::string& address, bool creating, const RoomCode& code, const BuildId& build, u64 content,
-               const std::string& hostName) {
+    void Start(const std::string& address, MessageType requestType, const RoomCode& code, const BuildId& build,
+               u64 content, const std::string& hostName) {
         Close();
         Address = address;
-        Creating = creating;
+        RequestType = requestType;
         Code = code;
         Build = build;
         Content = content;
@@ -137,9 +142,20 @@ struct RelayClient::Impl {
             for (int i = 0; i < kLeaveRepeats; i++) {
                 SendToRelay(packet, writer.GetSize());
             }
+        } else if ((Link != nullptr) && (State == Status::Matchmaking)) {
+            // Also takes this client out of a room the relay put it in just now, whose Joined has not arrived.
+            u8 packet[kHeaderSize + 4];
+            ByteWriter writer(packet, sizeof(packet));
+            writer.WriteHeader(MessageType::MatchCancel);
+            writer.Write32(Request);
+            for (int i = 0; i < kLeaveRepeats; i++) {
+                SendToRelay(packet, writer.GetSize());
+            }
         }
         Link.reset();
         Token = 0;
+        WaitingPlayers = 0;
+        RoomFlags = 0;
         Slot = -1;
         Occupied = 0;
         PingMs = -1;
@@ -204,17 +220,20 @@ struct RelayClient::Impl {
     }
 
     void SendRequest(Clock::time_point now) {
-        u8 packet[kHeaderSize + 4 + kCodeLength + kBuildIdLength + 8 + kNameLength];
+        u8 packet[kHeaderSize + 4 + kCodeLength + kBuildIdLength + 8 + kNameLength + 1];
         ByteWriter writer(packet, sizeof(packet));
-        writer.WriteHeader(Creating ? MessageType::Create : MessageType::Join);
+        writer.WriteHeader(RequestType);
         writer.Write32(Request);
-        if (!Creating) {
+        if (RequestType == MessageType::Join) {
             writer.WriteBytes(Code.data(), Code.size());
         }
         writer.WriteBytes(Build.data(), Build.size());
         writer.Write64(Content);
-        if (Creating) {
+        if (RequestType != MessageType::Join) {
             writer.WriteBytes(HostName.data(), HostName.size());
+        }
+        if (RequestType == MessageType::Create) {
+            writer.Write8(Private ? kCreatePrivate : 0);
         }
         SendToRelay(packet, writer.GetSize());
         LastRequestSent = now;
@@ -223,7 +242,8 @@ struct RelayClient::Impl {
     void StartRequest(Clock::time_point now) {
         Request = Random() | 1;
         RequestStarted = now;
-        State = Status::Joining;
+        LastHeardFromRelay = now;
+        State = (RequestType == MessageType::Matchmake) ? Status::Matchmaking : Status::Joining;
         SendRequest(now);
     }
 
@@ -255,6 +275,13 @@ struct RelayClient::Impl {
             if (now - RequestStarted > kRequestTimeout) {
                 Fail("No answer from the relay server at " + Address + " (is it running, and as new as the game?)");
             } else if (now - LastRequestSent > kRequestRetryInterval) {
+                SendRequest(now);
+            }
+        } else if (State == Status::Matchmaking) {
+            // The relay answers every Matchmake, so silence means it is gone.
+            if (now - LastHeardFromRelay > kRequestTimeout) {
+                Fail("No answer from the relay server at " + Address + " (is it running, and as new as the game?)");
+            } else if (now - LastRequestSent > kMatchmakeInterval) {
                 SendRequest(now);
             }
         } else if (State == Status::InRoom) {
@@ -337,9 +364,12 @@ struct RelayClient::Impl {
                 RoomCode code;
                 reader.ReadBytes(code.data(), code.size());
                 const u8 slot = reader.Read8();
-                if (!reader.Failed() && (State == Status::Joining) && (request == Request)) {
+                const u8 flags = reader.Read8();
+                const bool waiting = (State == Status::Joining) || (State == Status::Matchmaking);
+                if (!reader.Failed() && waiting && (request == Request) && (slot < kMaxSlots)) {
                     Token = token;
                     Code = code;
+                    RoomFlags = flags;
                     Slot = slot;
                     Occupied = (u8) (1 << slot);
                     State = Status::InRoom;
@@ -355,10 +385,19 @@ struct RelayClient::Impl {
                 if (reader.Failed()) {
                     break;
                 }
-                if ((State == Status::Joining) && (request == Request)) {
+                if (((State == Status::Joining) || (State == Status::Matchmaking)) && (request == Request)) {
                     Fail(GetErrorText(error));
                 } else if ((State == Status::InRoom) && (request == 0) && (error == ErrorCode::UnknownClient)) {
                     Fail("The relay server dropped this connection");
+                }
+                break;
+            }
+            case MessageType::MatchWaiting: {
+                const u32 request = reader.Read32();
+                const u16 waiting = reader.Read16();
+                if (!reader.Failed() && (State == Status::Matchmaking) && (request == Request)) {
+                    WaitingPlayers = waiting;
+                    LastHeardFromRelay = now;
                 }
                 break;
             }
@@ -540,8 +579,15 @@ RelayClient::~RelayClient() {
 }
 
 void RelayClient::Create(const std::string& relayAddress, const BuildId& build, u64 content,
-                         const std::string& hostName) {
-    mImpl->Start(relayAddress, true, {}, build, content, hostName);
+                         const std::string& hostName, bool isPrivate) {
+    mImpl->Private = isPrivate;
+    mImpl->Start(relayAddress, MessageType::Create, {}, build, content, hostName);
+}
+
+void RelayClient::Matchmake(const std::string& relayAddress, const BuildId& build, u64 content,
+                            const std::string& name) {
+    mImpl->Private = false;
+    mImpl->Start(relayAddress, MessageType::Matchmake, {}, build, content, name);
 }
 
 void RelayClient::Join(const std::string& relayAddress, const std::string& code, const BuildId& build, u64 content) {
@@ -549,7 +595,8 @@ void RelayClient::Join(const std::string& relayAddress, const std::string& code,
     for (size_t i = 0; (i < roomCode.size()) && (i < code.size()); i++) {
         roomCode[i] = (char) toupper((unsigned char) code[i]);
     }
-    mImpl->Start(relayAddress, false, roomCode, build, content, "");
+    mImpl->Private = false;
+    mImpl->Start(relayAddress, MessageType::Join, roomCode, build, content, "");
 }
 
 void RelayClient::Leave() {
@@ -571,6 +618,14 @@ const std::string& RelayClient::GetError() const {
 
 std::string RelayClient::GetRoomCode() const {
     return (mImpl->State == Status::InRoom) ? std::string(mImpl->Code.data(), mImpl->Code.size()) : "";
+}
+
+u8 RelayClient::GetRoomFlags() const {
+    return mImpl->RoomFlags;
+}
+
+u32 RelayClient::GetWaitingPlayers() const {
+    return (mImpl->State == Status::Matchmaking) ? mImpl->WaitingPlayers : 0;
 }
 
 s32 RelayClient::GetSlot() const {
@@ -754,9 +809,8 @@ struct RelayRoomList::Impl {
             room.Racing = (reader.Read8() & kRoomRacing) != 0;
             rooms.push_back(room);
         }
-        // Relays before 2026-11-13 do not send these.
-        const u8 otherBuilds = (reader.GetRemainingSize() > 0) ? reader.Read8() : 0;
-        const u8 otherContent = (reader.GetRemainingSize() > 0) ? reader.Read8() : 0;
+        const u8 otherBuilds = reader.Read8();
+        const u8 otherContent = reader.Read8();
         if (reader.Failed()) {
             return;
         }
