@@ -66,6 +66,8 @@
  *                                       each once, for two frames.
  *   SK_TEST_CONSOLE_INPUT=R_JPAD@60     The same, counted from the start of each shared console this player joins,
  *                                       and pressed again on every new one.
+ *   SK_NETPLAY_TEST_RACE_INPUT=START@300,A@360  The same, counted in shown frames of the first race of each series,
+ *                                       on top of the bot's driving (which stops while the race is paused).
  */
 
 #ifdef __cplusplus

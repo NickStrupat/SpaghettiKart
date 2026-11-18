@@ -2427,6 +2427,54 @@ void func_80093E40(void) {
     func_80093C98(1);
 }
 
+/**
+ * @port Netplay's own view, where each player sees only their own player, full screen: the race's menus. The pause
+ * menu belongs in the split screen of the player who paused. When that is this player, it is shown as a one-player
+ * game's, over the whole screen; otherwise a line says who paused. Called while drawing a shown frame, whose changes to
+ * the simulation are undone afterwards; the controller's presses were already acted on when the frame was simulated.
+ */
+void render_own_view_menus(s32 viewPlayer) {
+    u16 paused = gIsGamePaused;
+    s32 screenMode = gScreenModeSelection;
+    ScreenContext firstScreen = gScreenContexts[0];
+    struct Controller firstController = gControllers[0];
+    char text[32];
+
+    if ((paused != 0) && (paused - 1 == viewPlayer)) {
+        gScreenModeSelection = SCREEN_MODE_1P;
+        // Drawn and darkened over the whole window, as a one-player game's
+        gScreenContexts[0] = gScreenContexts[viewPlayer];
+        gScreenContexts[0].screenStartX = SCREEN_WIDTH / 2;
+        gScreenContexts[0].screenStartY = SCREEN_HEIGHT / 2;
+        gScreenContexts[0].screenWidth = SCREEN_WIDTH;
+        gScreenContexts[0].screenHeight = SCREEN_HEIGHT;
+        gControllers[0] = gControllers[viewPlayer];
+        gControllers[0].buttonPressed = 0;
+        gControllers[0].stickPressed = 0;
+        gIsGamePaused = 1;
+    } else if (paused != 0) {
+        gIsGamePaused = 0;
+    }
+    func_80093E20();
+    gIsGamePaused = paused;
+    gScreenModeSelection = screenMode;
+    gScreenContexts[0] = firstScreen;
+    gControllers[0] = firstController;
+    if ((paused == 0) || (paused - 1 == viewPlayer)) {
+        return;
+    }
+
+    gSPViewport(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(D_802B8880));
+    AddEffectMatrixOrtho();
+    gSPDisplayList(gDisplayListHead++, D_02007F18);
+    gDPSetScissor(gDisplayListHead++, G_SC_NON_INTERLACE, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+    gDisplayListHead = draw_box_wide(gDisplayListHead, 0, 0x64, SCREEN_WIDTH, 0x8C, 0, 0, 0, 140);
+    sprintf(text, "PLAYER %d PAUSED", paused);
+    set_text_color(TEXT_YELLOW);
+    print_text1_center_mode_1(SCREEN_WIDTH / 2, 0x80, text, 0, 1.0f, 1.0f);
+    gMatrixEffectCount = 0;
+}
+
 void func_80093E60(void) {
     s32 i;
 

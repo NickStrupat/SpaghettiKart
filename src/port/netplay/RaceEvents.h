@@ -4,8 +4,8 @@
 #include <libultraship/libultraship.h>
 
 /**
- * Logs what happens in a race, for unattended tests: laps, finishes and places, Battle eliminations, and the race
- * reaching its results. Lines start with "[Netplay] Race:", for tools/netplay-sim.py.
+ * Logs what happens in a race, for unattended tests: laps, finishes and places, Battle eliminations, pauses, and the
+ * race reaching its results. Lines start with "[Netplay] Race:", for tools/netplay-sim.py.
  */
 namespace RaceEvents {
 

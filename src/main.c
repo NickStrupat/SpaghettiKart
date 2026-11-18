@@ -39,6 +39,7 @@
 #include "port/netplay/DeterminismHarness.h"
 #include "port/netplay/SimState.h"
 #include "port/netplay/Netplay.h"
+#include "port/netplay/TestScreenshots.h"
 #include "engine/wasm.h"
 #include "port/Game.h"
 #include "port/Engine.h"
@@ -881,6 +882,7 @@ void race_render_frame(void) {
     if (race_frame_needs_readback()) {
         FB_WriteFramebufferSliceToCPU(&gDisplayListHead, gPortFramebuffers[sRenderingFramebuffer], true);
     }
+    TestScreenshots_ReadInRace();
     gDPFullSync(gDisplayListHead++);
     gSPEndDisplayList(gDisplayListHead++);
 }
@@ -944,8 +946,9 @@ void race_render_own_view(s32 playerId) {
     display_debug_info();
     render_own_view_overlay(playerId);
     gOwnViewPlayer = -1;
-    func_80093E20();
+    render_own_view_menus(playerId);
     // No readback (race_frame_needs_readback()): a split-screen race shows no jumbotron.
+    TestScreenshots_ReadInRace();
     gDPFullSync(gDisplayListHead++);
     gSPEndDisplayList(gDisplayListHead++);
 }

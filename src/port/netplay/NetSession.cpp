@@ -1053,11 +1053,21 @@ bool ConsumeLocalPads(OSContPad* pads) {
     PadInput input;
     if (sNet.Bot.has_value()) {
         input = sNet.Bot->Next(GetWatchedPlayer());
+        if (gIsGamePaused != 0) {
+            // A bot's steering and accelerating would move and confirm the pause menu.
+            input = PadInput{};
+        }
     } else {
         input.StickX = pads[0].stick_x;
         input.StickY = pads[0].stick_y;
-        // Pausing would only pause this peer.
-        input.Buttons = pads[0].button & ~START_BUTTON;
+        // START pauses the race for everyone, as on one console: it is input like any other, so every peer pauses on
+        // the same frame, and only the player who paused controls the pause menu (the game reads their controller).
+        input.Buttons = pads[0].button;
+    }
+    for (const TestButtons& press : sNet.Settings.TestPresses) {
+        if ((sNet.SeriesRace == 1) && (sNet.SegmentFrames + 1 == press.SegmentFrame)) {
+            input.Buttons |= press.Buttons;
+        }
     }
     // Stick wobble that the race cannot tell apart would only be wrong predictions and rollbacks.
     CanonicalStick::Apply(&input.StickX, &input.StickY);

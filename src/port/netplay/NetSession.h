@@ -32,6 +32,12 @@ struct TestControl {
     PadControl Control;
 };
 
+/** Testing: buttons the local player presses on a shown frame of the series' first race, as a player would. */
+struct TestButtons {
+    u32 SegmentFrame;
+    u16 Buttons;
+};
+
 /**
  * One netplay race series: from the first race until the players leave it. Everything but LocalPlayer and the
  * address entries must be the same on every peer.
@@ -85,6 +91,7 @@ struct SessionSettings {
     bool DumpSegmentStarts = false;        // Write the state each segment starts from to <LogPath>.seg<N>.start
     u32 LeaveAfterRaces = 0;               // Leave the series early in the race after this many; 0 never does
     u32 PressLAtFrame = 0;                 // Press L (music volume) on this shown frame of every segment
+    std::vector<TestButtons> TestPresses;  // Pressed in the first race only, such as START to pause
 };
 
 enum class SessionResult {

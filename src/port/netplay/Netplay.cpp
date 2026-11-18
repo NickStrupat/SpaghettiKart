@@ -125,6 +125,7 @@ struct NetplayState {
 
     u32 PodiumFrames = 0;
     std::vector<TestPress> TestInput;        // SK_TEST_INPUT
+    std::vector<TestButtons> TestRaceInput;  // SK_NETPLAY_TEST_RACE_INPUT
     std::vector<TestPress> TestConsoleInput; // SK_TEST_CONSOLE_INPUT
     bool LocalZHeld = false;          // On a console's Game Select, pressing Z leaves the room
     bool ReturnToOnlineMenu = false;  // After leaving a room, the menus reset to the ONLINE screen
@@ -229,6 +230,7 @@ void ApplyTestOptions(SessionSettings* settings, u32 botSeed) {
     settings->LeaveAfterRaces = sNetplay.TestSeriesRaces;
     settings->DumpSegmentStarts = GetEnvU32("SK_NETPLAY_DUMP", 0) != 0;
     settings->PressLAtFrame = GetEnvU32("SK_NETPLAY_TEST_PRESS_L_AT", 0);
+    settings->TestPresses = sNetplay.TestRaceInput;
 }
 
 /** Parses "restart@300,next@200,leave@500": a control and the frame of each segment to send it on. */
@@ -884,6 +886,11 @@ extern "C" void Netplay_Init(void) {
     TestScreenshots::Init();
     if (const char* input = GetEnv("SK_TEST_INPUT")) {
         sNetplay.TestInput = ParseTestInput(input);
+    }
+    if (const char* input = GetEnv("SK_NETPLAY_TEST_RACE_INPUT")) {
+        for (const TestPress& press : ParseTestInput(input)) {
+            sNetplay.TestRaceInput.push_back({ press.Frame, press.Button });
+        }
     }
     if (const char* input = GetEnv("SK_TEST_CONSOLE_INPUT")) {
         sNetplay.TestConsoleInput = ParseTestInput(input);

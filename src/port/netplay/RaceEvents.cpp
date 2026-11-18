@@ -9,6 +9,7 @@ extern "C" {
 #include "main.h"
 #include "code_80057C60.h"
 #include "code_80005FD0.h"
+#include "code_800029B0.h"
 }
 
 namespace {
@@ -21,6 +22,7 @@ struct PlayerState {
 struct State {
     std::array<PlayerState, NUM_PLAYERS> Players;
     s32 RaceState = -1;
+    u16 Paused = 0; // gIsGamePaused: the player who paused, from 1
 };
 
 State sState;
@@ -69,6 +71,12 @@ void Update(u32 frame) {
         }
         state.Out = out;
     }
+    if ((gIsGamePaused != 0) && (sState.Paused == 0)) {
+        NetLog("Race: player %d paused at frame %u", gIsGamePaused, frame);
+    } else if ((gIsGamePaused == 0) && (sState.Paused != 0)) {
+        NetLog("Race: player %d went on at frame %u", sState.Paused, frame);
+    }
+    sState.Paused = gIsGamePaused;
     if ((gRaceState != sState.RaceState) && (gRaceState == RACE_FINISHED)) {
         NetLog("Race: the race is over at frame %u", frame);
     }

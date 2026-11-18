@@ -21,6 +21,7 @@ details live in the headers under `src/port/netplay/`, which each start with a d
 | Shared console: Game Select, character select and course select in lockstep, then the race | Works, tested by the simulator |
 | Direct connections (UDP hole punching), relay fallback | Works on one machine and between two Macs on one wifi; not yet tried across two home networks |
 | Own view (each player sees and hears only their own player) | Works |
+| START pauses an online race for everyone; the pause menu's choices | Works in the simulator (continue, course change) and in pictures of both views; not yet tried by people |
 | Players at different frame rates (Settings > Graphics > Current FPS) | Works: frame interpolation only draws, every game simulates 30 frames a second (`mixed-fps` scenario) |
 | Automatic input delay, connection stats overlay | Works |
 | Sound effects across rollbacks | Works |
@@ -54,6 +55,10 @@ details live in the headers under `src/port/netplay/`, which each start with a d
 Players beyond the chosen player count sit the race out and watch player 1. OPTION, DATA and Time Trials are not
 available in a room: they use each player's own saves and ghosts. Someone joining during a race waits for it to end;
 whenever the players change, everyone starts over on Game Select.
+
+**START** in a race pauses it for everyone, as on one console. Only the player who paused controls the pause menu;
+the others see their race stopped with a "PLAYER 2 PAUSED" line. Course Change, Driver Change and Quit take everyone
+to that menu together.
 
 Both players need the same build of the game and the same game files and mods; the relay refuses a mismatch. The relay
 must be as new as the game (its protocol version is checked).
@@ -108,6 +113,8 @@ Made by the fork's owner, in this order. Later work assumes them.
    state, which only the menus are ready for). It makes rooms of 2 that stay open to more, and fills open public rooms
    first. Room codes are 7 stick directions (up, down, left, right: perpendicular, so easy to hit, and typed with the
    keyboard's arrow keys too), chosen for their rhythm; that and the new messages are protocol 4.
+10. **START pauses an online race for everyone** (2026-11-17), as on one console, where only the player who paused
+    controls the pause menu. Until then START was dropped from race input, as pausing one peer alone made no sense.
 
 ## How it works
 
@@ -217,6 +224,11 @@ A lobby race is a series of segments, one GekkoNet session per loaded race (each
   is never rolled back.
 - Back to the menus ends the series; the podium after a cup is shown by each peer locally.
 - Menus that the original game lets anyone confirm are confirmed by player 1 (the host) only in netplay.
+- **Pausing:** START is race input like any other button, so every peer pauses on the same frame, and the pause menu
+  reads the controller of the player who paused, as the game does. Its choices start the quit transition like the
+  results menu's. A pause can never be predicted wrongly: prediction repeats a player's last input, which never makes
+  a new press. With "Show only my player", the pause menu belongs to a split screen nobody sees: the player who paused
+  gets it as a one-player game's, the others a line saying who paused (`render_own_view_menus()`).
 
 ### Shared console
 
@@ -328,7 +340,7 @@ keep them on the relay do not hear each other, and the netplay window says so. A
 
 | Tool | What it does |
 |---|---|
-| `tools/netplay-sim.py` | Plays whole races, cups and battles between bot-driven copies of the game through a relay, fast-forwarded (about 70× real time), and checks that every peer stayed in sync and the races ended as expected. Shared-console scenarios drive the menus with scripted buttons and compare every menu frame. 31 scenarios, about 5 minutes. **Run it after any change to netplay, menu or simulation code.** |
+| `tools/netplay-sim.py` | Plays whole races, cups and battles between bot-driven copies of the game through a relay, fast-forwarded (about 70× real time), and checks that every peer stayed in sync and the races ended as expected. Shared-console scenarios drive the menus with scripted buttons and compare every menu frame. 33 scenarios, about 5 minutes. **Run it after any change to netplay, menu or simulation code.** |
 | Determinism harness | `SK_DETERMINISM_RECORD` / `_VERIFY` / `_ROLLBACK=8`: records a race's inputs and per-frame checksums, replays them, or rolls back 8 frames after every frame. See `DeterminismHarness.h`. |
 | `tools/netplay-stress.sh` | The rollback stress run on every track and arena, 4 at a time: 16 versus tracks, 4 battle arenas, 4 Grand Prix courses. Give it an AddressSanitizer build (below) to look for memory errors too. |
 | `tools/netplay-relay/test_relay.py` | Protocol tests for the relay. |
@@ -338,6 +350,8 @@ The test environment variables (direct peers, lobby bots, simulated lag and loss
 drivers, scripted buttons) are listed in `src/port/netplay/Netplay.h`. `SK_FAST=n` runs any of them without frame
 pacing or sound output, drawing one frame in n. `SK_TEST_SCREENSHOTS=name@frame,...` saves what the game draws as
 PNG files (`TestScreenshots.h`): it reads the game's own framebuffer, so it needs no screen-recording permission.
+It also pictures races (netplay or not), but not ImGui windows. Pictures of simulator races were taken with
+`--speed 0` (real time).
 
 When a session fails, each peer writes `<prefix>.seg<N>.kept.txt`, the checksum breakdown of every frame it still
 kept; diffing the peers' files shows the first component that differs. A peer that detects a desync also writes

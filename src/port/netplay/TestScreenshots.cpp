@@ -4,9 +4,12 @@
 #include <array>
 #include <cstdio>
 #include <cstdlib>
+#include <string>
 #include <vector>
 
 #include "NetLog.h"
+#include "Netplay.h"
+#include "SimState.h"
 
 extern "C" {
 #include "main.h"
@@ -32,6 +35,8 @@ std::string sPendingPath;
 // Metal fills a framebuffer copy in a frame later, so each picture asks twice and keeps the second answer.
 constexpr u32 kReadsPerShot = 2;
 u32 sReadsLeft = 0;
+// A race ends its display list itself, before EndFrame(): it reads back from inside (TestScreenshots_ReadInRace()).
+bool sReadInRace = false;
 
 u32 Crc32(const u8* data, size_t size, u32 crc = 0) {
     crc = ~crc;
@@ -126,10 +131,11 @@ void EndFrame(u32 frame) {
             sReadsLeft = kReadsPerShot;
         }
     }
-    if (sReadsLeft > 0) {
+    if ((sReadsLeft > 0) && !sReadInRace) {
         FB_WriteFramebufferSliceToCPU(&gDisplayListHead, sPixels.data(), false);
         sReadsLeft--;
     }
+    sReadInRace = false;
 }
 
 void BeginFrame() {
@@ -146,3 +152,13 @@ void BeginFrame() {
 }
 
 } // namespace TestScreenshots
+
+extern "C" void TestScreenshots_ReadInRace(void) {
+    // A netplay race also draws frames nobody sees (SimState.h); only the shown one is pictured.
+    if ((sReadsLeft == 0) || (Netplay_IsInRace() && !SimState_IsDrawingShownFrame())) {
+        return;
+    }
+    FB_WriteFramebufferSliceToCPU(&gDisplayListHead, sPixels.data(), false);
+    sReadsLeft--;
+    sReadInRace = true;
+}

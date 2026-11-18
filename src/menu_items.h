@@ -389,6 +389,7 @@ void func_80093C88(void);
 void func_80093C90(void);
 void func_80093C98(s32);
 void func_80093E20(void);
+void render_own_view_menus(s32 viewPlayer);
 void func_80093E40(void);
 void func_80093E60(void);
 void func_80093F10(void);
