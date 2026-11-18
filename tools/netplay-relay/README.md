@@ -33,7 +33,9 @@ docker run -d --name relay --network proxy -p 7777:7777/udp -p 7777:7777/tcp --r
   --label traefik.http.routers.relay.tls.certresolver=le \
   --label traefik.http.services.relay.loadbalancer.server.port=7777 \
   spaghettikart-relay --port 7777 --trusted-proxy 172.19.0.0/16   # the proxy network's subnet
-``` Each player needs about 10 KB/s in each direction while racing, so a small VPS can carry many rooms. Most races don't go through the relay at all; see below.
+```
+
+Each player needs about 10 KB/s in each direction while racing, so a small VPS can carry many rooms. Most races don't go through the relay at all; see below.
 
 The game and the relay must speak the same protocol version: after updating the game, rebuild the relay too. A game that gets no answer says so.
 

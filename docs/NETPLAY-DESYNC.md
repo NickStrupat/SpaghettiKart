@@ -1,14 +1,16 @@
 # Netplay: desyncs, recovery and dropped connections
 
-Notes from the investigation of 2026-11-06 to 2026-11-09. Nothing here is built yet: this records what was found,
-what was measured, the options and the direction chosen. `NETPLAY.md` describes how the parts work today.
+Notes from the investigation of 2026-11-06 to 2026-11-09: what was found, what was measured, the options and the
+direction chosen. One fix has landed since ([Since then](#since-then)); the direction chosen is not started.
+`NETPLAY.md` describes how the parts work today.
 
 ## Summary
 
 - A bad connection cannot cause a desync by itself. A desync is a bug in the game; recovery is the safety net.
-- Recovery fails about 1 run in 8 on one Mac, and will fail more often between two Macs. Both causes are in the sim
+- Recovery failed about 1 run in 8 on one Mac, and would fail more often between two Macs. Both causes are in the sim
   arena, and both come from memory that is not game state ending up in it.
-- Two short fixes were measured and work. Neither is built.
+- Two short fixes were measured and work. A version of a third is built (2026-11-13): game code's resource lookups
+  keep the loader out of the arena. `desync-recover` then passed 20 of 20.
 - The direction chosen: game state lives in its own arena, holds only game state, and refers to anything outside by
   key instead of by pointer. Rough estimate 2 to 4 days; the inventory that would firm it up has not been done.
 - A connection that drops for under 5 s carries on. Over 5 s the race ends for everyone; there is no rejoin. Neither
@@ -26,7 +28,7 @@ two defences:
 
 ## Why recovery fails
 
-The simulator's `desync-recover` scenario fails about 1 run in 8 with "this game's state is too far from the host's".
+The simulator's `desync-recover` scenario failed about 1 run in 8 (before the fix in [Since then](#since-then)) with "this game's state is too far from the host's".
 
 How recovery handles pointers: a snapshot is raw memory. Pointers into the game's image and into the sim arena hold in
 every copy, because address randomization is off. Pointers into the regular heap (the loaded game files) differ
@@ -105,6 +107,20 @@ The arena there is about 75 KB in about 80 blocks.
 The owner's view of the hook in option 1: leaky. The game should put its own state in one place, and nothing else
 should need to know.
 
+## Since then
+
+On 2026-11-13 (`cb3610e5`) a version of option 3 landed, without the 114 call sites: `GameEngine_GetResourceDataByName()`
+and its siblings (`include/align_asset_macro.h`), which `LOAD_ASSET` uses and every direct lookup in the game now goes
+through, wrap libultraship's `ResourceGet*` in `SimHeapPause`. GBIMiddleware's display-list commands and SceneManager's
+loads pause around their `LoadResource` calls only, so the race objects built from what they load stay in the arena.
+No libultraship change; new code is covered as long as it looks resources up through those functions (a pitfall in
+`NETPLAY.md`).
+
+The resource loader's task, promise and objects no longer reach the arena, which removes cause 2 and the leftovers
+of cause 1 caught so far. `desync-recover` then passed 20 of 20 with game files from before the Torch update, where
+about half had failed. Freed blocks are still marked like live ones, so a leftover of any other allocation that is not
+game state could still fail a recovery.
+
 ## Direction: self-contained game state
 
 Chosen by the owner on 2026-11-08, not started.
@@ -175,6 +191,6 @@ happened, the report is on the other Mac, under `netplay/` in its settings folde
    This turns "2 to 4 days" into a plan and decides between keys outright and the middle way.
 2. A simulator scenario for a few seconds of silence (the relay needs an option for it), and one for an address
    change.
-3. Until the arena work lands, recovery keeps failing about 1 time in 8. Option 5 is the stopgap that needs no
-   libultraship change.
+3. Until the arena work lands, skipping freed blocks when the host marks heap pointers (part of options 1, 2, 3 and 5)
+   is the small step left; it needs no libultraship change.
 4. Recovery between two Macs is still untested (see "Open" in `NETPLAY.md`).

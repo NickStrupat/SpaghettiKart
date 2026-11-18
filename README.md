@@ -9,8 +9,14 @@ If you're having any trouble after reading through this `README`, feel free ask 
 
 ## Netplay (this fork)
 
-The `netplay` branch adds online races with rollback netcode, room codes and a relay server. See
-[docs/NETPLAY.md](docs/NETPLAY.md) for how to play, how it works and what is still open.
+The `netplay` branch adds online races with rollback netcode: public and private rooms, matchmaking and voice chat,
+through a relay server, with players connecting directly. See [docs/NETPLAY.md](docs/NETPLAY.md) for how to play, how
+it works and what is still open.
+
+- **Builds**: every push to `netplay` publishes a release (`build-<number>`) on this fork's GitHub Releases page.
+  Netplay is made and tested for macOS on Apple Silicon only.
+- **In a browser**: https://netkart64.duckdns.org/ runs the game from your own ROM and plays online with desktop
+  players. See [docs/WEB.md](docs/WEB.md).
 
 # Quick Start
 

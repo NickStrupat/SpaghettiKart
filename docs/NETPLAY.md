@@ -61,7 +61,8 @@ the others see their race stopped with a "PLAYER 2 PAUSED" line. Course Change, 
 to that menu together.
 
 Both players need the same build of the game and the same game files and mods; the relay refuses a mismatch. The relay
-must be as new as the game (its protocol version is checked).
+must be as new as the game (its protocol version is checked). Players in a browser (https://netkart64.duckdns.org/,
+see `docs/WEB.md`) share rooms with desktop players of the same build.
 
 Settings in the netplay window, each per player:
 
@@ -76,6 +77,7 @@ Settings in the netplay window, each per player:
 | Voice chat | on | An open microphone in a room, in the menus and in races. Only between players connected directly: voice never goes through the relay. The system asks for the microphone the first time |
 | Mute my microphone | off | Keep hearing the others, send nothing |
 | Voice volume | 100% | How loud the others' voices are |
+| Your controller | All controllers | The one gamepad this copy of the game reads, by its serial number, so two copies on one Mac each keep their own |
 
 Each player's row in the netplay window says where voice stands with them (talking, off, no direct connection) and
 has a box to mute them; a corner of the screen names who is talking.
@@ -472,9 +474,10 @@ Each of these cost a debugging round.
 
 - Desync recovery between two Macs: tested only between copies on one Mac. The two Macs run different macOS versions,
   whose memory layouts could differ; a failed recovery ends the race as before, with the reason in the log.
-- Desync recovery fails about 1 time in 8 on one Mac ("this game's state is too far from the host's"), and a
-  connection silent for over 5 s ends the race with no rejoin. `NETPLAY-DESYNC.md` has the causes, the measurements
-  and the direction chosen.
+- Desync recovery failed about 1 time in 8 on one Mac ("this game's state is too far from the host's"). Since
+  resource lookups stay out of the sim arena (2026-11-13), `desync-recover` passed 20 of 20; freed arena blocks are
+  still marked like live ones, so a leftover in one could still fail a recovery. A connection silent for over 5 s
+  ends the race with no rejoin. `NETPLAY-DESYNC.md` has the causes, the measurements and the direction chosen.
 
 - Direct connections across two real home networks. Routers that use a new public port per destination (symmetric
   NAT, common on mobile networks) stay on the relay.
@@ -523,3 +526,28 @@ Each of these cost a debugging round.
 | `3fbf25df` | Automatic input delay, stats overlay, sounds across rollbacks (phase 6) |
 | `499e3b9b` | Direct connections (phase 6) |
 | `51a204fd` | Fix races quitting at once after an attract demo |
+| `c6190fbb` | This file |
+| `2e7502a6` | The macOS app runs on macOS 15 and later |
+| `49da1276` | Fix frame-0 desyncs between computers with different settings |
+| `325a9aa5` | Fix the freeze when opening the menu during a race |
+| `e1c88b7d` | Direct connections to whoever runs the relay |
+| `8a0da7e0` | Restart wrongly stopped sounds, hear other karts' engines, own-view HUD, AddressSanitizer stress run |
+| `8b6ca8e9` | One shared console per room, rooms picked from a list |
+| `6e3e9ed6`, `7f4dffd9` | Every setting the race or the menus read is a room rule; the settings menu locks them |
+| `acaa11f1` | The controller is picked by serial number |
+| `3fd986db` | Canonical stick positions |
+| `878c93e4` | Other karts glide after a rollback |
+| `898fa70f` | Desync recovery |
+| `b1c99651` | The default relay is `netkart64.duckdns.org:7777` |
+| `20f4c4b9` | Why desync recovery fails, dropped connections (`NETPLAY-DESYNC.md`) |
+| `0193e2f0`, `2b3562a1` | The browser build, with rollback; browsers play online (`docs/WEB.md`) |
+| `7a3c054b`, `d6babace` | Browsers and desktop games connect directly over WebRTC; HTTPS pages reach the relay with `wss://` |
+| `aff2af79` | The ONLINE screen says why rooms are hidden; game files carry the version that made them |
+| `cb3610e5` | Resource lookups stay out of the sim arena |
+| `e5f4af54` | The overlay's ping split into network and frame wait |
+| `a3b0c337` | Voice chat |
+| `5d3b9b14` | The ROM is kept, and old game files are made again from it |
+| `67805a7c` | A release with the builds on every push to `netplay` |
+| `89bdc437` | Public rooms, private rooms and matchmaking |
+| `d1aaca81` | START pauses an online race for everyone |
+| `0890b1f4` | Browsers connect directly to desktop games in matched rooms |

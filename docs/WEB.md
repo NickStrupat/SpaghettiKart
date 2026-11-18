@@ -8,7 +8,9 @@ file records how to build and serve it, what was changed to make it run, and wha
 - **Works**: start-up, the menus, races with CPUs, sound, the keyboard, the settings menu (Esc), frame interpolation
   (Settings > Graphics > Current FPS), settings and saves kept between visits. Checked in Chrome on an Apple Silicon
   Mac, by `tools/web-serve.py` and a headless Chrome driven over its debugging protocol.
-- **Not checked**: gamepads (SDL2's browser support should cover them), Firefox, Safari, phones, split screen.
+- **Played on an iPhone** in Safari and as a home-screen app: landscape, full screen, the ROM's archive kept across
+  iOS reloads, sound resumed after leaving the page. Online play has been played from Edge against a Mac.
+- **Not checked**: gamepads (SDL2's browser support should cover them), Firefox, Android phones, split screen.
 - **Rollback works, without a network** (step 1 of online play, see [Online play](#online-play)): the determinism
   harness's rollback stress run passes on all 24 races of `tools/netplay-stress.sh`, and the same races recorded in
   the browser replay frame for frame on the macOS build.
@@ -251,12 +253,21 @@ Everything specific to the browser is behind `__EMSCRIPTEN__` in the code and `S
   input that the linker rejects ("unknown file type"): write the pair as one `"SHELL:--js-library <file>"`.
 - **Uninitialized memory differs.** The Mac's happened to be zero where the browser's held leftovers: see the
   kiwano pitfall in `docs/NETPLAY.md`.
+- **Netplay's undo of a drawn frame must wait for its last interpolated picture.** The browser draws a frame's
+  interpolated pictures on later refreshes, from the same display list; undoing right after the first picture drew
+  the others from the split-screen state (own view flickered with a zoomed-out half at 60 FPS). The main loop undoes
+  it before the next game frame.
+- **iOS Safari**: `100vh` is the height without the toolbars (the page uses `100dvh`); turned to landscape, a
+  home-screen app lays the page out again after SDL's resize event, so the page passes each change of the canvas's
+  size on as one more resize; leaving the browser interrupts the sound, and the first attempt to resume it on return
+  can fail, so the page retries for a few seconds; and on return Safari raises a script error with no details while
+  the game goes on, which the page ignores.
 
 ## Open
 
 - **Online play**, below.
 - **Size.** The 256 MB memory pool (`sMemoryPool` in `src/racing/memory.c`) and the unused 256 MB below it make the
-  page reserve 1 GB of address space, more than phones allow.
+  page reserve 1 GB of address space. An iPhone allows it; smaller or older phones may not.
 - **Threads.** Without them the page would not need the two headers. libultraship's resource pool and logger, and
   the game's sound thread, would have to run on the main thread.
 - **Sound delay.** The browser keeps about 76 ms of sound in reserve (2,048 frames at 26,800 a second, the third
