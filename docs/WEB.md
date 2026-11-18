@@ -290,6 +290,11 @@ The plan, in three steps:
      (`kSignalChannel` in `RelayClient.cpp`), in parts when longer than one payload. Between browsers the lower slot
      makes the offer. A public STUN server (`stun.l.google.com`, `kIceServers` in `WebRtcPeers.cpp`) gives each side
      its public address. Players whose routers still cannot connect stay on the relay; there is no TURN server.
+   - The browser learns that a member is a desktop game (which never offers) from the relay showing its address. In a
+     matched room every member arrives at once, before the relay has heard who shares addresses, so a browser can take
+     a desktop for a browser and wait for its offer; once the address shows, it offers instead (`WebRtcPeers.cpp`).
+     `tools/web-check/netplay.mjs` hosts and joins rooms, so it does not catch this; it was found playing Edge against
+     a Mac through matchmaking, and checked with a copy of the script that matchmakes.
    - A ping over the channel every 500 ms gives the round trip (for the automatic input delay) and notices a lost
      connection after 1.5 s, as on the desktop.
    - Checked with `tools/web-check/netplay.mjs`: 2 and 4 browsers, VS, Battle and Grand Prix, relay only, and a direct

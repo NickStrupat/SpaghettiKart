@@ -65,7 +65,16 @@ void WebRtcPeers::SetMembers(s32 ownSlot, const RelayLink::Members& members) {
             peer = Peer();
             peer.Key = key;
         }
-        peer.SharesAddress = members[slot].PublicPort != 0;
+        const bool sharesAddress = members[slot].PublicPort != 0;
+        const bool waitingForOffer = (mRole == Role::Browser) && peer.Connecting && !peer.Open && !ShouldOffer(slot);
+        if (waitingForOffer && sharesAddress && !peer.SharesAddress) {
+            // This browser took the member for another browser and waits for its offer, but it is a desktop game,
+            // which never offers. A matched room's members all arrive at once, before the relay has heard which share
+            // their addresses. Offer instead, at once.
+            CloseDirect(slot);
+            peer.LastAttempt = Clock::time_point();
+        }
+        peer.SharesAddress = sharesAddress;
     }
 }
 
