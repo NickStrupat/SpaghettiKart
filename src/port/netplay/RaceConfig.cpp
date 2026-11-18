@@ -1,5 +1,7 @@
 #include "RaceConfig.h"
 
+#include <climits>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 
@@ -231,6 +233,10 @@ void GameplayCVarOverride::Apply(const RaceConfig& config) {
             mSavedFloats[i] = { IsCVarSet(name), 0, CVarGetFloat(name, kGameplayFloatCVars[i].Default) };
         }
         mSavedDebugMode = gEnableDebugMode;
+        if (sNumActiveOverrides == 0) {
+            sPlayerInts = mSavedInts;
+            sPlayerFloats = mSavedFloats;
+        }
         mActive = true;
         sNumActiveOverrides++;
     }
@@ -267,8 +273,50 @@ void GameplayCVarOverride::Restore() {
         }
     }
     gEnableDebugMode = mSavedDebugMode;
+    if (sNumActiveOverrides == 1) {
+        KeepPlayerValuesSaved();
+    }
     mActive = false;
     sNumActiveOverrides--;
+}
+
+std::array<GameplayCVarOverride::SavedCVar, kNumGameplayIntCVars> GameplayCVarOverride::sPlayerInts = {};
+std::array<GameplayCVarOverride::SavedCVar, kNumGameplayFloatCVars> GameplayCVarOverride::sPlayerFloats = {};
+
+void GameplayCVarOverride::KeepPlayerValuesSaved() {
+    if (sNumActiveOverrides == 0) {
+        return;
+    }
+    // Reads the settings as last loaded or saved, not the live CVars. The defaults below stand for "not in the file".
+    std::shared_ptr<Ship::Config> settings = Ship::Context::GetRawInstance()->GetConfig();
+    bool changed = false;
+    for (size_t i = 0; i < kGameplayIntCVars.size(); i++) {
+        const std::string key = std::string("CVars.") + kGameplayIntCVars[i].Name;
+        const SavedCVar& player = sPlayerInts[i];
+        const s32 saved = settings->GetInt(key, INT32_MIN);
+        if (player.Existed && (saved != player.IntValue)) {
+            settings->SetInt(key, player.IntValue);
+            changed = true;
+        } else if (!player.Existed && (saved != INT32_MIN)) {
+            settings->Erase(key);
+            changed = true;
+        }
+    }
+    for (size_t i = 0; i < kGameplayFloatCVars.size(); i++) {
+        const std::string key = std::string("CVars.") + kGameplayFloatCVars[i].Name;
+        const SavedCVar& player = sPlayerFloats[i];
+        const f32 saved = settings->GetFloat(key, NAN);
+        if (player.Existed && (std::isnan(saved) || (saved != player.FloatValue))) {
+            settings->SetFloat(key, player.FloatValue);
+            changed = true;
+        } else if (!player.Existed && !std::isnan(saved)) {
+            settings->Erase(key);
+            changed = true;
+        }
+    }
+    if (changed) {
+        settings->Save();
+    }
 }
 
 bool GameplayCVarOverride::IsAnyActive() {

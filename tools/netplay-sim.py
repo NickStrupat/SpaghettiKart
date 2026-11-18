@@ -66,6 +66,7 @@ class Scenario:
     expect: dict = dataclasses.field(default_factory=dict)  # Minimum count of each event, on every peer
     peer_expect: dict = dataclasses.field(default_factory=dict)  # Minimum count of each event, by peer index
     expect_none: tuple = ()  # Events no peer may log
+    saved_cvars: dict = dataclasses.field(default_factory=dict)  # Settings file values at the end, by peer; None: absent
     timeout: int = 300  # Seconds
     quiet_limit: int = 90  # Seconds without a new log line from any game before the scenario counts as stuck
     desync_expected: bool = False  # A peer's state is corrupted on purpose: DESYNC lines are not a failure
@@ -187,8 +188,12 @@ SCENARIOS = [
              2, "vs", series_races=1,
              peer_cvars={0: {"gNoCulling": 0, "gDisableLod": 0, "gDisableRubberbanding": 1},
                          1: {"gDrawObjects": 0, "gEnableDebugMode": 1}},
-             peer_env={-1: {"SK_NETPLAY_CONSOLE": "1"}, 0: {"SK_TEST_CONSOLE_INPUT": CONSOLE_2P_VS},
+             peer_env={-1: {"SK_NETPLAY_CONSOLE": "1", "SK_NETPLAY_TEST_SAVE_SETTINGS": "1"},
+                       0: {"SK_TEST_CONSOLE_INPUT": CONSOLE_2P_VS},
                        1: {"SK_TEST_CONSOLE_INPUT": "R_JPAD@290,A@310"}},
+             # Both save their settings during the room: each file keeps its own player's values, not the room's.
+             saved_cvars={0: {"gNoCulling": 0, "gDrawObjects": None, "gEnableDebugMode": None},
+                          1: {"gNoCulling": None, "gDisableLod": None, "gDrawObjects": 0, "gEnableDebugMode": 1}},
              expect={"consoles": 1, "races_over": 1, "finishes": 1, "menus_in_sync": 1}),
     Scenario("console-spectator", "3 players on a shared console pick a 2-player race: player 3 sits it out and "
              "watches player 1", 3, "vs", series_races=1,
@@ -465,6 +470,11 @@ def run_scenario(scenario: Scenario, args, run_dir: Path):
             count = len(EVENTS[event].findall(text))
             if count:
                 problems.append(f"p{i}: {count} {event}, expected none")
+        if scenario.saved_cvars.get(i):
+            saved = json.loads((directory / f"home{i}" / "spaghettify.cfg.json").read_text()).get("CVars", {})
+            for name, expected in scenario.saved_cvars[i].items():
+                if saved.get(name) != expected:
+                    problems.append(f"p{i}: settings file has {name} = {saved.get(name)}, expected {expected}")
 
     segments, mismatches = compare_checksum_logs(directory, scenario.players)
     problems += mismatches

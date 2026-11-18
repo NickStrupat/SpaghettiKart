@@ -54,7 +54,8 @@ struct RaceConfig {
 
 /**
  * Forces the race's gameplay CVars for the duration of a session and restores the player's own values afterwards.
- * Overridden values are never written to the config file as long as Restore() runs before the engine shuts down.
+ * libultraship saves every CVar at once, so any settings change during a session (the voice volume, say) writes the
+ * room's values to the settings file; KeepPlayerValuesSaved() puts the player's own back.
  */
 class GameplayCVarOverride {
 public:
@@ -66,6 +67,11 @@ public:
     static bool IsAnyActive();
     /** True for a CVar an override sets. The settings menu locks these while one is active. */
     static bool Sets(const char* name);
+    /**
+     * Puts the player's own values back in the settings file where a save during a session wrote the room's.
+     * Call once a frame; it writes the file only when a save has happened. Restore() calls it too.
+     */
+    static void KeepPlayerValuesSaved();
 
 private:
     struct SavedCVar {
@@ -78,6 +84,10 @@ private:
     u16 mSavedDebugMode = 0;
     std::array<SavedCVar, kNumGameplayIntCVars> mSavedInts = {};
     std::array<SavedCVar, kNumGameplayFloatCVars> mSavedFloats = {};
+
+    // The player's own values, saved by the first override applied: a nested one saves the outer one's room values.
+    static std::array<SavedCVar, kNumGameplayIntCVars> sPlayerInts;
+    static std::array<SavedCVar, kNumGameplayFloatCVars> sPlayerFloats;
 };
 
 /**

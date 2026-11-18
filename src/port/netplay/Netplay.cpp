@@ -137,6 +137,7 @@ struct NetplayState {
     u32 TestHangAtFrame = 0; // Freeze the game thread for a while on this shown frame of the first race
     u32 TestSoundRollbackAt = 0; // Run SoundRollback::SelfTest() on this shown frame of the first race
     u32 TestEnginesAt = 0;       // Check that every other player's engine is heard on this shown frame of the first race
+    bool TestSaveSettings = false; // Save the settings file once while a room's rules apply, as a menu change does
 
     // Lobby races
     std::optional<Lobby::RaceStart> PendingRace;
@@ -921,6 +922,7 @@ extern "C" void Netplay_Init(void) {
     sNetplay.TestSoundRollbackAt = GetEnvU32("SK_NETPLAY_TEST_SOUND_ROLLBACK_AT", 0);
     sNetplay.TestEnginesAt = GetEnvU32("SK_NETPLAY_TEST_ENGINES_AT", 0);
     sNetplay.TestSeriesRaces = GetEnvU32("SK_NETPLAY_TEST_SERIES_RACES", 0);
+    sNetplay.TestSaveSettings = GetEnvU32("SK_NETPLAY_TEST_SAVE_SETTINGS", 0) != 0;
     if (const char* controls = GetEnv("SK_NETPLAY_TEST_CONTROLS")) {
         sNetplay.TestControls = ParseTestControls(controls);
     }
@@ -1090,6 +1092,12 @@ extern "C" void Netplay_RunRaceFrame(void) {
 extern "C" void Netplay_EndFrame(void) {
     NetSession::EndFrame();
     MenuSession::EndFrame();
+    if (sNetplay.TestSaveSettings && GameplayCVarOverride::IsAnyActive()) {
+        sNetplay.TestSaveSettings = false;
+        CVarSave();
+        NetLog("Test: saved the settings file during the room");
+    }
+    GameplayCVarOverride::KeepPlayerValuesSaved();
     TestScreenshots::EndFrame(sNetplay.GameFrames);
     sNetplay.GameFrames++;
     if (sNetplay.MenuTest && MenuSession::IsRunning() && (sNetplay.TotalFrames > 0) &&
