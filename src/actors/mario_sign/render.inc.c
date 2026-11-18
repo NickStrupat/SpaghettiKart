@@ -20,7 +20,7 @@ void render_actor_mario_sign(Camera* camera, UNUSED Mat4 arg1, struct Actor* arg
     }
 
     unk = is_within_render_distance(camera->pos, arg2->pos, camera->rot[1], 0, camera->fieldOfView, 16000000.0f);
-    if (CVarGetInteger("gNoCulling", 0) == 1) {
+    if (CVarGetInteger("gNoCulling", 1) == 1) {
         unk = MAX(unk, 0.0f);
     }
     if (!(unk < 0.0f)) {

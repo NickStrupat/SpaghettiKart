@@ -57,7 +57,7 @@ void OHedgehog::Tick() {
 void OHedgehog::Draw(s32 cameraId) {
     u32 something = func_8008A364(_objectIndex, cameraId, 0x4000U, 0x000003E8);
 
-    if (CVarGetInteger("gNoCulling", 0) == 1) {
+    if (CVarGetInteger("gNoCulling", 1) == 1) {
         something = MIN(something, 0x52211U - 1);
     }
     if (is_obj_flag_status_active(_objectIndex, VISIBLE) != 0) {

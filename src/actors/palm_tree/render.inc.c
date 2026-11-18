@@ -24,7 +24,7 @@ void render_actor_palm_tree(Camera* camera, UNUSED Mat4 arg1, struct PalmTree* a
     temp_f0 =
         is_within_render_distance(camera->pos, arg2->pos, camera->rot[1], 0.0f, camera->fieldOfView, 4000000.0f);
 
-    if (CVarGetInteger("gNoCulling", 0) == 1) {
+    if (CVarGetInteger("gNoCulling", 1) == 1) {
         temp_f0 = MAX(temp_f0, 0.0f);
     }
 

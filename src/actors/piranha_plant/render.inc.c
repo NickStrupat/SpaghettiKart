@@ -39,7 +39,7 @@ void render_actor_piranha_plant(Camera* camera, Mat4 arg1, struct PiranhaPlant* 
 
     temp_f0 = is_within_render_distance(camera->pos, arg2->pos, camera->rot[1], 0, camera->fieldOfView, 1000000.0f);
 
-    if (CVarGetInteger("gNoCulling", 0) == 1) {
+    if (CVarGetInteger("gNoCulling", 1) == 1) {
         temp_f0 = MAX(temp_f0, 0.0f);
     }
 

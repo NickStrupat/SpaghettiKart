@@ -185,7 +185,7 @@ SCENARIOS = [
              "by scripted buttons), a full versus race, the next race, then the menus again; the host's drawing "
              "settings, which change actor state, and its rules apply to both; the guest's debug tools are off",
              2, "vs", series_races=1,
-             peer_cvars={0: {"gNoCulling": 1, "gDisableLod": 0, "gDisableRubberbanding": 1},
+             peer_cvars={0: {"gNoCulling": 0, "gDisableLod": 0, "gDisableRubberbanding": 1},
                          1: {"gDrawObjects": 0, "gEnableDebugMode": 1}},
              peer_env={-1: {"SK_NETPLAY_CONSOLE": "1"}, 0: {"SK_TEST_CONSOLE_INPUT": CONSOLE_2P_VS},
                        1: {"SK_TEST_CONSOLE_INPUT": "R_JPAD@290,A@310"}},

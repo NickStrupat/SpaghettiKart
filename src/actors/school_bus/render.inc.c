@@ -20,7 +20,7 @@ void render_actor_school_bus(Camera* camera, struct Actor* arg1) {
     temp_f0 =
         is_within_render_distance(camera->pos, arg1->pos, camera->rot[1], 2500.0f, camera->fieldOfView, 9000000.0f);
 
-    if (CVarGetInteger("gNoCulling", 0) == 1) {
+    if (CVarGetInteger("gNoCulling", 1) == 1) {
         temp_f0 = MAX(temp_f0, 0.0f);
     }
 

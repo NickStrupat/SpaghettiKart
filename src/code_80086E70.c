@@ -1287,7 +1287,7 @@ bool is_object_visible_on_camera(s32 objectIndex, Camera* camera, u16 angle) {
     u16 temp_t2;
     s32 var_t0;
 
-    if (CVarGetInteger("gNoCulling", 0) == 1) {
+    if (CVarGetInteger("gNoCulling", 1) == 1) {
         return true;
     }
 
@@ -1310,7 +1310,7 @@ void func_8008A1D0(s32 objectIndex, s32 cameraId, s32 arg2, s32 arg3) {
     camera = &camera1[cameraId];
     clear_object_flag(objectIndex, 0x00100000 | VISIBLE);
     temp_v0 = get_horizontal_distance_to_camera(objectIndex, camera);
-    if (CVarGetInteger("gNoCulling", 0) == 1) {
+    if (CVarGetInteger("gNoCulling", 1) == 1) {
         temp_v0 = MIN(temp_v0, (u32) (arg3 * arg3));
     }
     if (temp_v0 < 0x2711U) {
@@ -1356,7 +1356,7 @@ s32 func_8008A364(s32 objectIndex, s32 cameraId, u16 arg2, s32 arg3) {
     camera = &camera1[cameraId];
     clear_object_flag(objectIndex, 0x00020000 | VISIBLE);
     dist = get_horizontal_distance_to_camera(objectIndex, camera);
-    if (CVarGetInteger("gNoCulling", 0) == 1) {
+    if (CVarGetInteger("gNoCulling", 1) == 1) {
         dist = MIN(dist, (u32) ((arg3 * arg3) - 1));
     }
     if (dist < (u32) (arg3 * arg3)) {

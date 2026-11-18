@@ -116,7 +116,7 @@ void OSeagull::Tick() {
 void OSeagull::Draw(s32 cameraId) { // render_object_seagulls
     s32 objectIndex = _objectIndex;
 
-    if (func_8008A364(objectIndex, cameraId, 0x5555U, 0x000005DC) < 0x9C401 && CVarGetInteger("gNoCulling", 0) == 0) {
+    if (func_8008A364(objectIndex, cameraId, 0x5555U, 0x000005DC) < 0x9C401 && CVarGetInteger("gNoCulling", 1) == 0) {
         D_80165908 = 1;
         _toggle = true;
     }

@@ -51,7 +51,7 @@ constexpr std::array<IntCVar, kNumGameplayIntCVars> kGameplayIntCVars = { {
     { "gFreecam", 0, true },
     { "gIsEditorEnabled", 0, true },
     { "gUniqueCharacterSelections", 1 },
-    { "gNoCulling", 0 },
+    { "gNoCulling", 1 },
     { "gDisableLod", 1 },
     { "gDisableRubberbanding", 0 },
     { "gDisableItemboxes", 0 },

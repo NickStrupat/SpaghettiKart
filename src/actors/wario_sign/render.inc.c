@@ -15,7 +15,7 @@ void render_actor_wario_sign(Camera* camera, struct Actor* arg1) {
     f32 unk =
         is_within_render_distance(camera->pos, arg1->pos, camera->rot[1], 0, camera->fieldOfView, 16000000.0f);
 
-    if (CVarGetInteger("gNoCulling", 0) == 1) {
+    if (CVarGetInteger("gNoCulling", 1) == 1) {
         unk = MAX(unk, 0.0f);
     }
 

@@ -100,7 +100,7 @@ void OBoos::Draw(s32 cameraId) {
         objectIndex = _indices[i]; // indexObjectList3[i];
         if (gObjectList[objectIndex].state >= 2) {
             temp_s2 = func_8008A364(objectIndex, cameraId, 0x4000U, 0x00000320);
-            if (CVarGetInteger("gNoCulling", 0) == 1) {
+            if (CVarGetInteger("gNoCulling", 1) == 1) {
                 temp_s2 = MIN(temp_s2, 0x15F91U);
             }
 

@@ -41,7 +41,7 @@ void ATree::Draw(Camera* camera) {
     dist = is_within_render_distance(camera->pos, Pos, camera->rot[1], 0, camera->fieldOfView,
                                         DrawDistance);
 
-    if (CVarGetInteger("gNoCulling", 0) == 1) {
+    if (CVarGetInteger("gNoCulling", 1) == 1) {
         dist = MAX(dist, 0.0f);
     }
  

@@ -161,7 +161,7 @@ void AFallingRock::Draw(Camera* camera) {
     height = is_within_render_distance(camera->pos, Pos, camera->rot[1], 400.0f, camera->fieldOfView,
                                        4000000.0f);
 
-    if (CVarGetInteger("gNoCulling", 0) == 1) {
+    if (CVarGetInteger("gNoCulling", 1) == 1) {
         height = CLAMP(height, 0.0f, 250000.0f);
     }
 

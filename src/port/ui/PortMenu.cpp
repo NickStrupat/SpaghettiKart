@@ -345,20 +345,23 @@ void PortMenu::AddEnhancements() {
         .CVar("gDisableLod")
         .Options(CheckboxOptions().Tooltip(
             "Disable Level of Detail (LOD) to avoid models using lower poly versions at a distance"));
-    AddWidget(path, "Disable Culling", WIDGET_CVAR_CHECKBOX)
+    AddWidget(path, "Disable Kart & Object Culling", WIDGET_CVAR_CHECKBOX)
         .CVar("gNoCulling")
-        .Options(CheckboxOptions().Tooltip("Disable original culling of mk64"));
+        .Options(CheckboxOptions().DefaultValue(true).Tooltip(
+            "Keep drawing karts, objects and particles that the original game hides when they are off screen or far "
+            "away. Also lets 'Far Frustrum' set the draw distance. The track itself is still drawn in sections, as in "
+            "the original game."));
     AddWidget(path, "Disable Rubberbanding", WIDGET_CVAR_CHECKBOX)
         .CVar("gDisableRubberbanding")
         .Options(CheckboxOptions().Tooltip("Disable rubberbanding in the game."));
     AddWidget(path, "Far Frustrum", WIDGET_CVAR_SLIDER_FLOAT)
         .CVar("gFarFrustrum")
-        .PreFunc([](WidgetInfo& info) { info.isHidden = !CVarGetInteger("gNoCulling", 0); })
+        .PreFunc([](WidgetInfo& info) { info.isHidden = !CVarGetInteger("gNoCulling", 1); })
         .Options(FloatSliderOptions()
                      .Min(0.0f)
                      .Max(10000.0f)
                      .DefaultValue(10000.0f)
-                     .Tooltip("Say how Far the Frustrum are when 'Disable Culling' are enable")
+                     .Tooltip("Draw distance while 'Disable Kart & Object Culling' is on")
                      .Step(10.0f));
     AddWidget(path, "Enable Custom CC", WIDGET_CVAR_CHECKBOX).CVar("gEnableCustomCC");
     AddWidget(path, "Custom CC", WIDGET_CVAR_SLIDER_FLOAT)

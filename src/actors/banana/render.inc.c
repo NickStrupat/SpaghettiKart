@@ -17,7 +17,7 @@ void render_actor_banana(Camera* camera, UNUSED Mat4 arg1, struct BananaActor* b
 
     f32 temp = is_within_render_distance(camera->pos, banana->pos, camera->rot[1], 0, camera->fieldOfView,
                                          490000.0f);
-    if (CVarGetInteger("gNoCulling", 0) == 1) {
+    if (CVarGetInteger("gNoCulling", 1) == 1) {
         temp = MAX(temp, 0.0f);
     }
     if (temp < 0.0f) {

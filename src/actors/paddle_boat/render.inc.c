@@ -32,7 +32,7 @@ void render_actor_paddle_boat(Camera* camera, struct PaddleWheelBoat* boat, UNUS
     temp = is_within_render_distance(camera->pos, boat->pos, camera->rot[1], 90000.0f, camera->fieldOfView,
                                      9000000.0f);
 
-    if (CVarGetInteger("gNoCulling", 0) == 1) {
+    if (CVarGetInteger("gNoCulling", 1) == 1) {
         temp = MAX(temp, 0.0f);
     }
 
