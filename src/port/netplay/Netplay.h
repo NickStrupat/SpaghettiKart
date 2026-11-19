@@ -77,6 +77,12 @@ extern "C" {
 /** Reads the environment. Call once after the engine has started. */
 void Netplay_Init(void);
 
+/**
+ * The build id the relay pairs players by (NetplayIdentity::GetBuildId: the commit, plus a hash of uncommitted
+ * changes), shown on the title screen so players can see why they are not matched.
+ */
+const char* Netplay_GetBuildId(void);
+
 /** Talks to the lobby and starts the session once its race has loaded. Call every frame after the gamestate update. */
 void Netplay_BeginFrame(void);
 

@@ -45,6 +45,7 @@
 #include "port/Engine.h"
 #include "port/Game.h"
 #include "port/netplay/OnlineMenu.h"
+#include "port/netplay/Netplay.h"
 #include "engine/editor/Editor.h"
 
 #include "engine/Matrix.h"
@@ -6399,7 +6400,8 @@ static void draw_version(void) {
     }
 
     set_text_color(TEXT_GREEN);
-    print_text1_right(column, 0xEA, SPAGHETTI_VERSION, 0, 0.5f, 0.5f);
+    // @port The netplay build id rather than the release tag: the relay pairs only players with the same one
+    print_text1_right(column, 0xEA, Netplay_GetBuildId(), 0, 0.5f, 0.5f);
 }
 
 #ifdef NON_MATCHING

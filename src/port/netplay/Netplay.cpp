@@ -18,6 +18,7 @@
 #include "SimArena.h"
 #include "SimState.h"
 #include "NetLog.h"
+#include "NetplayIdentity.h"
 #include "NetSession.h"
 #include "RaceConfig.h"
 #include "SoundRollback.h"
@@ -880,6 +881,11 @@ void InitLobbyTest(const char* relay) {
 }
 
 } // namespace
+
+extern "C" const char* Netplay_GetBuildId(void) {
+    static const std::string sBuildId = NetplayIdentity::GetBuildId();
+    return sBuildId.c_str();
+}
 
 extern "C" void Netplay_Init(void) {
     HangWatchdog::Start();
