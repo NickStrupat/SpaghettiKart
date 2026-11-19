@@ -78,6 +78,18 @@ void func_802818BC(void) {
     s32 sp1C;
     s32 temp_v0_2;
 
+    if (gPlayerCount > TWO_PLAYERS_SELECTED) {
+        // @port Grand Prix with 3 or more players: the ceremony follows the best-placed human
+        s32 best = 0;
+        for (s32 human = 1; human < gPlayerCount; human++) {
+            if (func_80281880(human) < func_80281880(best)) {
+                best = human;
+            }
+        }
+        D_802874D8.unk1D = func_80281880(best);
+        D_802874D8.unk1E = gCharacterSelections[best];
+        return;
+    }
     if (gPlayerCount != TWO_PLAYERS_SELECTED) {
         D_802874D8.unk1D = func_80281880(0);
         D_802874D8.unk1E = gCharacterSelections[0];

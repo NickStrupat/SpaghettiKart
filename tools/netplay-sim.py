@@ -82,6 +82,7 @@ EVENTS = {
     "finishes": r"Race: player \d+ finished",
     "eliminations": r"Race: player \d+ was eliminated",
     "races_over": r"Race: the race is over",
+    "cpus_racing": r"Race: (\d+) of \1 CPUs completed a lap",  # Every CPU in a Grand Prix race
     "podiums": r"Leaving the podium",
     "cups": r"PASS: The Grand Prix is over",
     "direct": r"Direct connection to slot \d+ at",
@@ -109,6 +110,8 @@ EVENTS = {event: re.compile(r"^\[Netplay\] " + pattern, re.MULTILINE) for event,
 # versus (or Mario GP), 150cc, OK; on character select, OK once both picked; then the course (cup) and OK.
 CONSOLE_2P_VS = "R_JPAD@60,A@90,D_JPAD@120,A@150,A@180,A@210,A@280,A@350,A@420,A@450,A@480"
 CONSOLE_2P_GP = "R_JPAD@60,A@90,A@120,A@150,A@180,A@250,A@320,A@390,A@420"
+# The same with 3P chosen on Game Select (a second R_JPAD), for Grand Prix with three players
+CONSOLE_3P_GP = "R_JPAD@60,R_JPAD@75,A@90,A@120,A@150,A@180,A@250,A@320,A@390,A@420"
 
 SCENARIOS = [
     Scenario("vs-2p", "2 players, versus, two full races, connected directly; each hears the other's engine", 2, "vs",
@@ -118,7 +121,11 @@ SCENARIOS = [
              track="mk:mario_raceway", series_races=1, peer_env={-1: {"SK_NETPLAY_TEST_ENGINES_AT": "300"}},
              expect={"races_over": 1, "finishes": 3, "engines": 1}),
     Scenario("gp-2p", "2 players and 6 CPUs, the Mushroom Cup twice, with the podium in between", 2, "gp", cup=0,
-             races=2, expect={"cups": 2, "races_over": 8, "podiums": 1}, timeout=600),
+             races=2, expect={"cups": 2, "races_over": 8, "podiums": 1, "cpus_racing": 8}, timeout=600),
+    Scenario("gp-3p", "3 players and 5 CPUs, the Flower Cup, with the podium", 3, "gp", cup=1,
+             expect={"cups": 1, "races_over": 4, "finishes": 3, "cpus_racing": 4}, timeout=600),
+    Scenario("gp-4p", "4 players and 4 CPUs, the Star Cup, with the podium", 4, "gp", cup=2,
+             expect={"cups": 1, "races_over": 4, "finishes": 4, "cpus_racing": 4}, timeout=600),
     Scenario("battle-2p", "2 players, Battle on Block Fort, until one is out", 2, "battle", track="mk:block_fort",
              series_races=1, expect={"eliminations": 1, "races_over": 1}),
     Scenario("battle-4p", "4 players, Battle on Big Donut, until one is left", 4, "battle", track="mk:big_donut",
@@ -205,6 +212,12 @@ SCENARIOS = [
              peer_env={-1: {"SK_NETPLAY_CONSOLE": "1"}, 0: {"SK_TEST_CONSOLE_INPUT": CONSOLE_2P_GP},
                        1: {"SK_TEST_CONSOLE_INPUT": "R_JPAD@260,A@280"}},
              expect={"consoles": 1, "cups": 1, "podiums": 1, "menus_in_sync": 1}, timeout=600),
+    Scenario("console-gp-3p", "3 players on a shared console: Grand Prix chosen on Game Select, the whole cup and "
+             "the podium", 3, "gp",
+             peer_env={-1: {"SK_NETPLAY_CONSOLE": "1"}, 0: {"SK_TEST_CONSOLE_INPUT": CONSOLE_3P_GP},
+                       1: {"SK_TEST_CONSOLE_INPUT": "R_JPAD@260,A@280"},
+                       2: {"SK_TEST_CONSOLE_INPUT": "R_JPAD@262,A@284"}},
+             expect={"consoles": 1, "cups": 1, "podiums": 1, "menus_in_sync": 1, "cpus_racing": 4}, timeout=600),
     Scenario("console-join", "A third player joins a shared console during its race: it waits, then everyone "
              "starts over on Game Select with three controllers", 3, "vs", series_races=1,
              peer_env={-1: {"SK_NETPLAY_CONSOLE": "1", "SK_NETPLAY_TEST_CONSOLE_PLAYERS": "2,3"},

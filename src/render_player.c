@@ -270,30 +270,18 @@ void init_render_player(Player* player, Camera* camera, s8 playerId, s8 screenId
 /**
  * This function used to be split for each player screen.
  * It is combined now.
- * 
- * Check buffers.c
- * // [nothing][screen][player]
- * ALIGNED8 struct_D_802DFB80 gEncodedKartTexture[2][2][8];
- * 
- * The buffer is sized for two screens. In 3P/4P mode, the player and screen indexes
- * need to be adjusted like so:
- * 
- * Screen 3 uses buffer[unused][screen 1][slots 5-8]
- * Screen 4 uses buffer[unused][screen 2][slots 5-8]
- * 
- * Due to this remapping, 3P/4P modes only support upto four racers.
- * 
+ *
+ * @port gEncodedKartTexture (buffers.c) has slots for four screens of eight karts. The N64 had room for two
+ * screens, so screens 3 and 4 used the slots of karts 5-8 on screens 1 and 2, and 3P/4P modes drew only four karts.
  */
 void load_kart_texture_and_render_kart_particles(s32 screenIdx) {
     s16 i;
-    s32 screenOffset = (screenIdx >= 2) ? -2: 0;
-    s32 playerOffset = (screenIdx >= 2) ? 4 : 0;
 
     load_kart_texture_non_blocking(
         gPlayersToRenderPlayer[0],
-        gPlayersToRenderPlayerId[0] + playerOffset,
+        gPlayersToRenderPlayerId[0],
         gPlayersToRenderScreenId[0],
-        gPlayersToRenderScreenId[0] + screenOffset,
+        gPlayersToRenderScreenId[0],
         D_801651D0[gPlayersToRenderScreenId[0]][gPlayersToRenderPlayerId[0]]
     );
 
@@ -302,33 +290,33 @@ void load_kart_texture_and_render_kart_particles(s32 screenIdx) {
     for (i = 1; i < gPlayersToRenderCount; i++) {
         load_kart_texture_non_blocking(
             gPlayersToRenderPlayer[i],
-            gPlayersToRenderPlayerId[i] + playerOffset,
+            gPlayersToRenderPlayerId[i],
             gPlayersToRenderScreenId[i],
-            gPlayersToRenderScreenId[i] + screenOffset,
+            gPlayersToRenderScreenId[i],
             D_801651D0[gPlayersToRenderScreenId[i]][gPlayersToRenderPlayerId[i]]
         );
 
         strcpy((char*) D_802BFB80
                    .arraySize8[D_801651D0[gPlayersToRenderScreenId[i - 1]][gPlayersToRenderPlayerId[i - 1]]]
-                              [gPlayersToRenderScreenId[i - 1] + screenOffset]
-                              [gPlayersToRenderPlayerId[i - 1] + playerOffset]
+                              [gPlayersToRenderScreenId[i - 1]]
+                              [gPlayersToRenderPlayerId[i - 1]]
                    .pixel_index_array,
                gEncodedKartTexture[D_801651D0[gPlayersToRenderScreenId[i - 1]][gPlayersToRenderPlayerId[i - 1]]]
-                                  [gPlayersToRenderScreenId[i - 1] + screenOffset]
-                                  [gPlayersToRenderPlayerId[i - 1] + playerOffset]
+                                  [gPlayersToRenderScreenId[i - 1]]
+                                  [gPlayersToRenderPlayerId[i - 1]]
                                       .unk_00);
     }
 
     strcpy((char*) D_802BFB80
                .arraySize8[D_801651D0[gPlayersToRenderScreenId[gPlayersToRenderCount - 1]]
                                      [gPlayersToRenderPlayerId[gPlayersToRenderCount - 1]]]
-                          [gPlayersToRenderScreenId[gPlayersToRenderCount - 1] + screenOffset]
-                          [gPlayersToRenderPlayerId[gPlayersToRenderCount - 1] + playerOffset]
+                          [gPlayersToRenderScreenId[gPlayersToRenderCount - 1]]
+                          [gPlayersToRenderPlayerId[gPlayersToRenderCount - 1]]
                .pixel_index_array,
            gEncodedKartTexture[D_801651D0[gPlayersToRenderScreenId[gPlayersToRenderCount - 1]]
                                          [gPlayersToRenderPlayerId[gPlayersToRenderCount - 1]]]
-                              [gPlayersToRenderScreenId[gPlayersToRenderCount - 1] + screenOffset]
-                              [gPlayersToRenderPlayerId[gPlayersToRenderCount - 1] + playerOffset]
+                              [gPlayersToRenderScreenId[gPlayersToRenderCount - 1]]
+                              [gPlayersToRenderPlayerId[gPlayersToRenderCount - 1]]
                                   .unk_00);
 }
 
@@ -355,12 +343,11 @@ void render_players(Camera* camera, s32 screenIdx) {
     init_render_player(gPlayerTwo, camera, PLAYER_TWO, screenIdx);
     init_render_player(gPlayerThree, camera, PLAYER_THREE, screenIdx);
     init_render_player(gPlayerFour, camera, PLAYER_FOUR, screenIdx);
-    if (gActiveScreenMode != SCREEN_MODE_3P_4P_SPLITSCREEN) {
-        init_render_player(gPlayerFive, camera, PLAYER_FIVE, screenIdx);
-        init_render_player(gPlayerSix, camera, PLAYER_SIX, screenIdx);
-        init_render_player(gPlayerSeven, camera, PLAYER_SEVEN, screenIdx);
-        init_render_player(gPlayerEight, camera, PLAYER_EIGHT, screenIdx);
-    }
+    // @port All eight karts on every screen; 3p/4p mode drew only the first four (no CPUs raced there)
+    init_render_player(gPlayerFive, camera, PLAYER_FIVE, screenIdx);
+    init_render_player(gPlayerSix, camera, PLAYER_SIX, screenIdx);
+    init_render_player(gPlayerSeven, camera, PLAYER_SEVEN, screenIdx);
+    init_render_player(gPlayerEight, camera, PLAYER_EIGHT, screenIdx);
 
     // This call moved here to sync kart texture and wheel texture tlut loading/rendering
     if (gPlayersToRenderCount != 0) {
@@ -371,12 +358,10 @@ void render_players(Camera* camera, s32 screenIdx) {
     try_rendering_player(gPlayerTwo, PLAYER_TWO, screenIdx);
     try_rendering_player(gPlayerThree, PLAYER_THREE, screenIdx);
     try_rendering_player(gPlayerFour, PLAYER_FOUR, screenIdx);
-    if (gActiveScreenMode != SCREEN_MODE_3P_4P_SPLITSCREEN) {
-        try_rendering_player(gPlayerFive, PLAYER_FIVE, screenIdx);
-        try_rendering_player(gPlayerSix, PLAYER_SIX, screenIdx);
-        try_rendering_player(gPlayerSeven, PLAYER_SEVEN, screenIdx);
-        try_rendering_player(gPlayerEight, PLAYER_EIGHT, screenIdx);
-    }
+    try_rendering_player(gPlayerFive, PLAYER_FIVE, screenIdx);
+    try_rendering_player(gPlayerSix, PLAYER_SIX, screenIdx);
+    try_rendering_player(gPlayerSeven, PLAYER_SEVEN, screenIdx);
+    try_rendering_player(gPlayerEight, PLAYER_EIGHT, screenIdx);
 
     // Old call which results in out of sync kart textures
     // load_kart_texture_and_render_kart_particle_on_screen_one();
@@ -384,12 +369,11 @@ void render_players(Camera* camera, s32 screenIdx) {
     render_kart_particles(gPlayerTwo, PLAYER_TWO, screenIdx);
     render_kart_particles(gPlayerThree, PLAYER_THREE, screenIdx);
     render_kart_particles(gPlayerFour, PLAYER_FOUR, screenIdx);
-    if (gActiveScreenMode != SCREEN_MODE_3P_4P_SPLITSCREEN) {
-        render_kart_particles(gPlayerFive, PLAYER_FIVE, screenIdx);
-        render_kart_particles(gPlayerSix, PLAYER_SIX, screenIdx);
-        render_kart_particles(gPlayerSeven, PLAYER_SEVEN, screenIdx);
-        render_kart_particles(gPlayerEight, PLAYER_EIGHT, screenIdx);
-    }
+    // @port Karts 5-8 race in 3p/4p Grand Prix too
+    render_kart_particles(gPlayerFive, PLAYER_FIVE, screenIdx);
+    render_kart_particles(gPlayerSix, PLAYER_SIX, screenIdx);
+    render_kart_particles(gPlayerSeven, PLAYER_SEVEN, screenIdx);
+    render_kart_particles(gPlayerEight, PLAYER_EIGHT, screenIdx);
     gPlayersToRenderCount = 0;
 }
 
@@ -545,12 +529,11 @@ void func_80021B0C(void) {
     func_8006E7CC(gPlayerTwo, 1, 0);
     func_8006E7CC(gPlayerThree, 2, 0);
     func_8006E7CC(gPlayerFour, 3, 0);
-    if (gActiveScreenMode != SCREEN_MODE_3P_4P_SPLITSCREEN) {
-        func_8006E7CC(gPlayerFive, 4, 0);
-        func_8006E7CC(gPlayerSix, 5, 0);
-        func_8006E7CC(gPlayerSeven, 6, 0);
-        func_8006E7CC(gPlayerEight, 7, 0);
-    }
+    // @port Karts 5-8 race in 3p/4p Grand Prix too
+    func_8006E7CC(gPlayerFive, 4, 0);
+    func_8006E7CC(gPlayerSix, 5, 0);
+    func_8006E7CC(gPlayerSeven, 6, 0);
+    func_8006E7CC(gPlayerEight, 7, 0);
     if (gGamestate == ENDING) {
         if (gPlayerOne->kartProps & UNUSED_0x2000) {
             render_player_shadow_credits(gPlayerOne, 0, 0);
@@ -572,12 +555,11 @@ void func_80021C78(void) {
     func_8006E848(gPlayerTwo, 1, 1);
     func_8006E848(gPlayerThree, 2, 1);
     func_8006E848(gPlayerFour, 3, 1);
-    if (gActiveScreenMode != SCREEN_MODE_3P_4P_SPLITSCREEN) {
-        func_8006E848(gPlayerFive, 4, 1);
-        func_8006E848(gPlayerSix, 5, 1);
-        func_8006E848(gPlayerSeven, 6, 1);
-        func_8006E848(gPlayerEight, 7, 1);
-    }
+    // @port Karts 5-8 race in 3p/4p Grand Prix too
+    func_8006E848(gPlayerFive, 4, 1);
+    func_8006E848(gPlayerSix, 5, 1);
+    func_8006E848(gPlayerSeven, 6, 1);
+    func_8006E848(gPlayerEight, 7, 1);
 }
 
 void func_80021D40(void) {
@@ -585,6 +567,11 @@ void func_80021D40(void) {
     func_8006E8C4(gPlayerTwo, 1, 2);
     func_8006E8C4(gPlayerThree, 2, 2);
     func_8006E8C4(gPlayerFour, 3, 2);
+    // @port Karts 5-8 race in 3p/4p Grand Prix too
+    func_8006E8C4(gPlayerFive, 4, 2);
+    func_8006E8C4(gPlayerSix, 5, 2);
+    func_8006E8C4(gPlayerSeven, 6, 2);
+    func_8006E8C4(gPlayerEight, 7, 2);
 }
 
 void func_80021DA8(void) {
@@ -592,6 +579,11 @@ void func_80021DA8(void) {
     func_8006E940(gPlayerTwo, 1, 3);
     func_8006E940(gPlayerThree, 2, 3);
     func_8006E940(gPlayerFour, 3, 3);
+    // @port Karts 5-8 race in 3p/4p Grand Prix too
+    func_8006E940(gPlayerFive, 4, 3);
+    func_8006E940(gPlayerSix, 5, 3);
+    func_8006E940(gPlayerSeven, 6, 3);
+    func_8006E940(gPlayerEight, 7, 3);
 }
 
 void mtxf_translate_rotate(Mat4 dest, Vec3f pos, Vec3s orientation) {
@@ -829,7 +821,11 @@ void func_8002276C(void) {
             }
             break;
         case SCREEN_MODE_3P_4P_SPLITSCREEN:
-            if ((VERSUS == gModeSelection) || (BATTLE == gModeSelection)) {
+            if (gModeSelection == GRAND_PRIX) { // @port 3p/4p Grand Prix: CPUs in karts 5-8 too
+                for (s32 i = 0; i < NUM_PLAYERS; i++) {
+                    func_80022A98(&gPlayers[i], i);
+                }
+            } else if ((VERSUS == gModeSelection) || (BATTLE == gModeSelection)) {
                 func_80022A98(gPlayerOne, 0);
                 func_80022A98(gPlayerTwo, 1);
                 func_80022A98(gPlayerThree, 2);
@@ -1356,17 +1352,9 @@ void render_kart(Player* player, s8 playerId, s8 screenId, s8 flipOffset) {
     }
     load_kart_palette(player, playerId, screenId, D_801651D0[screenId][playerId]);
     gPlayerPalette = &gPlayerPalettesList[D_801651D0[screenId][playerId]][screenId][playerId];
-    // When screenId >= 2 (in 3/4 player mode), adjust indices to fit gEncodedKartTexture[2][2][8] dimensions
-    if ((screenId == 0) || (screenId == 1)) {
-        load_kart_texture(player, playerId, screenId, screenId, D_801651D0[screenId][playerId]);
-    } else {
-        load_kart_texture(player, playerId - 4, screenId, screenId - 1, D_801651D0[screenId][playerId]);
-    }
-    if ((screenId == 0) || (screenId == 1)) {
-        sKartTexture = gEncodedKartTexture[D_801651D0[screenId][playerId]][screenId][playerId].unk_00;
-    } else {
-        sKartTexture = gEncodedKartTexture[D_801651D0[screenId][playerId]][screenId - 1][playerId - 4].unk_00;
-    }
+    // @port gEncodedKartTexture has slots for four screens; screens 3 and 4 no longer borrow other slots
+    load_kart_texture(player, playerId, screenId, screenId, D_801651D0[screenId][playerId]);
+    sKartTexture = gEncodedKartTexture[D_801651D0[screenId][playerId]][screenId][playerId].unk_00;
     mtxf_translate_rotate(mtx, sp154, sp14C);
     mtxf_scale(mtx, gCharacterSize[player->characterId] * player->size);
     convert_to_fixed_point_matrix(GetKartMatrix(playerId + (screenId * 8)), mtx);
@@ -1475,11 +1463,7 @@ void render_ghost(Player* player, s8 playerId, s8 screenId, s8 flipOffset) {
     gPlayerPalette =
         (struct_D_802F1F80*) &gPlayerPalettesList[D_801651D0[screenId][playerId]][screenId][playerId * 0x100];
 #endif
-    if ((screenId == 0) || (screenId == 1)) {
-        sKartTexture = gEncodedKartTexture[D_801651D0[screenId][playerId]][screenId][playerId].unk_00;
-    } else {
-        sKartTexture = gEncodedKartTexture[D_801651D0[screenId][playerId]][screenId - 1][playerId - 4].unk_00;
-    }
+    sKartTexture = gEncodedKartTexture[D_801651D0[screenId][playerId]][screenId][playerId].unk_00;
 
     mtxf_translate_rotate(mtx, spDC, spD4);
     mtxf_scale(mtx, gCharacterSize[player->characterId] * player->size);

@@ -810,7 +810,12 @@ void render_own_view_overlay(s32 playerId) {
     gSPClearGeometryMode(gDisplayListHead++, G_ZBUFFER);
     if (gIsHUDVisible != 0) {
         if ((D_801657D8 == 0) && (!gDemoMode) && own_view_shows_minimap(playerId)) {
+            // The minimap's drawing reads the player count and the screen mode: with 3 or 4 players, it puts the map
+            // in the middle of the screen or in the empty quarter whatever its position says, while the karts follow
+            // the position. Drawn as in a one-player race, both go where one player has them.
+            const s32 screenMode = gScreenModeSelection;
             gPlayerCount = 1;
+            gScreenModeSelection = SCREEN_MODE_1P;
             CM_GetProps()->Minimap.Pos[0].X = gMinimapOnePlayerX;
             CM_GetProps()->Minimap.Pos[0].Y = gMinimapOnePlayerY;
             func_8004EE54(0);
@@ -819,6 +824,7 @@ void render_own_view_overlay(s32 playerId) {
             }
             func_8004F3E4(0);
             CM_GetProps()->Minimap.Pos[0] = minimapPos;
+            gScreenModeSelection = screenMode;
             gPlayerCount = playerCount;
         }
         if ((D_8018D2A4 != 0) && (gModeSelection != BATTLE)) {

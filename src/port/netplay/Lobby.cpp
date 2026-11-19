@@ -661,9 +661,6 @@ std::string GetStartBlocker() {
     if (count < 2) {
         return "Waiting for another player to join";
     }
-    if ((sLobby.RoomSettings.Mode == GRAND_PRIX) && (count > 2)) {
-        return "Grand Prix allows at most 2 players";
-    }
     return "";
 }
 

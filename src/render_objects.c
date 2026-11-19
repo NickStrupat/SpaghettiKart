@@ -2454,9 +2454,20 @@ void func_8004E800(s32 playerId) {
 }
 
 void func_8004E998(s32 playerId) {
+    s32 rank = gGPCurrentRaceRankByPlayerId[playerId];
+
     if (playerHUD[playerId].unk_81 != 0) {
         FrameInterpolation_RecordOpenChild("Player place HUD2", playerId);
-        if (playerHUD[playerId].lapCount != 3) {
+        if (rank >= 4) {
+            // @port The big digits stop at 4: a 3 or 4 player Grand Prix, where CPUs race too, shows 5th to 8th with
+            // the one and two player labels instead.
+            func_8004A384(playerHUD[playerId].rankX + playerHUD[playerId].slideRankX,
+                          playerHUD[playerId].rankY + playerHUD[playerId].slideRankY, 0U,
+                          playerHUD[playerId].rankScaling, 0x000000FF,
+                          D_800E55F8[(playerHUD[playerId].lapCount != 3) ? rank : D_80165594], 0, 0x000000FF,
+                          (u8*) common_texture_hud_place[rank], D_0D0068F0, 0x00000080, 0x00000040, 0x00000080,
+                          0x00000040);
+        } else if (playerHUD[playerId].lapCount != 3) {
             func_8004A384(playerHUD[playerId].rankX + playerHUD[playerId].slideRankX,
                           playerHUD[playerId].rankY + playerHUD[playerId].slideRankY, 0U,
                           playerHUD[playerId].rankScaling, 0x000000FF,

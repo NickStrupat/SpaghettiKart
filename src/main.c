@@ -904,6 +904,13 @@ void race_render_own_view(s32 playerId) {
     s32 columns = 1;
     s32 rows = 1;
 
+    if ((gModeSelection == GRAND_PRIX) && (gRaceState == RACE_FINISHED) && (D_8015F894 != 0)) {
+        // The end of a Grand Prix race shrinks the screens into corners and draws the results and points in the
+        // others: everyone sees that shared screen, as a one-player race ends on two views and the results.
+        race_render_frame();
+        return;
+    }
+
     switch (gActiveScreenMode) {
         case SCREEN_MODE_2P_SPLITSCREEN_HORIZONTAL:
             mode = (playerId == 0) ? RENDER_SCREEN_MODE_2P_HORIZONTAL_PLAYER_ONE

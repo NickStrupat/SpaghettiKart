@@ -1539,11 +1539,14 @@ void update_player_path_completion(s32 playerId, Player* player) {
     }
     if ((player->type & PLAYER_HUMAN) && !(player->type & PLAYER_CPU)) {
         detect_wrong_player_direction(playerId, player);
-        if ((gModeSelection == GRAND_PRIX) && (gPlayerCount == 2) && (playerId == 0)) {
-            if (gGPCurrentRaceRankByPlayerIdDup[PLAYER_ONE] < gGPCurrentRaceRankByPlayerIdDup[PLAYER_TWO]) {
-                gBestRankedHumanPlayer = PLAYER_ONE;
-            } else {
-                gBestRankedHumanPlayer = PLAYER_TWO;
+        // @port Any number of human players (the original compared players one and two only); a tie goes to the
+        // later player, as it did.
+        if ((gModeSelection == GRAND_PRIX) && (gPlayerCount >= 2) && (playerId == 0)) {
+            gBestRankedHumanPlayer = PLAYER_ONE;
+            for (s32 human = 1; human < gPlayerCount; human++) {
+                if (gGPCurrentRaceRankByPlayerIdDup[human] <= gGPCurrentRaceRankByPlayerIdDup[gBestRankedHumanPlayer]) {
+                    gBestRankedHumanPlayer = human;
+                }
             }
         }
     } else {
@@ -1752,7 +1755,8 @@ void update_player(s32 playerId) {
                         regulate_cpu_speed(playerId, gPreviousCpuTargetSpeed[playerId], player);
                         return;
                     }
-                    if ((gPlayerCount > 0) && (gPlayerCount < 3) && (D_80163330[playerId] == 1) &&
+                    // @port Rivals catch up with any number of human players, not only one or two
+                    if ((gPlayerCount > 0) && (D_80163330[playerId] == 1) &&
                         (D_8016334C[playerId] < gGPCurrentRaceRankByPlayerId[playerId])) {
                         gPreviousCpuTargetSpeed[playerId] = 8.333333f;
                     } else if (D_80162FD0 == (s16) 1U) {
@@ -3385,7 +3389,9 @@ void func_8000F124(void) {
         while (1) {
             D_80163348[i] = random_int(8);
 
-            if (gPlayerCount > 2) {
+            // @port Rivals are CPUs the humans did not pick for any number of humans; the original took any
+            // character with 3 or 4 players, who had no Grand Prix. With 7 or 8 humans there are not two CPUs left.
+            if (i >= NUM_PLAYERS - gPlayerCount) {
                 break;
             }
             if (gPlayerCount < 1) {
@@ -3573,6 +3579,10 @@ void init_players(void) {
         if (gModeSelection == GRAND_PRIX) {
             for (i = 0; i < 2; i++) {
                 D_80163344[i] = gGetPlayerByCharacterId[D_80163348[i]];
+                // @port With 7 or 8 humans a rival can be a human's character; humans are never rivals.
+                if (gPlayers[D_80163344[i]].type & PLAYER_HUMAN) {
+                    continue;
+                }
                 D_80163330[D_80163344[i]] = 1;
                 D_8016334C[D_80163344[i]] = i;
             }

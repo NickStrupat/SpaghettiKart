@@ -272,6 +272,11 @@ void func_8006F8CC(void) {
         } else if (gPlayerCount == 3) {
             D_801657E8 = 0;
             D_801657F8 = 1;
+            // @port The progress line across the middle starts shown, as with four players (C-right still hides it)
+            if (gModeSelection != BATTLE) {
+                gHUDModes = 1;
+                D_801657F0 = 1;
+            }
         } else if (gPlayerCount == 2) {
             if (gModeSelection != (s32) 3) {
                 gHUDModes = 1;
@@ -976,7 +981,8 @@ void init_hud_three_four_player(void) {
     playerHUD[PLAYER_ONE].unknownScaling = playerHUD[PLAYER_TWO].unknownScaling =
         playerHUD[PLAYER_THREE].unknownScaling = playerHUD[PLAYER_FOUR].unknownScaling = 1.5f;
 
-    D_8018D158 = (s32) gPlayerCount;
+    // @port A 3 or 4 player Grand Prix shows all eight karts on the minimap, as the 1 and 2 player ones do
+    D_8018D158 = (gModeSelection == GRAND_PRIX) ? NUM_PLAYERS : (s32) gPlayerCount;
     D_8018D3C4 = 0x00000014;
     D_8018D3BC = 0x00000010;
     D_8018D3C0 = 0x0000001E;

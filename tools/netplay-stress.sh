@@ -24,7 +24,7 @@ echo "Logs: $OUT"
 # run <mode> <track> <players>
 run() {
     local mode=$1 track=$2 players=$3
-    local name=$mode-$track
+    local name=$mode-$track-${players}p
     local home=$OUT/home-$name
     mkdir -p "$home"
     cat > "$home/spaghettify.cfg.json" <<EOF
@@ -59,6 +59,10 @@ export OUT EXE FRAMES O2R
     done
     for track in luigi_raceway frappe_snowland royal_raceway rainbow_road; do
         echo "gp $track 2"
+    done
+    # Grand Prix with 4 players: 8 karts drawn on each of 4 screens
+    for track in moo_moo_farm bowsers_castle; do
+        echo "gp $track 4"
     done
 } | xargs -P "$JOBS" -L 1 bash -c 'run "$@"' _
 

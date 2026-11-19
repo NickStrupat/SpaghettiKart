@@ -40,6 +40,33 @@ const char* GetPlaceSuffix(s32 place) {
     }
 }
 
+/**
+ * In Grand Prix, how many CPU karts have completed a lap by the end of the race. Every CPU should have: a CPU that
+ * never moved (karts 5-8 of a 3 or 4 player race once did) still counts as in the race.
+ */
+void LogCpusRacing() {
+    if (gModeSelection != GRAND_PRIX) {
+        return;
+    }
+    s32 cpus = 0;
+    s32 racing = 0;
+    for (s32 i = gPlayerCountSelection1; i < NUM_PLAYERS; i++) {
+        if ((gPlayers[i].type & PLAYER_EXISTS) && (gPlayers[i].type & PLAYER_CPU)) {
+            cpus++;
+            if (gLapCountByPlayerId[i] >= 1) {
+                racing++;
+            } else {
+                const Player& cpu = gPlayers[i];
+                NetLog("Race: CPU in kart %d (character %d) never completed a lap: rank %d, at x %.0f z %.0f, "
+                       "speed %.2f, effects 0x%x",
+                       (int) i + 1, (int) cpu.characterId, (int) cpu.currentRank + 1, cpu.pos[0], cpu.pos[2],
+                       cpu.speed, (unsigned) cpu.effects);
+            }
+        }
+    }
+    NetLog("Race: %d of %d CPUs completed a lap", racing, cpus);
+}
+
 } // namespace
 
 namespace RaceEvents {
@@ -79,6 +106,7 @@ void Update(u32 frame) {
     sState.Paused = gIsGamePaused;
     if ((gRaceState != sState.RaceState) && (gRaceState == RACE_FINISHED)) {
         NetLog("Race: the race is over at frame %u", frame);
+        LogCpusRacing();
     }
     sState.RaceState = gRaceState;
 }

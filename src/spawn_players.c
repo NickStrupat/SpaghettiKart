@@ -699,6 +699,57 @@ void spawn_players_gp_two_player(f32* arg0, f32* arg1, f32 arg2) {
     func_80039AE4();
 }
 
+/**
+ * @port Grand Prix with three or more human players, which the original game does not offer. Players 1 to N are the
+ * humans; the CPUs drive the characters nobody picked, in an order rotated by a random start at the cup's first race
+ * and kept for the rest of the cup, as the one- and two-player versions keep theirs.
+ */
+void spawn_players_gp_many(f32* arg0, f32* arg1, f32 arg2) {
+    s32 humanCount = gPlayerCountSelection1;
+    s32 i;
+
+    func_80039DA4();
+    if ((GetCupCursorPosition() == TRACK_ONE) || (gDemoMode == 1) ||
+        (gDebugMenuSelection == DEBUG_MENU_OPTION_SELECTED)) {
+        s16 freeCharacters[NUM_PLAYERS];
+        s32 freeCount = 0;
+        s32 start;
+
+        for (s16 character = 0; character < NUM_PLAYERS; character++) {
+            bool taken = false;
+            for (i = 0; i < humanCount; i++) {
+                if (gCharacterSelections[i] == character) {
+                    taken = true;
+                }
+            }
+            if (!taken) {
+                freeCharacters[freeCount++] = character;
+            }
+        }
+        start = (freeCount > 0) ? random_int(freeCount) : 0;
+        for (i = 0; i < freeCount; i++) {
+            chooseCPUPlayers[i] = freeCharacters[(start + i) % freeCount];
+        }
+    }
+
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        f32 x = arg0[D_80165270[i]];
+        f32 z = arg1[D_80165270[i]];
+        if (i >= humanCount) {
+            spawn_player(&gPlayers[i], i, x, z, arg2, 32768.0f, chooseCPUPlayers[i - humanCount],
+                         (PLAYER_EXISTS | PLAYER_CPU | PLAYER_START_SEQUENCE));
+        } else if (gDemoMode == 1) {
+            spawn_player(&gPlayers[i], i, x, z, arg2, 32768.0f, gCharacterSelections[i], (PLAYER_HUMAN_AND_CPU));
+        } else {
+            spawn_player(&gPlayers[i], i, x, z, arg2, 32768.0f, gCharacterSelections[i],
+                         (PLAYER_EXISTS | PLAYER_START_SEQUENCE | PLAYER_HUMAN));
+        }
+    }
+
+    D_80164A28 = 0;
+    func_80039AE4();
+}
+
 void spawn_players_versus_two_player(f32* arg0, f32* arg1, f32 arg2) {
     spawn_player(gPlayerThree, 2, arg0[1], arg1[1], arg2, 32768.0f, gCharacterSelections[0],
                  PLAYER_START_SEQUENCE | PLAYER_CPU);
@@ -971,6 +1022,15 @@ void spawn_and_set_player_spawns(void) {
 
             case SCREEN_MODE_3P_4P_SPLITSCREEN:
                 switch (gModeSelection) {
+                    case GRAND_PRIX: // @port Same grid as the two-player Grand Prix
+                        D_80165210[0] = (D_80165210[2] = (D_80165210[4] = (D_80165210[6] = sp5E + 0x14)));
+                        D_80165210[1] = (D_80165210[3] = (D_80165210[5] = (D_80165210[7] = sp5E - 0x14)));
+                        for (s32 row = 0; row < NUM_PLAYERS; row++) {
+                            D_80165230[row] = sp5C + 0x1E + (row * 0x14);
+                        }
+                        spawn_players_gp_many(D_80165210, D_80165230, sp5A);
+                        break;
+
                     case VERSUS:
                         D_80165210[0] = sp5E + 0x1E;
                         D_80165210[6] = sp5E - 0xA;
@@ -1162,23 +1222,10 @@ void func_8003CD98(Player* player, Camera* camera, s8 playerId, s8 screenId) {
             func_8002D268(player, camera, screenId, playerId);
         }
         func_8002934C(player, camera, screenId, playerId);
-        if ((screenId == 0) || (screenId == 1)) {
-            load_kart_palette(player, playerId, screenId, 0);
-            load_kart_palette(player, playerId, screenId, 1);
-            load_kart_texture(player, playerId, screenId, screenId, 0);
-#ifdef TARGET_N64
-            mio0decode((u8*) &gEncodedKartTexture[0][screenId][playerId],
-                       (u8*) &D_802BFB80.arraySize8[0][screenId][playerId]);
-#endif
-        } else {
-            load_kart_palette(player, playerId, screenId, 0);
-            load_kart_palette(player, playerId, screenId, 1);
-            load_kart_texture(player, (s8) (playerId + 4), screenId, (s8) (screenId - 2), 0);
-#ifdef TARGET_N64
-            mio0decode((u8*) &gEncodedKartTexture[0][screenId - 2][playerId + 4],
-                       (u8*) &D_802BFB80.arraySize8[0][screenId - 2][playerId + 4]);
-#endif
-        }
+        // @port Every screen has its own kart texture slots (gEncodedKartTexture)
+        load_kart_palette(player, playerId, screenId, 0);
+        load_kart_palette(player, playerId, screenId, 1);
+        load_kart_texture(player, playerId, screenId, screenId, 0);
 
         gLastAnimFrameSelector[screenId][playerId] = player->animFrameSelector[screenId];
         gLastAnimGroupSelector[screenId][playerId] = player->animGroupSelector[screenId];
@@ -1348,8 +1395,7 @@ void spawn_multiplayer_cameras(u32 mode) {
 }
 
 /**
- * Loads 8 players per screen in 1p/2p mode
- * Loads 4 players per screen in 3p/4p mode
+ * Loads 8 players per screen. @port The original loaded only 4 per screen in 3p/4p mode.
  */
 void load_kart_textures(void) {
     size_t screens = 0;
@@ -1366,9 +1412,8 @@ void load_kart_textures(void) {
             break;
     }
 
-    static const size_t playerCounts[4] = { 8, 8, 4, 4 };
     for (size_t i = 0; i < screens; i++) {
-        for (size_t ply = 0; ply < playerCounts[gPlayerCountSelection1 - 1]; ply++) {
+        for (size_t ply = 0; ply < NUM_PLAYERS; ply++) {
             func_8003CD98(&gPlayers[ply], gScreenContexts[i].camera, ply, i);
         }
     }

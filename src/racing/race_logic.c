@@ -262,6 +262,24 @@ void func_8028E678(void) {
                 case SCREEN_MODE_2P_SPLITSCREEN_VERTICAL:
                     D_8015F894 = 6;
                     break;
+                case SCREEN_MODE_3P_4P_SPLITSCREEN:
+                    // @port Grand Prix with 3 or 4 players: end on the two-player layout below
+                    if (gPlayerCountSelection1 == 3) {
+                        func_800925CC();
+                    }
+                    D_8015F894 = 8;
+                    break;
+            }
+            break;
+        case 8:
+            // @port Players one and two keep their screens, top left and bottom right as at the end of a two-player
+            // race, and the results fill the other corners. Players three and four's screens go.
+            gActiveScreenMode = SCREEN_MODE_2P_SPLITSCREEN_VERTICAL;
+            gScreenTwoCtx->screenStartY += 4;
+            if (gScreenTwoCtx->screenStartY >= 180) {
+                gScreenTwoCtx->screenStartY = 180;
+                D_8015F894 = 7;
+                D_802BA030 = 3;
             }
             break;
         case 5:
@@ -470,6 +488,18 @@ f32 func_8028EE8C(s32 arg0) {
     return gCourseTimer - ((TRACK_TIMER_ITER_f * temp_f14) / (temp_f14 + temp_f16));
 }
 
+/**
+ * @port Whether every human player has crossed the finish line (Grand Prix with 3 or 4 players).
+ */
+static bool all_humans_finished(void) {
+    for (s32 human = 0; human < gPlayerCountSelection1; human++) {
+        if ((gPlayers[human].type & PLAYER_CINEMATIC_MODE) == 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
 void func_8028EEF0(s32 i) {
     gPlayers[i].type |= PLAYER_CINEMATIC_MODE;
 }
@@ -506,7 +536,8 @@ void func_8028EF28(void) {
                         D_802BA032 |= PLAYER_EXISTS;
                     }
 
-                    if (gModeSelection == GRAND_PRIX && gPlayerCountSelection1 == 2 && D_802BA048 == 0) {
+                    // @port Also with 3 or 4 players: the places are fixed once the first human finishes
+                    if (gModeSelection == GRAND_PRIX && gPlayerCountSelection1 >= 2 && D_802BA048 == 0) {
                         D_802BA048 = 1;
                     }
                     if ((gPlayers[i].type & PLAYER_INVISIBLE_OR_BOMB) == 0) {
@@ -983,6 +1014,21 @@ void func_8028FCBC(void) {
                                     gPlayerWinningIndex = 0;
                                 }
 
+                                func_8028E298();
+                                D_802BA038 = 600;
+                                gRaceState = RACE_FINISHED;
+                            }
+                            break;
+                        case SCREEN_MODE_3P_4P_SPLITSCREEN:
+                            // @port Grand Prix with 3 or 4 players ends once every human has finished. As with two,
+                            // gPlayerWinningIndex is the human who placed worst.
+                            if (all_humans_finished()) {
+                                gPlayerWinningIndex = PLAYER_ONE;
+                                for (s32 human = 1; human < gPlayerCountSelection1; human++) {
+                                    if (gPlayers[human].currentRank > gPlayers[gPlayerWinningIndex].currentRank) {
+                                        gPlayerWinningIndex = human;
+                                    }
+                                }
                                 func_8028E298();
                                 D_802BA038 = 600;
                                 gRaceState = RACE_FINISHED;

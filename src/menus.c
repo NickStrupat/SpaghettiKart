@@ -103,14 +103,14 @@ const s8 sScreenModePlayerTable[] = { SCREEN_MODE_1P, SCREEN_MODE_2P_SPLITSCREEN
 const s8 sScreenModePlayerCount[] = { 1, 2, 2, 3, 4 };
 
 // Set indexed slots numbers for one-two-three-four mode selection
-const s8 gPlayerModeSelection[] = { 1, 2, 1, 1 };
+const s8 gPlayerModeSelection[] = { 1, 2, 2, 2 }; // @port 3p and 4p add Grand Prix
 
 // Limit for each index column in one-two-three-four mode selection
 const s8 sGameModePlayerColumnDefault[][3] = {
     { 2, 1, 0 }, // 1p (GP options, TT options, ...)
     { 2, 2, 0 }, // 2p (GP options, VS options, Battle)
-    { 2, 0, 0 }, // 3p (VS options, Battle, ...)
-    { 2, 0, 0 }, // 4p (VS options, Battle, ...)
+    { 2, 2, 0 }, // 3p (GP options, VS options, Battle)
+    { 2, 2, 0 }, // 4p (GP options, VS options, Battle)
 };
 
 // Limit for each index column in one-two-three-four mode selection
@@ -118,16 +118,16 @@ const s8 sGameModePlayerColumnDefault[][3] = {
 const s8 sGameModePlayerColumnExtra[][3] = {
     { 3, 1, 0 }, // 1p (GP options, TT options, ...)
     { 3, 3, 0 }, // 2p (GP options, VS options, Battle)
-    { 3, 0, 0 }, // 3p (VS options, Battle, ...)
-    { 3, 0, 0 }, // 4p (VS options, Battle, ...)
+    { 3, 3, 0 }, // 3p (GP options, VS options, Battle)
+    { 3, 3, 0 }, // 4p (GP options, VS options, Battle)
 };
 
 // Modes to select in one-two-three-four mode selection
 const s32 gGameModePlayerSelection[][3] = {
     { GRAND_PRIX, TIME_TRIALS, 0x00000000 }, // 1p game modes
     { GRAND_PRIX, VERSUS, BATTLE },          // 2p game modes
-    { VERSUS, BATTLE, 0x00000000 },          // 3p game modes
-    { VERSUS, BATTLE, 0x00000000 },          // 4p game modes
+    { GRAND_PRIX, VERSUS, BATTLE },          // 3p game modes (@port: Grand Prix added)
+    { GRAND_PRIX, VERSUS, BATTLE },          // 4p game modes (@port: Grand Prix added)
 };
 
 // Map from character grid position id to character id

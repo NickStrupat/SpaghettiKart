@@ -443,7 +443,8 @@ void func_80028F70(void) {
             }
             break;
         case SCREEN_MODE_3P_4P_SPLITSCREEN:
-            for (size_t i = 0; i < 4; i++) {
+            // @port A 3 or 4 player Grand Prix has CPUs in karts 5-8 too
+            for (size_t i = 0; i < ((gModeSelection == GRAND_PRIX) ? NUM_PLAYERS : 4); i++) {
                 func_80028E70(&gPlayers[i], camera1, i, 0);
             }
             break;

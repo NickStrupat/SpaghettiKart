@@ -14,6 +14,7 @@ details live in the headers under `src/port/netplay/`, which each start with a d
 | Area | State |
 |---|---|
 | Versus 2–4 players, Battle 2–4, Grand Prix 1–2 players + CPUs (whole cups, podium) | Works, tested by the simulator and by hand |
+| Grand Prix 3–4 players + CPUs (the port's own: the original game had none) | Works in the simulator; not yet played by hand |
 | Rollback, desync detection | Works; an 8-frame rollback every frame stays in sync on every track and mode |
 | Desync recovery (everyone takes over the host's state, the race goes on) | Works, tested by the simulator on one Mac; not yet tried between two |
 | Room list, ONLINE screen (Z on Game Select), relay server | Works; tested with scripted buttons |
@@ -342,9 +343,9 @@ keep them on the relay do not hear each other, and the netplay window says so. A
 
 | Tool | What it does |
 |---|---|
-| `tools/netplay-sim.py` | Plays whole races, cups and battles between bot-driven copies of the game through a relay, fast-forwarded (about 70× real time), and checks that every peer stayed in sync and the races ended as expected. Shared-console scenarios drive the menus with scripted buttons and compare every menu frame. 33 scenarios, about 5 minutes. **Run it after any change to netplay, menu or simulation code.** |
+| `tools/netplay-sim.py` | Plays whole races, cups and battles between bot-driven copies of the game through a relay, fast-forwarded (about 70× real time), and checks that every peer stayed in sync and the races ended as expected. Shared-console scenarios drive the menus with scripted buttons and compare every menu frame. 36 scenarios, about 25 minutes. **Run it after any change to netplay, menu or simulation code.** |
 | Determinism harness | `SK_DETERMINISM_RECORD` / `_VERIFY` / `_ROLLBACK=8`: records a race's inputs and per-frame checksums, replays them, or rolls back 8 frames after every frame. See `DeterminismHarness.h`. |
-| `tools/netplay-stress.sh` | The rollback stress run on every track and arena, 4 at a time: 16 versus tracks, 4 battle arenas, 4 Grand Prix courses. Give it an AddressSanitizer build (below) to look for memory errors too. |
+| `tools/netplay-stress.sh` | The rollback stress run on every track and arena, 4 at a time: 16 versus tracks, 4 battle arenas, 4 Grand Prix courses with 2 players and 2 with 4. Give it an AddressSanitizer build (below) to look for memory errors too. |
 | `tools/netplay-relay/test_relay.py` | Protocol tests for the relay. |
 | `tools/netplay-diff.py` | Names the variables that differ between two peers' start states (`SK_NETPLAY_DUMP=1`) or in a rollback trace. |
 
@@ -489,8 +490,9 @@ Each of these cost a debugging round.
   macOS switches all sound to call quality), no keyboard shortcut for mute, and it pauses while the game thread stalls
   (a course loading). In a room where some pairs are relayed, those pairs do not hear each other while both hear the
   rest. iPhone Safari is not checked.
-- Own view: the end-of-race banners have not been checked visually; the one-player HUD's slide animations and the
-  progress-meter HUD mode are not there.
+- Own view: at the end of a Grand Prix race everyone sees the shared split-screen end (two screens in corners, the
+  results and points in the others), not their own view; the other end-of-race banners have not been checked
+  visually; the one-player HUD's slide animations and the progress-meter HUD mode are not there.
 - With "Hear only my player", another player's engine is heard, but their own voice and item sounds (their camera's)
   are not.
 - Shared console: while a menu frame waits for another player's input, the window shows the last frame and the game
