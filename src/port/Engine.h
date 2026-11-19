@@ -122,6 +122,8 @@ class GameEngine {
 extern "C" {
 #endif
 void GameEngine_ProcessGfxCommands(Gfx* commands);
+/** Ports 2 and up get the default gamepad bindings if they never had any (GamepadAssignment::AddGamepadDefaults). */
+void GameEngine_AddGamepadDefaults(void);
 uint32_t GameEngine_GetSampleRate();
 uint32_t GameEngine_GetSamplesPerFrame();
 float GameEngine_GetAspectRatio();

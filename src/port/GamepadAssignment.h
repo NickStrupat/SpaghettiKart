@@ -24,6 +24,14 @@ struct Gamepad {
     bool AnyButtonHeld;
 };
 
+/**
+ * Gives ports 2 and up the default gamepad bindings if they never had any. libultraship sets defaults on port 1 only,
+ * so a second player's gamepad did nothing until its bindings were set by hand. Keyboard and mouse stay port 1's
+ * (the same keys on every port would drive every player), and a new gamepad is still ignored by ports 2 and up until
+ * the Input Editor turns it on for one. Call once, after osContInit has loaded the saved bindings.
+ */
+void AddGamepadDefaults();
+
 /** Enforces the choice; call once per frame, as gamepads can connect and disconnect at any time. */
 void Apply();
 

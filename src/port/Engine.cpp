@@ -376,6 +376,10 @@ uint32_t GameEngine::GetInterpolationFrameCount() {
     return ceil((float) GetInterpolationFPS() / (60.0f / 2 /*gVIsPerFrame*/));
 }
 
+extern "C" void GameEngine_AddGamepadDefaults() {
+    GamepadAssignment::AddGamepadDefaults();
+}
+
 extern "C" uint32_t GameEngine_GetInterpolationFrameCount() {
     return GameEngine::GetInterpolationFrameCount();
 }

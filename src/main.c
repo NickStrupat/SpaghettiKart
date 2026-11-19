@@ -360,6 +360,7 @@ void init_controllers(void) {
     osCreateMesgQueue(&gSIEventMesgQueue, &gSIEventMesgBuf[0], ARRAY_COUNT(gSIEventMesgBuf));
     osSetEventMesg(OS_EVENT_SI, &gSIEventMesgQueue, OS_MESG_32(0x33333333));
     osContInit(&gSIEventMesgQueue, &gControllerBits, gControllerStatuses);
+    GameEngine_AddGamepadDefaults();
     if ((gControllerBits & 1) == 0) {
         sIsController1Unplugged = true;
     } else {

@@ -34,6 +34,16 @@ std::string sAppliedChoice;
 
 } // namespace
 
+void AddGamepadDefaults() {
+    auto controlDeck = Ship::Context::GetRawInstance()->GetControlDeck();
+    for (uint8_t port = 1; port < MAXCONTROLLERS; port++) {
+        auto controller = controlDeck->GetControllerByPort(port);
+        if (!controller->HasConfig()) {
+            controller->AddDefaultMappings(Ship::PhysicalDeviceType::SDLGamepad);
+        }
+    }
+}
+
 void Apply() {
     const std::string choice = CVarGetString(kCVar, "");
     if (choice.empty() && sAppliedChoice.empty()) {
