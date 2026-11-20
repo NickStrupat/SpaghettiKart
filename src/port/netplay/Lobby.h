@@ -38,7 +38,7 @@ constexpr const char* kDirectConnectCVar = "gNetplay.DirectConnect";
 /** This player's name, shown to the other players and, for a host, in the room list. */
 constexpr const char* kNameCVar = "gNetplay.Name";
 /** The most players one computer brings to a room: one per controller port. */
-constexpr s32 kMaxLocalPlayers = 4;
+constexpr s32 kMaxLocalPlayers = MAXCONTROLLERS;
 /**
  * Tests: this many players on this computer, on ports 1 to N, as test runs have no gamepads to count. Without it the
  * players are counted from the controllers (GetLocalPorts).

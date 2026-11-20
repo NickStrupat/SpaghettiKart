@@ -75,6 +75,8 @@ endif()
 # Removes MPQ/OTR support
 set(EXCLUDE_MPQ_SUPPORT TRUE CACHE BOOL "")
 set(ENABLE_EXP_AUTO_CONFIGURE_CONTROLLERS ON CACHE BOOL "")
+# Eight controller ports, one per player (NUM_PLAYERS): 5 to 8 players on one computer.
+set(LUS_MAX_PORTS 8 CACHE STRING "")
 target_compile_definitions(${PROJECT_NAME} PRIVATE EXCLUDE_MPQ_SUPPORT)
 
 target_include_directories(

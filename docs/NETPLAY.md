@@ -15,7 +15,7 @@ details live in the headers under `src/port/netplay/`, which each start with a d
 |---|---|
 | Versus 2–4 players, Battle 2–4, Grand Prix 1–2 players + CPUs (whole cups, podium) | Works, tested by the simulator and by hand |
 | Grand Prix 3–4 players + CPUs (the port's own: the original game had none) | Works in the simulator; not yet played by hand |
-| 5–8 players: Versus, Battle, Grand Prix + CPUs, in an eight-screen split (`SCREEN_MODE_8P`) | Works in the simulator (`gp-5p`, `battle-6p`, `room-8`) and the rollback stress run; not yet played by hand. Online each computer shows its own player full screen; between Grand Prix races, the results and points show on players 1 and 2's screens, as with 3 and 4 |
+| 5–8 players: Versus, Battle, Grand Prix + CPUs, in an eight-screen split (`SCREEN_MODE_8P`), from up to 8 controllers on one computer | Works in the simulator (`gp-5p`, `battle-6p`, `room-8`, `local-6p`) and the rollback stress run; not yet played by hand. Online each computer shows its own player full screen; between Grand Prix races, the results and points show on players 1 and 2's screens, as with 3 and 4 |
 | Rollback, desync detection | Works; an 8-frame rollback every frame stays in sync on every track and mode |
 | Desync recovery (everyone takes over the host's state, the race goes on) | Works, tested by the simulator on one Mac; not yet tried between two |
 | Room list, ONLINE screen (Z on Game Select), relay server | Works; tested with scripted buttons |
@@ -54,7 +54,7 @@ details live in the headers under `src/port/netplay/`, which each start with a d
    each player moves their own character cursor.
 5. **Z** on Game Select (now **LEAVE**) leaves the room and comes back to the ONLINE screen.
 
-A room holds 8 players; a computer brings one player per controller port in use, up to 4. All 8 can race: 5 to 8
+A room holds 8 players; a computer brings one player per controller port in use, up to 8. All 8 can race: 5 to 8
 players share the console's screen in a 3x2 or 4x2 grid (an odd count leaves a cell for the minimap), and each
 computer shows its own player full screen, as with fewer. Game Select offers no more
 players than the room has, and players beyond the chosen player count sit the race out and watch player 1. OPTION, DATA and Time Trials are not
@@ -131,9 +131,14 @@ Made by the fork's owner, in this order. Later work assumes them.
 11. **5 to 8 players from [chrisgilpin/MK64-8p-local](https://github.com/chrisgilpin/MK64-8p-local)** (2026-11-20):
     a fork of the same upstream with local 8-player split screen. Its 8-player commits were cherry-picked (author
     kept, `cherry picked from` noted), and only those: not its custom tracks and cups, 400cc, item balance, track
-    editor, debug keyboard shortcuts, or its libultraship changes, which are not published (so controller ports 5 to
-    8 are still to do). Where it overlapped the port's own 3-4 player Grand Prix, the port's version was kept. Its
+    editor, debug keyboard shortcuts, or its libultraship changes, which are not published (controller ports 5 to 8
+    came later from the owner's libultraship fork, decision 12). Where it overlapped the port's own 3-4 player Grand Prix, the port's version was kept. Its
     `docs/8P-STATUS.md` lists the bug classes it met; the pitfall below adds the ones found adopting it.
+12. **libultraship from the owner's fork** (2026-11-20): controller ports 5 to 8 need libultraship's ControlDeck to
+    have 8 ports. The submodule follows branch `eight-ports` of
+    [NickStrupat/libultraship](https://github.com/NickStrupat/libultraship), upstream plus one commit: a
+    `LUS_MAX_PORTS` CMake setting (default 4) that sets `MAXCONTROLLERS`, the ports that ignore a new gamepad, and the
+    Input Editor's port tabs. The game sets it to 8 (`cmake/dependencies/common.cmake`). It can go upstream as a PR.
 
 ## How it works
 
@@ -359,7 +364,7 @@ keep them on the relay do not hear each other, and the netplay window says so. A
 
 | Tool | What it does |
 |---|---|
-| `tools/netplay-sim.py` | Plays whole races, cups and battles between bot-driven copies of the game through a relay, fast-forwarded (about 70× real time), and checks that every peer stayed in sync and the races ended as expected. Shared-console scenarios drive the menus with scripted buttons and compare every menu frame. 36 scenarios, run side by side: about 25 minutes on a 10-core Mac (see "Keeping the simulator fast"). **Run it after any change to netplay, menu or simulation code.** |
+| `tools/netplay-sim.py` | Plays whole races, cups and battles between bot-driven copies of the game through a relay, fast-forwarded (about 70× real time), and checks that every peer stayed in sync and the races ended as expected. Shared-console scenarios drive the menus with scripted buttons and compare every menu frame. 37 scenarios, run side by side: about 10 minutes on a 10-core Mac (see "Keeping the simulator fast"). **Run it after any change to netplay, menu or simulation code.** |
 | Determinism harness | `SK_DETERMINISM_RECORD` / `_VERIFY` / `_ROLLBACK=8`: records a race's inputs and per-frame checksums, replays them, or rolls back 8 frames after every frame. See `DeterminismHarness.h`. |
 | `tools/netplay-stress.sh` | The rollback stress run on every track and arena, 4 at a time: 16 versus tracks, 4 battle arenas, 4 Grand Prix courses with 2 players and 2 with 4, and 4 races with 5 to 8 players. Give it an AddressSanitizer build (below) to look for memory errors too. |
 | `tools/netplay-relay/test_relay.py` | Protocol tests for the relay. |
@@ -470,6 +475,11 @@ Each of these cost a debugging round.
   for 5 players, which spawned player 5 as nothing, and the controllers combined into "any controller" (results and
   menus) and the determinism harness's pads, both still 4. Search for `4` and `< 5` in any per-player code you touch, local
   arrays included, and test with 5 or 6 players, not only 8: half-filled grids find the "every slot is a player" bugs.
+
+- **libultraship's `Config::GetInt` / `GetFloat` rebuild the whole settings JSON on every call.** Fine once, ruinous
+  per frame: `GameplayCVarOverride::KeepPlayerValuesSaved()`, run every frame of a room, made a dozen such calls and
+  took 80% of a simulated frame once the 8 controller ports' bindings were in the file (2026-11-20; a stress race
+  went from 45 s to 8 s after it read `GetNestedJson()` once instead). Read per-frame settings from one copy.
 
 - **Draw code changes simulation state** (`init_render_player()`, results-screen menu items, the GP points count).
   Never skip drawing a simulated frame. Settings that change drawing change that state too: `gNoCulling` and
@@ -593,9 +603,9 @@ Each of these cost a debugging round.
   waiting for the other; the room then waits for both.
 - The room code on Game Select uses small 10-pixel arrows beside Z LEAVE, the only free place; at the N64's
   resolution they are small.
-- 5 to 8 players: one computer still has only 4 controller ports (libultraship's ControlDeck), so 5 to 8 local
-  players need the plan's Phase D. The fork's own between-race points screen and 5 to 8 player menu art were not
-  taken: the results reuse the 3 and 4 player path, and a room picks its player count from the controllers.
+- 5 to 8 players: controllers 5 to 8 have been tested only with scripted input (`local-6p`), not real gamepads.
+  The fork's own between-race points screen and 5 to 8 player menu art were not taken: the results reuse the 3 and
+  4 player path, and a room picks its player count from the controllers.
 - libultraship's renderer reads past two texture buffers (`ImportTextureI4` at boot, `gfx_load_tlut` on some
   courses), reported by AddressSanitizer on every run; not netplay's, not fixed.
 

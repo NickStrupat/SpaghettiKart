@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <array>
 #include <optional>
 #include <string>
 #include <thread>
@@ -47,7 +48,7 @@ constexpr u8 kMaxMenuInputDelay = 6;
 constexpr f32 kFrameMs = 1000.0f / 30.0f;
 // Lobby tests watch this much of the podium after a Grand Prix: 15 s.
 constexpr u32 kTestPodiumFrames = 450;
-constexpr s32 kNumControllers = 4;
+constexpr s32 kNumControllers = MAXCONTROLLERS;
 // SK_TEST_INPUT holds each button press this many frames, so the menus see it whatever frame they check on.
 constexpr u32 kTestPressFrames = 2;
 constexpr u32 kTestLingerFrames = 60;
@@ -128,7 +129,8 @@ struct NetplayState {
     std::vector<TestPress> TestInput;        // SK_TEST_INPUT
     std::vector<TestButtons> TestRaceInput;  // SK_NETPLAY_TEST_RACE_INPUT
     std::vector<TestPress> TestConsoleInput; // SK_TEST_CONSOLE_INPUT
-    std::vector<TestPress> TestConsoleInput2; // SK_TEST_CONSOLE_INPUT_2: this computer's second player, controller 2
+    // SK_TEST_CONSOLE_INPUT_<n>: this computer's nth player, on controller n (2 and up; entry 0 is unused)
+    std::array<std::vector<TestPress>, kNumControllers> TestConsoleInputs;
     bool LocalZHeld = false;          // On a console's Game Select, pressing Z leaves the room
     bool ReturnToOnlineMenu = false;  // After leaving a room, the menus reset to the ONLINE screen
     u32 GameFrames = 0;               // Game frames run since boot
@@ -303,10 +305,14 @@ void ApplyTestInput(OSContPad* pad) {
     }
 }
 
-/** Adds what SK_TEST_CONSOLE_INPUT_2 holds on this game frame to controller 2, this computer's second player. */
-void ApplySecondPlayerTestInput(OSContPad* pad) {
-    if (sConsole.Active) {
-        ApplyTestPresses(sNetplay.TestConsoleInput2, sNetplay.GameFrames - sNetplay.ConsoleStartFrame, pad);
+/** Adds what SK_TEST_CONSOLE_INPUT_<n> holds on this game frame to controller n, this computer's nth player. */
+void ApplyOtherPlayersTestInput(OSContPad* pads) {
+    if (!sConsole.Active) {
+        return;
+    }
+    for (s32 port = 1; port < kNumControllers; port++) {
+        ApplyTestPresses(sNetplay.TestConsoleInputs[port], sNetplay.GameFrames - sNetplay.ConsoleStartFrame,
+                         &pads[port]);
     }
 }
 
@@ -707,8 +713,10 @@ void StartConsole(const Lobby::ConsoleStart& start) {
     for (TestPress& press : sNetplay.TestConsoleInput) {
         press.FramesHeld = 0;
     }
-    for (TestPress& press : sNetplay.TestConsoleInput2) {
-        press.FramesHeld = 0;
+    for (std::vector<TestPress>& input : sNetplay.TestConsoleInputs) {
+        for (TestPress& press : input) {
+            press.FramesHeld = 0;
+        }
     }
     NetLog("Console %u: player %d of %zu", start.Id, start.LocalPlayer + 1, start.Slots.size());
     StartConsoleMenus(1, true);
@@ -914,8 +922,11 @@ extern "C" void Netplay_Init(void) {
     if (const char* input = GetEnv("SK_TEST_CONSOLE_INPUT")) {
         sNetplay.TestConsoleInput = ParseTestInput(input);
     }
-    if (const char* input = GetEnv("SK_TEST_CONSOLE_INPUT_2")) {
-        sNetplay.TestConsoleInput2 = ParseTestInput(input);
+    for (s32 port = 1; port < kNumControllers; port++) {
+        const std::string name = "SK_TEST_CONSOLE_INPUT_" + std::to_string(port + 1);
+        if (const char* input = GetEnv(name.c_str())) {
+            sNetplay.TestConsoleInputs[port] = ParseTestInput(input);
+        }
     }
     if (const char* logPath = GetEnv("SK_NETPLAY_LOG")) {
         sNetplay.LogPath = logPath;
@@ -1010,7 +1021,7 @@ extern "C" void Netplay_BeginFrame(void) {
                 Lobby::Leave();
             }
         }
-        ApplySecondPlayerTestInput(&pads[1]);
+        ApplyOtherPlayersTestInput(pads);
         OSContPad localPads[kNumControllers];
         GatherLocalPads(pads, localPads);
         MenuSession::BeginFrame(localPads);

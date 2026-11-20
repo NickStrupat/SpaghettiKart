@@ -126,6 +126,9 @@ CONSOLE_4P_VS = "R_JPAD@60,R_JPAD@70,R_JPAD@80,A@90,D_JPAD@120,A@150,A@180,A@210
 # 8P on Game Select (seven R_JPADs), then on as CONSOLE_4P_VS
 CONSOLE_8P_VS = ("R_JPAD@40,R_JPAD@45,R_JPAD@50,R_JPAD@55,R_JPAD@60,R_JPAD@65,R_JPAD@70,A@90,D_JPAD@120,A@150,A@180,"
                  "A@210,A@280,A@350,A@420,A@450,A@480")
+# 7P on Game Select (six R_JPADs), then on as CONSOLE_4P_VS
+CONSOLE_7P_VS = ("R_JPAD@40,R_JPAD@45,R_JPAD@50,R_JPAD@55,R_JPAD@60,R_JPAD@65,A@90,D_JPAD@120,A@150,A@180,"
+                 "A@210,A@280,A@350,A@420,A@450,A@480")
 
 SCENARIOS = [
     Scenario("vs-2p", "2 players, versus, two full races, connected directly; each hears the other's engine", 2, "vs",
@@ -149,8 +152,9 @@ SCENARIOS = [
              series_races=1, expect={"eliminations": 1, "races_over": 1}, quiet_limit=180),
     Scenario("battle-4p", "4 players, Battle on Big Donut, until one is left", 4, "battle", track="mk:big_donut",
              series_races=1, expect={"eliminations": 3, "races_over": 1}),
-    Scenario("battle-6p", "6 players, Battle on Double Deck, until one is left", 6, "battle", track="mk:double_deck",
-             series_races=1, expect={"eliminations": 5, "races_over": 1}),
+    # On Big Donut: on Double Deck's two floors the last two bots could go 10000 frames without meeting.
+    Scenario("battle-6p", "6 players, Battle on Big Donut, until one is left", 6, "battle", track="mk:big_donut",
+             series_races=1, expect={"eliminations": 5, "races_over": 1}, timeout=420),
     Scenario("restart", "2 players, versus; the host restarts the race twice", 2, "vs", track="mk:royal_raceway",
              series_races=2, peer_env={0: {"SK_NETPLAY_TEST_CONTROLS": "restart@400"}}, expect={"segments": 3}),
     Scenario("guest-leaves", "3 players, versus; player 3 leaves mid-race and everyone returns to the room", 3, "vs",
@@ -230,6 +234,15 @@ SCENARIOS = [
                        0: {"SK_TEST_LOCAL_PLAYERS": "2", "SK_TEST_CONSOLE_INPUT": CONSOLE_3P_VS, "SK_TEST_CONSOLE_INPUT_2": "R_JPAD@290,A@310"},
                        1: {"SK_TEST_CONSOLE_INPUT": "R_JPAD@292,A@314"}},
              expect={"consoles": 1, "races_over": 1, "finishes": 1, "menus_in_sync": 1, "laps": 9}),
+    # Each player picks a character as in room-8: player p (from 0) presses right, then A, a little after the last.
+    Scenario("local-6p", "2 computers, 7 players: the first has 6 (controllers 1 to 6) and the second 1; a 7-player "
+             "versus race from the shared console's menus", 2, "vs", series_races=1,
+             peer_env={-1: {"SK_NETPLAY_CONSOLE": "1"},
+                       0: {"SK_TEST_LOCAL_PLAYERS": "6", "SK_TEST_CONSOLE_INPUT": CONSOLE_7P_VS,
+                           **{f"SK_TEST_CONSOLE_INPUT_{p + 1}": f"R_JPAD@{288 + 2 * p},A@{306 + 4 * p}"
+                              for p in range(1, 6)}},
+                       1: {"SK_TEST_CONSOLE_INPUT": "R_JPAD@300,A@330"}},
+             expect={"consoles": 1, "races_over": 1, "finishes": 1, "menus_in_sync": 1}),
     Scenario("console-gp", "2 players on a shared console: a whole Grand Prix from the menus, the podium, then "
              "Game Select again", 2, "gp",
              peer_env={-1: {"SK_NETPLAY_CONSOLE": "1"}, 0: {"SK_TEST_CONSOLE_INPUT": CONSOLE_2P_GP},

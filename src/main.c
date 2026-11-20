@@ -133,9 +133,9 @@ OSMesg gSIEventMesgBuf[3];
 OSContStatus gControllerStatuses[NUM_PLAYERS];
 OSContPad gControllerPads[NUM_PLAYERS];
 
-/* @port libultraship's ControlDeck still has four ports, so only the first four
- * entries are filled; ports five to eight are for later (eight-players plan,
- * Phase D), and must not exceed NUM_PLAYERS when they come. */
+/* @port libultraship's ControlDeck has one port per player (LUS_MAX_PORTS in
+ * cmake/dependencies/common.cmake), so all eight entries are filled. */
+_Static_assert(MAXCONTROLLERS <= NUM_PLAYERS, "gControllerPads needs an entry for every ControlDeck port");
 u8 gControllerBits;
 NOT_SIM_STATE_END
 // Contains a 32x32 grid of indices into gCollisionIndices containing indices into gCollisionMesh

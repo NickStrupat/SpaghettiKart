@@ -1,5 +1,6 @@
 #include "RaceConfig.h"
 
+#include <algorithm>
 #include <climits>
 #include <cmath>
 #include <cstdlib>
@@ -286,17 +287,41 @@ void GameplayCVarOverride::Restore() {
 std::array<GameplayCVarOverride::SavedCVar, kNumGameplayIntCVars> GameplayCVarOverride::sPlayerInts = {};
 std::array<GameplayCVarOverride::SavedCVar, kNumGameplayFloatCVars> GameplayCVarOverride::sPlayerFloats = {};
 
+namespace {
+
+/** @returns the setting at this dotted key ("CVars.gName") in the settings file's JSON, or nullptr. */
+const nlohmann::json* FindSetting(const nlohmann::json& settings, const std::string& key) {
+    const nlohmann::json* node = &settings;
+    size_t start = 0;
+    while (start <= key.size()) {
+        const size_t dot = std::min(key.find('.', start), key.size());
+        const std::string part = key.substr(start, dot - start);
+        if (!node->is_object() || !node->contains(part)) {
+            return nullptr;
+        }
+        node = &(*node)[part];
+        start = dot + 1;
+    }
+    return node;
+}
+
+} // namespace
+
 void GameplayCVarOverride::KeepPlayerValuesSaved() {
     if (sNumActiveOverrides == 0) {
         return;
     }
     // Reads the settings as last loaded or saved, not the live CVars. The defaults below stand for "not in the file".
+    // One copy of the file for every lookup: Config::GetInt() rebuilds the whole file's JSON on each call, which, every
+    // frame of a room, came to most of the frame once the eight controller ports' bindings were in the file.
     std::shared_ptr<Ship::Config> settings = Ship::Context::GetRawInstance()->GetConfig();
+    const nlohmann::json file = settings->GetNestedJson();
     bool changed = false;
     for (size_t i = 0; i < kGameplayIntCVars.size(); i++) {
         const std::string key = std::string("CVars.") + kGameplayIntCVars[i].Name;
         const SavedCVar& player = sPlayerInts[i];
-        const s32 saved = settings->GetInt(key, INT32_MIN);
+        const nlohmann::json* value = FindSetting(file, key);
+        const s32 saved = ((value != nullptr) && value->is_number_integer()) ? value->get<s32>() : INT32_MIN;
         if (player.Existed && (saved != player.IntValue)) {
             settings->SetInt(key, player.IntValue);
             changed = true;
@@ -308,7 +333,8 @@ void GameplayCVarOverride::KeepPlayerValuesSaved() {
     for (size_t i = 0; i < kGameplayFloatCVars.size(); i++) {
         const std::string key = std::string("CVars.") + kGameplayFloatCVars[i].Name;
         const SavedCVar& player = sPlayerFloats[i];
-        const f32 saved = settings->GetFloat(key, NAN);
+        const nlohmann::json* value = FindSetting(file, key);
+        const f32 saved = ((value != nullptr) && value->is_number_float()) ? value->get<f32>() : NAN;
         if (player.Existed && (std::isnan(saved) || (saved != player.FloatValue))) {
             settings->SetFloat(key, player.FloatValue);
             changed = true;

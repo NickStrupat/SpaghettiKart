@@ -15,6 +15,9 @@ cmake --build build-web                      # the browser build: build-web/web/
 
 The game needs the extracted `mk64.o2r` (on macOS in `~/Library/Application Support/SpaghettiKart/`).
 
+The `libultraship` submodule is the owner's fork, branch `eight-ports` (upstream plus 8 controller ports, see
+decision 12 in `docs/NETPLAY.md`).
+
 The app targets macOS 15 (`CMAKE_OSX_DEPLOYMENT_TARGET` in `CMakeLists.txt`) and bundles its libraries, so it can be
 copied to another Mac. Homebrew's SDL2 and libzip only run on the newest macOS; `build-cmake` is configured against
 copies built by `tools/macos-build-deps.sh` instead (see `docs/BUILDING.md`). Check a build with
@@ -25,7 +28,7 @@ copies built by `tools/macos-build-deps.sh` instead (see `docs/BUILDING.md`). Ch
 Any change to simulation code (anything under `src/` that runs during a race) or to `src/port/netplay/` can break
 determinism, which only shows up between two running games.
 
-1. `python3 tools/netplay-sim.py`: 36 scenarios, run side by side, about 25 minutes; every one must pass. Changes to the menus count
+1. `python3 tools/netplay-sim.py`: 37 scenarios, run side by side, about 10 minutes; every one must pass. Changes to the menus count
    too: a room's shared console runs them in lockstep.
 2. For relay or protocol changes: `python3 tools/netplay-relay/test_relay.py build-relay/netplay-relay`.
 3. For a new kind of race state, or memory handling: `tools/netplay-stress.sh`, the rollback stress run on every track

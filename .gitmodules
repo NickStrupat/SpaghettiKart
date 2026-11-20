@@ -6,7 +6,8 @@
 	url = https://github.com/HarbourMasters/Torch
 [submodule "libultraship"]
 	path = libultraship
-	url = https://github.com/Kenix3/libultraship
+	url = https://github.com/NickStrupat/libultraship
+	# The owner's fork: branch eight-ports adds LUS_MAX_PORTS (8 controller ports) on top of upstream.
 [submodule "lib/wasm-micro-runtime"]
 	path = lib/wasm-micro-runtime
 	url = https://github.com/bytecodealliance/wasm-micro-runtime.git
