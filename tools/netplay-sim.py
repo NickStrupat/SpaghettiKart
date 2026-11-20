@@ -220,9 +220,8 @@ SCENARIOS = [
              expect={"consoles": 1, "races_over": 1, "finishes": 1, "menus_in_sync": 1}, timeout=420),
     Scenario("local-2p", "2 computers, 3 players: the first has 2 players (controllers 1 and 2) and the second 1; a "
              "3-player versus race from the shared console's menus", 2, "vs", series_races=1,
-             peer_cvars={0: {"gNetplay.LocalPlayers": 2}},
              peer_env={-1: {"SK_NETPLAY_CONSOLE": "1"},
-                       0: {"SK_TEST_CONSOLE_INPUT": CONSOLE_3P_VS, "SK_TEST_CONSOLE_INPUT_2": "R_JPAD@290,A@310"},
+                       0: {"SK_TEST_LOCAL_PLAYERS": "2", "SK_TEST_CONSOLE_INPUT": CONSOLE_3P_VS, "SK_TEST_CONSOLE_INPUT_2": "R_JPAD@290,A@310"},
                        1: {"SK_TEST_CONSOLE_INPUT": "R_JPAD@292,A@314"}},
              expect={"consoles": 1, "races_over": 1, "finishes": 1, "menus_in_sync": 1, "laps": 9}),
     Scenario("console-too-many", "2 players on a shared console try a 3-player game: Game Select refuses it (the room "

@@ -615,24 +615,20 @@ void DrawControllerChoice() {
 }
 
 /**
- * How many players play on this computer: controllers 1 to N each take a place in the room, and the race shows them
- * split screen. Which gamepad is controller 2 and up is set per port in the Input Editor.
+ * Who plays on this computer: player 1, and a player for each port a gamepad is set up to play on. Each takes a place
+ * in the room, and the race shows them split screen.
  */
-void DrawLocalPlayersChoice() {
-    s32 count = std::clamp(CVarGetInteger(Lobby::kLocalPlayersCVar, 1), 1, Lobby::kMaxLocalPlayers);
-    const std::string current = std::to_string(count);
-    if (ImGui::BeginCombo("Players on this computer", current.c_str())) {
-        for (s32 option = 1; option <= Lobby::kMaxLocalPlayers; option++) {
-            if (ImGui::Selectable(std::to_string(option).c_str(), option == count)) {
-                CVarSetInteger(Lobby::kLocalPlayersCVar, option);
-                Ship::Context::GetRawInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
-            }
+void DrawLocalPlayers() {
+    const std::vector<GamepadAssignment::ExtraPlayer> extras = GamepadAssignment::GetExtraPlayers();
+    ImGui::Text("Players on this computer: %zu", Lobby::GetLocalPorts().size());
+    for (const GamepadAssignment::ExtraPlayer& extra : extras) {
+        ImGui::TextColored(kDimColor, "  Port %d: %s", extra.Port + 1, extra.Gamepad.c_str());
+        if (extra.SharedWithPlayerOne) {
+            ImGui::TextColored(kErrorColor, "  It drives port 1 too: turn it off for port 1 in the Input Editor");
         }
-        ImGui::EndCombo();
     }
-    if (count > 1) {
-        ImGui::TextColored(kDimColor, "Controllers 1 to %d play; set which gamepad is which in the Input Editor",
-                           count);
+    if (extras.empty()) {
+        ImGui::TextColored(kDimColor, "For a second player here, turn a gamepad on for port 2 in the Input Editor");
     }
 }
 
@@ -870,7 +866,7 @@ void NetplayMatchOverlay::Draw() {
 
 void NetplayWindow::DrawElement() {
     DrawControllerChoice();
-    DrawLocalPlayersChoice();
+    DrawLocalPlayers();
     DrawViewChoice();
     DrawVoiceChoice();
     DrawInputDelayChoice();

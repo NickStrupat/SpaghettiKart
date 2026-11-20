@@ -83,4 +83,30 @@ std::vector<Gamepad> GetGamepads() {
     return gamepads;
 }
 
+std::vector<ExtraPlayer> GetExtraPlayers() {
+    auto controlDeck = Ship::Context::GetRawInstance()->GetControlDeck();
+    auto manager = GetDeviceManager();
+    const auto names = manager->GetConnectedSDLGamepadNames();
+    std::vector<ExtraPlayer> players;
+    for (uint8_t port = 1; port < MAXCONTROLLERS; port++) {
+        if (!controlDeck->GetControllerByPort(port)->HasMappingsForPhysicalDeviceType(
+                Ship::PhysicalDeviceType::SDLGamepad)) {
+            continue;
+        }
+        const auto gamepads = manager->GetConnectedSDLGamepadsForPort(port);
+        if (gamepads.empty()) {
+            continue;
+        }
+        // The lowest instance id, so the name shown stays put from frame to frame.
+        int32_t first = gamepads.begin()->first;
+        for (const auto& [instanceId, gamepad] : gamepads) {
+            first = std::min(first, instanceId);
+        }
+        const auto name = names.find(first);
+        players.push_back({ (s32) port, (name != names.end()) ? name->second : "Gamepad",
+                            !manager->PortIsIgnoringInstanceId(kPlayerOnePort, first) });
+    }
+    return players;
+}
+
 } // namespace GamepadAssignment

@@ -969,6 +969,21 @@ s32 FindSilentEngine() {
     return -1;
 }
 
+/**
+ * Puts the pads of this computer's players first, in player order (ConsoleStart::LocalPorts): the sessions read this
+ * peer's i-th player from pads[i], while a second player's gamepad can be set up on any port.
+ */
+void GatherLocalPads(const OSContPad* pads, OSContPad* gathered) {
+    std::copy(pads, pads + kNumControllers, gathered);
+    if (!sConsole.Active) {
+        return;
+    }
+    const std::vector<s32>& ports = sConsole.Start.LocalPorts;
+    for (size_t i = 0; (i < ports.size()) && (i < (size_t) kNumControllers); i++) {
+        gathered[i] = pads[ports[i]];
+    }
+}
+
 } // namespace
 
 extern "C" void Netplay_BeginFrame(void) {
@@ -996,7 +1011,9 @@ extern "C" void Netplay_BeginFrame(void) {
             }
         }
         ApplySecondPlayerTestInput(&pads[1]);
-        MenuSession::BeginFrame(pads);
+        OSContPad localPads[kNumControllers];
+        GatherLocalPads(pads, localPads);
+        MenuSession::BeginFrame(localPads);
         if (!MenuSession::IsActive() && (sNetplay.Test == TestMode::Direct)) {
             FinishTest(false, "");
         }
@@ -1073,7 +1090,9 @@ extern "C" s32 Netplay_GetResetMenu(s32 menu) {
 }
 
 extern "C" bool Netplay_ConsumeLocalPads(OSContPad* pads) {
-    if (NetSession::ConsumeLocalPads(pads)) {
+    OSContPad localPads[kNumControllers];
+    GatherLocalPads(pads, localPads);
+    if (NetSession::ConsumeLocalPads(localPads)) {
         return true;
     }
     if (MenuSession::TakePads(pads)) {

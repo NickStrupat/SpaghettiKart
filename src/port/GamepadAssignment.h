@@ -32,6 +32,19 @@ struct Gamepad {
  */
 void AddGamepadDefaults();
 
+/** A port past the first that a gamepad is set up to play on. */
+struct ExtraPlayer {
+    s32 Port;                 // 0-based: 1 to MAXCONTROLLERS - 1
+    std::string Gamepad;      // The name of the gamepad that drives it (the first, if several are turned on for it)
+    bool SharedWithPlayerOne; // Port 1 listens to that gamepad too, so it drives player 1 as well
+};
+
+/**
+ * @returns the ports past the first that someone can play on, in port order: each has a connected gamepad turned on
+ * for it in the Input Editor (ports 2 and up ignore a new gamepad until then) and gamepad bindings.
+ */
+std::vector<ExtraPlayer> GetExtraPlayers();
+
 /** Enforces the choice; call once per frame, as gamepads can connect and disconnect at any time. */
 void Apply();
 

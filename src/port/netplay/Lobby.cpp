@@ -2,7 +2,10 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <random>
+
+#include "port/GamepadAssignment.h"
 
 #include "NetplayIdentity.h"
 #include "NetLog.h"
@@ -26,6 +29,8 @@ constexpr s8 kNumCharacters = BOWSER + 1;
 constexpr size_t kMaxMessageSize = 512;
 // Race data waits here until the session takes it; past this many messages, more are dropped.
 constexpr size_t kMaxQueuedRaceData = 1024;
+// A change in this computer's players counts once it has lasted this long: each change starts the console over.
+constexpr auto kLocalPortsSettleTime = std::chrono::seconds(2);
 // Sent for a ping not measured yet
 constexpr u16 kUnknownPing = 0xFFFF;
 // Sent for a GekkoNet wait not measured yet
@@ -90,6 +95,11 @@ struct LobbyState {
     std::string MatchRelay;
     bool WaitingForAway = false; // Host: a console waits for an away member
 
+    // This computer's players (GetLocalPorts), and the ports last counted, which become them once they last.
+    std::vector<s32> LocalPorts;
+    std::vector<s32> CountedPorts;
+    Clock::time_point CountedSince;
+
     Clock::time_point LastBroadcast;
     bool Changed = true;
     std::mt19937 Random{ std::random_device{}() };
@@ -119,9 +129,57 @@ std::string ReadString(ByteReader& reader) {
     return text;
 }
 
-/** Players on this computer: kLocalPlayersCVar, within 1 to kMaxLocalPlayers. */
+/** @returns the ports whose players play on this computer right now; see GetLocalPorts. */
+std::vector<s32> CountLocalPorts() {
+    std::vector<s32> ports = { 0 };
+    if (const char* test = getenv(kTestLocalPlayersEnv)) {
+        for (s32 port = 1; port < std::clamp(atoi(test), 1, kMaxLocalPlayers); port++) {
+            ports.push_back(port);
+        }
+        return ports;
+    }
+    for (const GamepadAssignment::ExtraPlayer& player : GamepadAssignment::GetExtraPlayers()) {
+        if ((s32) ports.size() < kMaxLocalPlayers) {
+            ports.push_back(player.Port);
+        }
+    }
+    return ports;
+}
+
+void UpdateLocalPorts() {
+    const Clock::time_point now = Clock::now();
+    std::vector<s32> ports = CountLocalPorts();
+    if (sLobby.LocalPorts.empty()) {
+        sLobby.LocalPorts = ports; // The first count needs no wait
+    }
+    if (ports != sLobby.CountedPorts) {
+        sLobby.CountedPorts = ports;
+        sLobby.CountedSince = now;
+    } else if ((ports != sLobby.LocalPorts) && (now - sLobby.CountedSince >= kLocalPortsSettleTime)) {
+        NetLog("Players on this computer: %zu, was %zu", ports.size(), sLobby.LocalPorts.size());
+        sLobby.LocalPorts = ports;
+        sLobby.Changed = true;
+    }
+}
+
+/** Players on this computer: one per port in GetLocalPorts. */
 s32 GetLocalPlayerCount() {
-    return std::clamp(CVarGetInteger(kLocalPlayersCVar, 1), 1, kMaxLocalPlayers);
+    return (s32) GetLocalPorts().size();
+}
+
+/**
+ * @returns the ports that drive this many of this peer's players: GetLocalPorts in order, then, if the host gave this
+ * peer more places than it has players now (a gamepad dropped out since), unused ports, which stay idle.
+ */
+std::vector<s32> FindLocalPorts(size_t count) {
+    std::vector<s32> ports = GetLocalPorts();
+    for (s32 port = 0; (port < kMaxLocalPlayers) && (ports.size() < count); port++) {
+        if (std::find(ports.begin(), ports.end(), port) == ports.end()) {
+            ports.push_back(port);
+        }
+    }
+    ports.resize(count);
+    return ports;
 }
 
 /** @returns this peer's players on a console of these slots: every place listing its slot, in order. */
@@ -253,6 +311,7 @@ void HandleConsoleAnnouncement(u32 consoleId, ConsoleStart console) {
     console.Id = consoleId;
     console.LocalPlayers = FindLocalPlayers(console.Slots);
     console.LocalPlayer = console.LocalPlayers.front();
+    console.LocalPorts = FindLocalPorts(console.LocalPlayers.size());
     NetLog("Console %u announced: player %d of %zu", consoleId, console.LocalPlayer + 1, console.Slots.size());
     sLobby.PendingConsole = console;
 }
@@ -399,8 +458,9 @@ void UpdateConsole() {
     sLobby.ConsoleRules = RaceConfig::FromLocalCVars();
     sLobby.ConsoleExtraMode = has_unlocked_extra_mode_in_save() != 0;
     sLobby.SeenConsoleId = sLobby.ConsoleId;
-    sLobby.PendingConsole =
-        ConsoleStart{ sLobby.ConsoleId, slots, 0, FindLocalPlayers(slots), sLobby.ConsoleRules, sLobby.ConsoleExtraMode };
+    const std::vector<s32> localPlayers = FindLocalPlayers(slots);
+    sLobby.PendingConsole = ConsoleStart{ sLobby.ConsoleId, slots, 0, localPlayers, FindLocalPorts(localPlayers.size()),
+                                          sLobby.ConsoleRules, sLobby.ConsoleExtraMode };
     NetLog("Starting console %u with %zu players", sLobby.ConsoleId, slots.size());
     sLobby.Changed = true;
 }
@@ -470,6 +530,7 @@ void Leave() {
 }
 
 void Update() {
+    UpdateLocalPorts();
     if (sLobby.Status == State::Offline) {
         return;
     }
@@ -558,6 +619,13 @@ bool TakeMatchFound() {
 
 s32 GetLocalSlot() {
     return sLobby.Relay.GetSlot();
+}
+
+const std::vector<s32>& GetLocalPorts() {
+    if (sLobby.LocalPorts.empty()) {
+        UpdateLocalPorts();
+    }
+    return sLobby.LocalPorts;
 }
 
 bool IsHost() {

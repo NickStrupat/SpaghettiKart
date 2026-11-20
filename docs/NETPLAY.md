@@ -53,11 +53,17 @@ details live in the headers under `src/port/netplay/`, which each start with a d
    each player moves their own character cursor.
 5. **Z** on Game Select (now **LEAVE**) leaves the room and comes back to the ONLINE screen.
 
-A room holds 8 players; a computer brings one, or up to 4 with "Players on this computer". At most 4 race: Game
+A room holds 8 players; a computer brings one player per controller port in use, up to 4. At most 4 race: Game
 Select offers no more players than the room has, and players beyond the chosen player count sit the race out and
 watch player 1. OPTION, DATA and Time Trials are not
 available in a room: they use each player's own saves and ghosts. Someone joining during a race waits for it to end;
 whenever the players change, everyone starts over on Game Select.
+
+A computer's players are counted from its controllers (`Lobby::GetLocalPorts`): port 1 always, plus each of ports 2
+to 4 that has a connected gamepad turned on for it in the Input Editor and gamepad bindings. The netplay window lists
+them. A change counts after 2 seconds, so a gamepad that drops out briefly doesn't restart the console. With 2 or more
+racing, the computer shows the split screen and plays every camera's sound, as one console does. Tests have no
+gamepads: `SK_TEST_LOCAL_PLAYERS=N` stands for ports 1 to N.
 
 **START** in a race pauses it for everyone, as on one console. Only the player who paused controls the pause menu;
 the others see their race stopped with a "PLAYER 2 PAUSED" line. Course Change, Driver Change and Quit take everyone
@@ -81,7 +87,6 @@ Settings in the netplay window, each per player:
 | Mute my microphone | off | Keep hearing the others, send nothing |
 | Voice volume | 100% | How loud the others' voices are |
 | Your controller | All controllers | The one gamepad this copy of the game reads, by its serial number, so two copies on one Mac each keep their own |
-| Players on this computer | 1 | 1 to 4: controllers 1 to N each take a place in the room (which gamepad is which port is set in the Input Editor). With 2 or more racing, this computer shows the split screen and plays every camera's sound, as one console does |
 
 Each player's row in the netplay window says where voice stands with them (talking, off, no direct connection) and
 has a box to mute them; a corner of the screen names who is talking.

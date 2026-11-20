@@ -37,12 +37,13 @@ constexpr size_t kMaxNameLength = 16;
 constexpr const char* kDirectConnectCVar = "gNetplay.DirectConnect";
 /** This player's name, shown to the other players and, for a host, in the room list. */
 constexpr const char* kNameCVar = "gNetplay.Name";
-/**
- * How many players play on this computer, 1 to kMaxLocalPlayers: controllers 1 to N each take a place in the room.
- * Read while in a room; changing it starts the console over with the new players.
- */
-constexpr const char* kLocalPlayersCVar = "gNetplay.LocalPlayers";
+/** The most players one computer brings to a room: one per controller port. */
 constexpr s32 kMaxLocalPlayers = 4;
+/**
+ * Tests: this many players on this computer, on ports 1 to N, as test runs have no gamepads to count. Without it the
+ * players are counted from the controllers (GetLocalPorts).
+ */
+constexpr const char* kTestLocalPlayersEnv = "SK_TEST_LOCAL_PLAYERS";
 /** The relay server, "host[:port]". */
 constexpr const char* kRelayCVar = "gNetplay.Relay";
 constexpr const char* kDefaultRelay = "netkart64.duckdns.org:7777";
@@ -89,7 +90,8 @@ struct ConsoleStart {
     std::vector<u8> Slots; // Relay slot of each player, in player (controller) order; a computer with several
                            // players appears once for each
     s32 LocalPlayer;       // This peer's first player
-    std::vector<s32> LocalPlayers; // All of this peer's players, in order: its controllers 1, 2, ...
+    std::vector<s32> LocalPlayers; // All of this peer's players, in order
+    std::vector<s32> LocalPorts;   // The controller port (0-based) that drives each of LocalPlayers
     RaceConfig Rules;      // The host's gameplay settings, which apply to everyone
     bool ExtraMode;        // Whether the host unlocked Extra (mirrored 150cc), which the menus then offer
 };
@@ -131,6 +133,13 @@ u32 GetWaitingPlayers();
 /** @returns true once, after matchmaking put this peer in a room. */
 bool TakeMatchFound();
 s32 GetLocalSlot();
+
+/**
+ * @returns the controller ports (0-based) whose players play on this computer, in order: port 1 always, then each port
+ * a gamepad is set up to play on (GamepadAssignment::GetExtraPlayers). A change counts once it has lasted a moment,
+ * so a gamepad that drops out briefly doesn't start the room's console over.
+ */
+const std::vector<s32>& GetLocalPorts();
 bool IsHost();
 s32 GetPingMs();
 /** @returns true while packets to this slot go to it directly, not through the relay. */
