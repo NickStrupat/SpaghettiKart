@@ -37,6 +37,12 @@ constexpr size_t kMaxNameLength = 16;
 constexpr const char* kDirectConnectCVar = "gNetplay.DirectConnect";
 /** This player's name, shown to the other players and, for a host, in the room list. */
 constexpr const char* kNameCVar = "gNetplay.Name";
+/**
+ * How many players play on this computer, 1 to kMaxLocalPlayers: controllers 1 to N each take a place in the room.
+ * Read while in a room; changing it starts the console over with the new players.
+ */
+constexpr const char* kLocalPlayersCVar = "gNetplay.LocalPlayers";
+constexpr s32 kMaxLocalPlayers = 4;
 /** The relay server, "host[:port]". */
 constexpr const char* kRelayCVar = "gNetplay.Relay";
 constexpr const char* kDefaultRelay = "netkart64.duckdns.org:7777";
@@ -63,6 +69,7 @@ struct Member {
     s32 GekkoWaitMs = -1;    // How long GekkoNet packets wait for it to read them (RelayClient::GetGekkoWaitMs())
     bool Voice = false;      // Uses voice chat (VoiceChat.h): only such members are sent voice
     bool Away = false;       // Matched while playing offline: not in the menus yet, so no console can start
+    u8 LocalPlayers = 1;     // Players on its computer: it holds this many places on a shared console
 };
 
 /** What the host picks. Guests see the host's choice. */
@@ -79,8 +86,10 @@ struct Settings {
  */
 struct ConsoleStart {
     u32 Id;
-    std::vector<u8> Slots; // Relay slot of each player, in player (controller) order
-    s32 LocalPlayer;
+    std::vector<u8> Slots; // Relay slot of each player, in player (controller) order; a computer with several
+                           // players appears once for each
+    s32 LocalPlayer;       // This peer's first player
+    std::vector<s32> LocalPlayers; // All of this peer's players, in order: its controllers 1, 2, ...
     RaceConfig Rules;      // The host's gameplay settings, which apply to everyone
     bool ExtraMode;        // Whether the host unlocked Extra (mirrored 150cc), which the menus then offer
 };

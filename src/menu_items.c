@@ -6395,6 +6395,11 @@ static void draw_debug(void) {
 static void draw_version(void) {
     s32 column = 0x138;
 
+    // @port In a room everyone has the same build, and the players' names take that corner
+    if (Netplay_IsSharedConsole()) {
+        return;
+    }
+
     if (CVarGetInteger("gEnableDebugMode", 0) != 0) {
         column -= (s32) ((f32) (get_string_width("DEBUG") + 5 )) * 0.5f;
     }

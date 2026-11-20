@@ -99,6 +99,12 @@ s32 Netplay_GetExtraMode(s32 unlockedInSave);
 bool Netplay_IsSharedConsole(void);
 
 /**
+ * The shared console's players: one per place in the room, a computer with several players holding several. Game
+ * Select offers no more players than this. 0 when not on a shared console.
+ */
+s32 Netplay_GetConsolePlaces(void);
+
+/**
  * @returns the screen a reset to the menus lands on: Game Select on a shared console, the ONLINE screen right after
  *          leaving a room or while joining one, otherwise `menu`.
  */

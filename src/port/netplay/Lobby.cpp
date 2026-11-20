@@ -119,6 +119,22 @@ std::string ReadString(ByteReader& reader) {
     return text;
 }
 
+/** Players on this computer: kLocalPlayersCVar, within 1 to kMaxLocalPlayers. */
+s32 GetLocalPlayerCount() {
+    return std::clamp(CVarGetInteger(kLocalPlayersCVar, 1), 1, kMaxLocalPlayers);
+}
+
+/** @returns this peer's players on a console of these slots: every place listing its slot, in order. */
+std::vector<s32> FindLocalPlayers(const std::vector<u8>& slots) {
+    std::vector<s32> players;
+    for (size_t player = 0; player < slots.size(); player++) {
+        if (slots[player] == (u8) sLobby.Relay.GetSlot()) {
+            players.push_back((s32) player);
+        }
+    }
+    return players;
+}
+
 void BroadcastMemberState() {
     u8 message[kMaxMessageSize];
     ByteWriter writer(message, sizeof(message));
@@ -136,6 +152,7 @@ void BroadcastMemberState() {
     writer.Write8((wait < 0) ? kUnknownWait : (u8) std::min(wait, (s32) kUnknownWait - 1));
     writer.Write8(sLobby.Voice ? 1 : 0);
     writer.Write8(sLobby.Away ? 1 : 0);
+    writer.Write8((u8) GetLocalPlayerCount());
     WriteString(writer, sLobby.Name, kMaxNameLength);
     sLobby.Relay.SendLobby(kBroadcast, message, writer.GetSize());
 }
@@ -180,8 +197,10 @@ void HandleMemberState(u8 source, ByteReader& reader) {
     member.GekkoWaitMs = (wait == kUnknownWait) ? -1 : wait;
     member.Voice = reader.Read8() != 0;
     member.Away = reader.Read8() != 0;
+    member.LocalPlayers = reader.Read8();
     member.Name = ReadString(reader);
-    if (reader.Failed() || (source >= kMaxMembers) || (member.Character < 0) || (member.Character >= kNumCharacters)) {
+    if (reader.Failed() || (source >= kMaxMembers) || (member.Character < 0) || (member.Character >= kNumCharacters) ||
+        (member.LocalPlayers < 1) || (member.LocalPlayers > kMaxLocalPlayers)) {
         return;
     }
     member.Present = true;
@@ -232,7 +251,8 @@ void HandleConsoleAnnouncement(u32 consoleId, ConsoleStart console) {
     }
     sLobby.SeenConsoleId = consoleId;
     console.Id = consoleId;
-    console.LocalPlayer = (s32) (own - console.Slots.begin());
+    console.LocalPlayers = FindLocalPlayers(console.Slots);
+    console.LocalPlayer = console.LocalPlayers.front();
     NetLog("Console %u announced: player %d of %zu", consoleId, console.LocalPlayer + 1, console.Slots.size());
     sLobby.PendingConsole = console;
 }
@@ -343,6 +363,7 @@ void UpdateMembers() {
     self.GekkoWaitMs = sLobby.Relay.GetGekkoWaitMs();
     self.Voice = sLobby.Voice;
     self.Away = sLobby.Away;
+    self.LocalPlayers = (u8) GetLocalPlayerCount();
 }
 
 /**
@@ -365,7 +386,10 @@ void UpdateConsole() {
         if (!member.Known || member.Racing || member.Away) {
             return;
         }
-        slots.push_back((u8) slot);
+        // A computer with several players holds a place for each, as long as the console has places left.
+        for (u8 i = 0; (i < member.LocalPlayers) && (slots.size() < kMaxMembers); i++) {
+            slots.push_back((u8) slot);
+        }
     }
     if ((sLobby.ConsoleId != 0) && (slots == sLobby.ConsoleSlots)) {
         return;
@@ -375,7 +399,8 @@ void UpdateConsole() {
     sLobby.ConsoleRules = RaceConfig::FromLocalCVars();
     sLobby.ConsoleExtraMode = has_unlocked_extra_mode_in_save() != 0;
     sLobby.SeenConsoleId = sLobby.ConsoleId;
-    sLobby.PendingConsole = ConsoleStart{ sLobby.ConsoleId, slots, 0, sLobby.ConsoleRules, sLobby.ConsoleExtraMode };
+    sLobby.PendingConsole =
+        ConsoleStart{ sLobby.ConsoleId, slots, 0, FindLocalPlayers(slots), sLobby.ConsoleRules, sLobby.ConsoleExtraMode };
     NetLog("Starting console %u with %zu players", sLobby.ConsoleId, slots.size());
     sLobby.Changed = true;
 }

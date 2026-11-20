@@ -53,7 +53,9 @@ details live in the headers under `src/port/netplay/`, which each start with a d
    each player moves their own character cursor.
 5. **Z** on Game Select (now **LEAVE**) leaves the room and comes back to the ONLINE screen.
 
-Players beyond the chosen player count sit the race out and watch player 1. OPTION, DATA and Time Trials are not
+A room holds 8 players; a computer brings one, or up to 4 with "Players on this computer". At most 4 race: Game
+Select offers no more players than the room has, and players beyond the chosen player count sit the race out and
+watch player 1. OPTION, DATA and Time Trials are not
 available in a room: they use each player's own saves and ghosts. Someone joining during a race waits for it to end;
 whenever the players change, everyone starts over on Game Select.
 
@@ -79,6 +81,7 @@ Settings in the netplay window, each per player:
 | Mute my microphone | off | Keep hearing the others, send nothing |
 | Voice volume | 100% | How loud the others' voices are |
 | Your controller | All controllers | The one gamepad this copy of the game reads, by its serial number, so two copies on one Mac each keep their own |
+| Players on this computer | 1 | 1 to 4: controllers 1 to N each take a place in the room (which gamepad is which port is set in the Input Editor). With 2 or more racing, this computer shows the split screen and plays every camera's sound, as one console does |
 
 Each player's row in the netplay window says where voice stands with them (talking, off, no direct connection) and
 has a box to mute them; a corner of the screen names who is talking.
@@ -262,7 +265,7 @@ helpers. Game Select's "Z ONLINE" button is the port's own art (`tools/make-onli
 
 - `tools/netplay-relay/`: a standalone UDP server (C++20, standalone ASIO, Dockerfile), which also accepts browsers'
   WebSockets on the same port number over TCP (`WebSocket.h`, see `docs/WEB.md`). Wire format in
-  `RelayProtocol.h`, shared with the game. Rooms by a code of 7 directions (protocol 4); public ones are listed
+  `RelayProtocol.h`, shared with the game. Rooms of up to 8 by a code of 7 directions (protocol 5); public ones are listed
   (`ListRooms`) with the host's name to clients of the same build, plus counts of the open rooms of other builds and
   of this build with other game files, which the ONLINE screen shows (the browser build updates itself, so a friend is
   often one restart behind, `PageVersion.h`; game files made by an older extractor stay in use until remade,
@@ -317,8 +320,8 @@ helpers. Game Select's "Z ONLINE" button is the port's own art (`tools/make-onli
 
 An open microphone among a room's members (`VoiceChat.h`), by the owner's decision of 2026-11-16: no push-to-talk,
 and **only over direct connections**, so that the relay, a Raspberry Pi, carries none of it. Two members whose routers
-keep them on the relay do not hear each other, and the netplay window says so. A room holds 4 members: at most about
-120 kbps each way per player with everyone talking, and next to nothing in silence.
+keep them on the relay do not hear each other, and the netplay window says so. A room holds 8 members: at most about
+280 kbps each way per player with everyone talking, and next to nothing in silence.
 
 - **Transport.** A fourth payload channel in `RelayClient.cpp`. `SendVoice()` has no way through the relay, and voice
   that arrives through it is dropped. Punched UDP and WebRTC data channels both carry it: a browser and a desktop game
@@ -343,7 +346,7 @@ keep them on the relay do not hear each other, and the netplay window says so. A
 
 | Tool | What it does |
 |---|---|
-| `tools/netplay-sim.py` | Plays whole races, cups and battles between bot-driven copies of the game through a relay, fast-forwarded (about 70× real time), and checks that every peer stayed in sync and the races ended as expected. Shared-console scenarios drive the menus with scripted buttons and compare every menu frame. 36 scenarios, about 25 minutes. **Run it after any change to netplay, menu or simulation code.** |
+| `tools/netplay-sim.py` | Plays whole races, cups and battles between bot-driven copies of the game through a relay, fast-forwarded (about 70× real time), and checks that every peer stayed in sync and the races ended as expected. Shared-console scenarios drive the menus with scripted buttons and compare every menu frame. 39 scenarios, about 30 minutes. **Run it after any change to netplay, menu or simulation code.** |
 | Determinism harness | `SK_DETERMINISM_RECORD` / `_VERIFY` / `_ROLLBACK=8`: records a race's inputs and per-frame checksums, replays them, or rolls back 8 frames after every frame. See `DeterminismHarness.h`. |
 | `tools/netplay-stress.sh` | The rollback stress run on every track and arena, 4 at a time: 16 versus tracks, 4 battle arenas, 4 Grand Prix courses with 2 players and 2 with 4. Give it an AddressSanitizer build (below) to look for memory errors too. |
 | `tools/netplay-relay/test_relay.py` | Protocol tests for the relay. |

@@ -114,7 +114,7 @@ struct UpdateStats {
 struct NetSessionState {
     SessionState State = SessionState::Off;
     SessionSettings Settings;
-    std::optional<SyntheticDriver> Bot;
+    std::vector<SyntheticDriver> Bots; // One per local player, when bots drive
     SessionResult Result = SessionResult::Running;
     std::string ResultMessage;
     // Where the game went after the last segment: the podium after a Grand Prix, or the menus.
@@ -170,6 +170,13 @@ struct NetSessionState {
 };
 
 NetSessionState sNet;
+
+/** @returns true for this peer's own players. */
+bool IsLocalPlayer(s32 player) {
+    const std::vector<s32>& locals = sNet.Settings.LocalPlayers;
+    return locals.empty() ? (player == sNet.Settings.LocalPlayer)
+                          : (std::find(locals.begin(), locals.end(), player) != locals.end());
+}
 
 // xorshift32, for simulated packet loss and jitter
 u32 NextRandom() {
@@ -322,7 +329,10 @@ void EndGekkoSession(const char* verdict, const std::string& message, bool desyn
     GekkoRollbackStats rollbacks = {};
     gekko_rollback_stats(sNet.Gekko, &rollbacks);
     GekkoNetworkStats network = {};
-    const s32 otherPlayer = (sNet.Settings.LocalPlayer == 0) ? 1 : 0;
+    s32 otherPlayer = 0;
+    while (IsLocalPlayer(otherPlayer) && (otherPlayer + 1 < (s32) sNet.Settings.Addresses.size())) {
+        otherPlayer++;
+    }
     gekko_network_stats(sNet.Gekko, otherPlayer, &network);
     const s32 frameWait = (sNet.Settings.GetFrameWaitMs != nullptr) ? sNet.Settings.GetFrameWaitMs(otherPlayer) : -1;
     NetLog("%s: %s. Segment %u: %u frames shown, %u rollbacks (avg %.1f, max %u frames), %u stalls, "
@@ -380,7 +390,7 @@ void StartGekkoSession(bool recovered = false) {
     sNet.InputDelay = ChooseInputDelay(&latencyMs);
     // Actor handles follow the order they are added in, so handle == player index.
     for (s32 player = 0; player < (s32) settings.Addresses.size(); player++) {
-        if (player == settings.LocalPlayer) {
+        if (IsLocalPlayer(player)) {
             gekko_add_actor(sNet.Gekko, GekkoLocalPlayer, nullptr);
             gekko_set_local_delay(sNet.Gekko, player, sNet.InputDelay);
         } else {
@@ -830,8 +840,16 @@ s32 GetWatchedPlayer() {
     return (sNet.Settings.LocalPlayer < gPlayerCount) ? sNet.Settings.LocalPlayer : 0;
 }
 
+/** @returns true when more than one of this peer's players race: own view and own audio then show them all. */
+bool HasSeveralLocalRacers() {
+    return std::count_if(sNet.Settings.LocalPlayers.begin(), sNet.Settings.LocalPlayers.end(),
+                         [](s32 player) { return player < gPlayerCount; }) > 1;
+}
+
 s32 GetViewPlayer() {
-    return (CVarGetInteger(NetSession::kOwnViewCVar, 1) != 0) ? GetWatchedPlayer() : -1;
+    // Several players on this computer share the split screen, as on one console.
+    const bool ownView = (CVarGetInteger(NetSession::kOwnViewCVar, 1) != 0) && !HasSeveralLocalRacers();
+    return ownView ? GetWatchedPlayer() : -1;
 }
 
 /** Draws the frame shown, with the karts a rollback moved still on their way to where they now are. */
@@ -860,9 +878,14 @@ void Start(const SessionSettings& settings) {
     sNet.ShownFrames = 0;
     sNet.LeaveRequested = false;
     sNet.RandomState = 0x2545F491 ^ ((u32) (settings.LocalPlayer + 1) * 7919);
-    sNet.Bot.reset();
+    sNet.Bots.clear();
+    if (sNet.Settings.LocalPlayers.empty()) {
+        sNet.Settings.LocalPlayers = { settings.LocalPlayer };
+    }
     if (settings.BotSeed.has_value()) {
-        sNet.Bot.emplace(*settings.BotSeed, settings.BotStyle);
+        for (size_t i = 0; i < sNet.Settings.LocalPlayers.size(); i++) {
+            sNet.Bots.emplace_back(*settings.BotSeed + (u32) i * 0x9E3779B9u, settings.BotStyle);
+        }
     }
 
     if (!SimState_IsSupported()) {
@@ -963,7 +986,7 @@ bool GetLiveStats(LiveStats* stats) {
     stats->FrameWaitMs.assign(sNet.Settings.Addresses.size(), -1);
     stats->Relayed.assign(sNet.Settings.Addresses.size(), false);
     for (s32 player = 0; player < (s32) stats->PingMs.size(); player++) {
-        if (player != sNet.Settings.LocalPlayer) {
+        if (!IsLocalPlayer(player)) {
             GekkoNetworkStats network = {};
             gekko_network_stats(sNet.Gekko, player, &network);
             stats->PingMs[player] = (s32) network.avg_ping;
@@ -1008,7 +1031,7 @@ const std::string& GetResultMessage() {
 
 void BeginFrame() {
     // Sounds follow the view: this player's camera only, unless the player turned that off.
-    const bool ownAudio = IsActive() && (CVarGetInteger(kOwnAudioCVar, 1) != 0);
+    const bool ownAudio = IsActive() && (CVarGetInteger(kOwnAudioCVar, 1) != 0) && !HasSeveralLocalRacers();
     audio_set_only_camera(ownAudio ? (s8) GetWatchedPlayer() : -1);
 
     // Wait for a newly set up race: right after a segment ends the old one is still on screen, fading out.
@@ -1050,32 +1073,42 @@ bool ConsumeLocalPads(OSContPad* pads) {
         return true;
     }
 
-    PadInput input;
-    if (sNet.Bot.has_value()) {
-        input = sNet.Bot->Next(GetWatchedPlayer());
-        if (gIsGamePaused != 0) {
-            // A bot's steering and accelerating would move and confirm the pause menu.
-            input = PadInput{};
+    // This peer's controllers 1, 2, ... drive its players in order.
+    for (size_t i = 0; i < sNet.Settings.LocalPlayers.size(); i++) {
+        const s32 player = sNet.Settings.LocalPlayers[i];
+        const bool first = (i == 0);
+        PadInput input;
+        if (i < sNet.Bots.size()) {
+            input = sNet.Bots[i].Next(first ? GetWatchedPlayer() : player);
+            if (gIsGamePaused != 0) {
+                // A bot's steering and accelerating would move and confirm the pause menu.
+                input = PadInput{};
+            }
+        } else {
+            input.StickX = pads[i].stick_x;
+            input.StickY = pads[i].stick_y;
+            // START pauses the race for everyone, as on one console: it is input like any other, so every peer pauses
+            // on the same frame, and only the player who paused controls the pause menu (the game reads their
+            // controller).
+            input.Buttons = pads[i].button;
         }
-    } else {
-        input.StickX = pads[0].stick_x;
-        input.StickY = pads[0].stick_y;
-        // START pauses the race for everyone, as on one console: it is input like any other, so every peer pauses on
-        // the same frame, and only the player who paused controls the pause menu (the game reads their controller).
-        input.Buttons = pads[0].button;
-    }
-    for (const TestButtons& press : sNet.Settings.TestPresses) {
-        if ((sNet.SeriesRace == 1) && (sNet.SegmentFrames + 1 == press.SegmentFrame)) {
-            input.Buttons |= press.Buttons;
+        if (first) {
+            for (const TestButtons& press : sNet.Settings.TestPresses) {
+                if ((sNet.SeriesRace == 1) && (sNet.SegmentFrames + 1 == press.SegmentFrame)) {
+                    input.Buttons |= press.Buttons;
+                }
+            }
         }
+        // Stick wobble that the race cannot tell apart would only be wrong predictions and rollbacks.
+        CanonicalStick::Apply(&input.StickX, &input.StickY);
+        if (first && (sNet.Settings.PressLAtFrame > 0) && (sNet.SegmentFrames + 1 == sNet.Settings.PressLAtFrame)) {
+            input.Buttons |= L_TRIG;
+        }
+        // Leaving and the like are this peer's requests: its first player carries them.
+        const PadControl control = first ? GetLocalControl() : PadControl::None;
+        input.Buttons = (input.Buttons & ~kControlMask) | (u16) ((u16) control << kControlShift);
+        gekko_add_local_input(sNet.Gekko, player, &input);
     }
-    // Stick wobble that the race cannot tell apart would only be wrong predictions and rollbacks.
-    CanonicalStick::Apply(&input.StickX, &input.StickY);
-    if ((sNet.Settings.PressLAtFrame > 0) && (sNet.SegmentFrames + 1 == sNet.Settings.PressLAtFrame)) {
-        input.Buttons |= L_TRIG;
-    }
-    input.Buttons = (input.Buttons & ~kControlMask) | (u16) ((u16) GetLocalControl() << kControlShift);
-    gekko_add_local_input(sNet.Gekko, sNet.Settings.LocalPlayer, &input);
     return true;
 }
 

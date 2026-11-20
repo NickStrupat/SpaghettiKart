@@ -614,6 +614,28 @@ void DrawControllerChoice() {
                                                   : "Button held on controller %s", pressed.c_str());
 }
 
+/**
+ * How many players play on this computer: controllers 1 to N each take a place in the room, and the race shows them
+ * split screen. Which gamepad is controller 2 and up is set per port in the Input Editor.
+ */
+void DrawLocalPlayersChoice() {
+    s32 count = std::clamp(CVarGetInteger(Lobby::kLocalPlayersCVar, 1), 1, Lobby::kMaxLocalPlayers);
+    const std::string current = std::to_string(count);
+    if (ImGui::BeginCombo("Players on this computer", current.c_str())) {
+        for (s32 option = 1; option <= Lobby::kMaxLocalPlayers; option++) {
+            if (ImGui::Selectable(std::to_string(option).c_str(), option == count)) {
+                CVarSetInteger(Lobby::kLocalPlayersCVar, option);
+                Ship::Context::GetRawInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+            }
+        }
+        ImGui::EndCombo();
+    }
+    if (count > 1) {
+        ImGui::TextColored(kDimColor, "Controllers 1 to %d play; set which gamepad is which in the Input Editor",
+                           count);
+    }
+}
+
 void CheckboxCVar(const char* label, const char* cvar, s32 fallback = 1) {
     bool enabled = CVarGetInteger(cvar, fallback) != 0;
     if (ImGui::Checkbox(label, &enabled)) {
@@ -848,6 +870,7 @@ void NetplayMatchOverlay::Draw() {
 
 void NetplayWindow::DrawElement() {
     DrawControllerChoice();
+    DrawLocalPlayersChoice();
     DrawViewChoice();
     DrawVoiceChoice();
     DrawInputDelayChoice();

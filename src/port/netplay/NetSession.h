@@ -48,6 +48,11 @@ struct TestButtons {
  */
 struct SessionSettings {
     s32 LocalPlayer = 0;
+    /**
+     * All of this peer's players, in order (its controllers 1, 2, ...), when it has more than LocalPlayer, which is
+     * then the first of them. Empty: LocalPlayer alone.
+     */
+    std::vector<s32> LocalPlayers;
     /** Each player's peer address, in player order, as GekkoNet sees them: opaque bytes. The local entry is unused. */
     std::vector<std::vector<u8>> Addresses;
     /** Carries GekkoNet's packets for one segment. Owned by the caller; must outlive the segment. */

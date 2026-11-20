@@ -69,13 +69,14 @@
 namespace RelayProtocol {
 
 constexpr uint16_t kMagic = 0x4B53; // "SK"
-constexpr uint8_t kVersion = 4;
+constexpr uint8_t kVersion = 5;
 constexpr uint16_t kDefaultPort = 7777;
 constexpr size_t kHeaderSize = 4;
 constexpr size_t kCodeLength = 7;
 constexpr size_t kBuildIdLength = 32;
 constexpr size_t kNameLength = 16;
-constexpr size_t kMaxSlots = 4;
+// A room's places: up to 4 race, the rest watch (one machine each).
+constexpr size_t kMaxSlots = 8;
 constexpr uint8_t kBroadcast = 0xFF;
 // Keeps datagrams under the 1280-byte IPv6 minimum MTU, so they are never fragmented.
 constexpr size_t kMaxPayload = 1200;

@@ -14,7 +14,8 @@ import sys
 import time
 
 MAGIC = 0x4B53
-VERSION = 4
+VERSION = 5
+MAX_SLOTS = 8  # RelayProtocol::kMaxSlots
 CREATE, JOIN, RELAY, KEEPALIVE, LEAVE, LIST_ROOMS, MATCHMAKE, MATCH_CANCEL = 1, 2, 3, 4, 5, 6, 7, 8
 JOINED, ERROR, RELAYED, ROOM_STATE, ROOM_CLOSED, ROOM_LIST, MATCH_WAITING = 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87
 NO_SUCH_ROOM, ROOM_FULL, BUILD_MISMATCH, CONTENT_MISMATCH, RATE_LIMITED, UNKNOWN_CLIENT = 1, 2, 3, 4, 5, 7
@@ -298,6 +299,12 @@ def test_matchmaking(port):
     fourth.matchmake(request=58, build=build)
     fourth.joined(fourth.receive(JOINED))
     assert (fourth.code, fourth.slot) == (first.code, 3), "and fills it up before an emptier one"
+    for slot in range(4, MAX_SLOTS):
+        filler = Peer(port)
+        filler.matchmake(request=100 + slot, build=build)
+        filler.joined(filler.receive(JOINED))
+        assert (filler.code, filler.slot) == (first.code, slot), "every slot of the room is filled"
+    time.sleep(3)  # Every test client shares one address: let its matchmaking allowance refill (2 a second)
     fifth = Peer(port)
     fifth.matchmake(request=59, build=build)
     fifth.joined(fifth.receive(JOINED))
@@ -409,18 +416,21 @@ def main():
         host.relay(0, b"self")
         assert host.nothing_received(), "packets are never sent back to their sender"
 
-        others = [Peer(port) for _ in range(3)]
+        others = [Peer(port) for _ in range(MAX_SLOTS - 1)]
         for i, other in enumerate(others):
             other.join(host.code, request=10 + i)
-        others[0].joined(others[0].receive(JOINED))
-        others[1].joined(others[1].receive(JOINED))
-        assert (others[0].slot, others[1].slot) == (2, 3)
-        assert others[2].error() == ROOM_FULL
+        for other in others[:-1]:
+            other.joined(other.receive(JOINED))
+        assert [other.slot for other in others[:-1]] == list(range(2, MAX_SLOTS))
+        assert others[-1].error() == ROOM_FULL
         assert browser.list_rooms(request=4) == [], "full rooms are not listed"
+        full_state = host.room_state(echo=7)
+        assert full_state[:2] == (0, (1 << MAX_SLOTS) - 1) and len(full_state[2]) == MAX_SLOTS, \
+            "the room state lists every member of a full room"
 
         others[0].send(header(LEAVE) + struct.pack("<Q", others[0].token))
         time.sleep(0.1)
-        assert host.room_state(echo=8)[:2] == (0, 0b1011), "a guest leaving frees its slot"
+        assert host.room_state(echo=8)[:2] == (0, ((1 << MAX_SLOTS) - 1) & ~0b100), "a guest leaving frees its slot"
         others[0].relay(0, b"x")
         assert others[0].error() == UNKNOWN_CLIENT
 

@@ -24,7 +24,8 @@
  * it keeps handing out this peer's input until every peer has run the last menu frame.
  */
 struct MenuSessionSettings {
-    s32 LocalPlayer = 0;
+    /** This peer's players, in order: its controllers 1, 2, ... Usually one. */
+    std::vector<s32> LocalPlayers = { 0 };
     /** Each player's peer address, in player order, as GekkoNet sees them: opaque bytes. The local entry is unused. */
     std::vector<std::vector<u8>> Addresses;
     /** Carries GekkoNet's packets. Owned by the caller; must outlive the session. */
@@ -55,9 +56,10 @@ const std::string& GetStopReason();
 /**
  * Polls the network, hands this player's input to the session and asks for the next menu frame. Call once per game
  * loop iteration, before the frame would run.
- * @param localPad This player's controller, with any test input already applied.
+ * @param localPads This peer's controllers, one per entry of MenuSessionSettings::LocalPlayers, with any test input
+ *        already applied.
  */
-void BeginFrame(const OSContPad& localPad);
+void BeginFrame(const OSContPad* localPads);
 /**
  * @returns true while the next frame's inputs have not all arrived, or a reset to Game Select has not happened yet:
  * this iteration must not run a frame.

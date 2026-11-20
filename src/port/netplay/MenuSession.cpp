@@ -1,5 +1,6 @@
 #include "MenuSession.h"
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdio>
@@ -146,7 +147,8 @@ void Start(const MenuSessionSettings& settings) {
     gekko_net_adapter_set(sMenu.Gekko, settings.GetAdapter());
     // Actor handles follow the order they are added in, so handle == player index.
     for (s32 player = 0; player < (s32) settings.Addresses.size(); player++) {
-        if (player == settings.LocalPlayer) {
+        if (std::find(settings.LocalPlayers.begin(), settings.LocalPlayers.end(), player) !=
+            settings.LocalPlayers.end()) {
             gekko_add_actor(sMenu.Gekko, GekkoLocalPlayer, nullptr);
             gekko_set_local_delay(sMenu.Gekko, player, settings.InputDelay);
         } else {
@@ -159,7 +161,7 @@ void Start(const MenuSessionSettings& settings) {
         sMenu.Log = fopen((settings.LogPath + ".menu").c_str(), "w");
     }
     sMenu.ConnectStarted = std::chrono::steady_clock::now();
-    NetLog("Menus: session started, player %d of %zu, input delay %u%s", settings.LocalPlayer,
+    NetLog("Menus: session started, player %d of %zu, input delay %u%s", settings.LocalPlayers.front(),
            settings.Addresses.size(), settings.InputDelay, settings.ResetToGameSelect ? ", from Game Select" : "");
 }
 
@@ -197,7 +199,7 @@ const std::string& GetStopReason() {
     return sMenu.StopReason;
 }
 
-void BeginFrame(const OSContPad& localPad) {
+void BeginFrame(const OSContPad* localPads) {
     if (!sMenu.Active) {
         return;
     }
@@ -216,11 +218,13 @@ void BeginFrame(const OSContPad& localPad) {
         return;
     }
 
-    PadInput input;
-    input.StickX = localPad.stick_x;
-    input.StickY = localPad.stick_y;
-    input.Buttons = localPad.button;
-    gekko_add_local_input(sMenu.Gekko, sMenu.Settings.LocalPlayer, &input);
+    for (size_t i = 0; i < sMenu.Settings.LocalPlayers.size(); i++) {
+        PadInput input;
+        input.StickX = localPads[i].stick_x;
+        input.StickY = localPads[i].stick_y;
+        input.Buttons = localPads[i].button;
+        gekko_add_local_input(sMenu.Gekko, sMenu.Settings.LocalPlayers[i], &input);
+    }
 
     int count = 0;
     GekkoGameEvent** events = gekko_update_session(sMenu.Gekko, &count);

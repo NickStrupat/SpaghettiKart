@@ -128,6 +128,7 @@ struct NetplayState {
     std::vector<TestPress> TestInput;        // SK_TEST_INPUT
     std::vector<TestButtons> TestRaceInput;  // SK_NETPLAY_TEST_RACE_INPUT
     std::vector<TestPress> TestConsoleInput; // SK_TEST_CONSOLE_INPUT
+    std::vector<TestPress> TestConsoleInput2; // SK_TEST_CONSOLE_INPUT_2: this computer's second player, controller 2
     bool LocalZHeld = false;          // On a console's Game Select, pressing Z leaves the room
     bool ReturnToOnlineMenu = false;  // After leaving a room, the menus reset to the ONLINE screen
     u32 GameFrames = 0;               // Game frames run since boot
@@ -302,6 +303,13 @@ void ApplyTestInput(OSContPad* pad) {
     }
 }
 
+/** Adds what SK_TEST_CONSOLE_INPUT_2 holds on this game frame to controller 2, this computer's second player. */
+void ApplySecondPlayerTestInput(OSContPad* pad) {
+    if (sConsole.Active) {
+        ApplyTestPresses(sNetplay.TestConsoleInput2, sNetplay.GameFrames - sNetplay.ConsoleStartFrame, pad);
+    }
+}
+
 void OnSessionEnded();
 void OnConsoleRaceEnded(SessionResult result);
 
@@ -323,7 +331,7 @@ void StartDirectMenus() {
         return;
     }
     MenuSessionSettings settings;
-    settings.LocalPlayer = sNetplay.LocalPlayer;
+    settings.LocalPlayers = { sNetplay.LocalPlayer };
     for (const std::string& address : sNetplay.PeerAddresses) {
         settings.Addresses.emplace_back(address.begin(), address.end());
     }
@@ -634,7 +642,7 @@ u8 ChooseMenuInputDelay() {
 void StartConsoleMenus(u32 segment, bool resetToGameSelect) {
     sConsole.Segment = segment;
     MenuSessionSettings settings;
-    settings.LocalPlayer = sConsole.Start.LocalPlayer;
+    settings.LocalPlayers = sConsole.Start.LocalPlayers;
     settings.Addresses = GetConsoleAddresses();
     const u32 id = sConsole.Start.Id;
     settings.GetAdapter = [id, segment]() { return Lobby::GetGekkoAdapter(id, segment); };
@@ -651,6 +659,7 @@ void StartConsoleMenus(u32 segment, bool resetToGameSelect) {
 void StartConsoleRace(u32 segment) {
     SessionSettings settings;
     settings.LocalPlayer = sConsole.Start.LocalPlayer;
+    settings.LocalPlayers = sConsole.Start.LocalPlayers;
     settings.Addresses = GetConsoleAddresses();
     const u32 id = sConsole.Start.Id;
     settings.GetAdapter = [id](u32 raceSegment) { return Lobby::GetGekkoAdapter(id, raceSegment); };
@@ -696,6 +705,9 @@ void StartConsole(const Lobby::ConsoleStart& start) {
     // Each player's console test input says what to do on any console, from its start.
     sNetplay.ConsoleStartFrame = sNetplay.GameFrames;
     for (TestPress& press : sNetplay.TestConsoleInput) {
+        press.FramesHeld = 0;
+    }
+    for (TestPress& press : sNetplay.TestConsoleInput2) {
         press.FramesHeld = 0;
     }
     NetLog("Console %u: player %d of %zu", start.Id, start.LocalPlayer + 1, start.Slots.size());
@@ -902,6 +914,9 @@ extern "C" void Netplay_Init(void) {
     if (const char* input = GetEnv("SK_TEST_CONSOLE_INPUT")) {
         sNetplay.TestConsoleInput = ParseTestInput(input);
     }
+    if (const char* input = GetEnv("SK_TEST_CONSOLE_INPUT_2")) {
+        sNetplay.TestConsoleInput2 = ParseTestInput(input);
+    }
     if (const char* logPath = GetEnv("SK_NETPLAY_LOG")) {
         sNetplay.LogPath = logPath;
     }
@@ -980,7 +995,8 @@ extern "C" void Netplay_BeginFrame(void) {
                 Lobby::Leave();
             }
         }
-        MenuSession::BeginFrame(pads[0]);
+        ApplySecondPlayerTestInput(&pads[1]);
+        MenuSession::BeginFrame(pads);
         if (!MenuSession::IsActive() && (sNetplay.Test == TestMode::Direct)) {
             FinishTest(false, "");
         }
@@ -1037,6 +1053,10 @@ extern "C" s32 Netplay_GetExtraMode(s32 unlockedInSave) {
 
 extern "C" bool Netplay_IsSharedConsole(void) {
     return sConsole.Active;
+}
+
+extern "C" s32 Netplay_GetConsolePlaces(void) {
+    return sConsole.Active ? (s32) sConsole.Start.Slots.size() : 0;
 }
 
 extern "C" s32 Netplay_GetResetMenu(s32 menu) {

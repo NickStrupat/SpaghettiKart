@@ -462,19 +462,30 @@ void DrawStatus(const char* text) {
     print_text1_center_mode_1(0xA0, 0x96, (char*) "B TO LEAVE", 0, 0.6f, 0.6f);
 }
 
-/** On a shared console: each player's controller number and name, along the bottom of Game Select. */
+/**
+ * On a shared console: each player's controller number and name, along the bottom of Game Select. Four fit in a row;
+ * with more than four, the first row moves up and the rest go below it.
+ */
 void DrawConsolePlayers() {
+    constexpr size_t kPerRow = 4;
     const auto& members = Lobby::GetMembers();
-    s32 column = 0x15;
+    size_t shown = 0;
+    for (size_t slot = 0; slot < members.size(); slot++) {
+        shown += (members[slot].Present && (Netplay::GetConsolePlayer((u8) slot) >= 0)) ? 1 : 0;
+    }
+    const s32 firstRow = (shown > kPerRow) ? 0xDA : 0xE4;
+    size_t index = 0;
     for (size_t slot = 0; slot < members.size(); slot++) {
         const s32 player = Netplay::GetConsolePlayer((u8) slot);
         if (!members[slot].Present || (player < 0)) {
             continue;
         }
         const std::string text = std::to_string(player + 1) + "P " + ToMenuText(members[slot].Name, 8);
+        const s32 column = 0x15 + (s32) (index % kPerRow) * 0x48;
+        const s32 row = firstRow + (s32) (index / kPerRow) * 0x0A;
         set_text_color(TEXT_GREEN);
-        print_text_mode_1(column, 0xE4, (char*) text.c_str(), 0, 0.45f, 0.45f);
-        column += 0x48;
+        print_text_mode_1(column, row, (char*) text.c_str(), 0, 0.45f, 0.45f);
+        index++;
     }
 }
 
@@ -500,12 +511,16 @@ void DrawRoomCode(const MenuItem* item) {
  */
 void DrawUnavailableNote() {
     const char* text = nullptr;
+    std::string placesText;
     if ((gMainMenuSelection == MAIN_MENU_MODE_SELECT) &&
         (gGameModePlayerSelection[gPlayerCount - 1][gGameModeMenuColumn[gPlayerCount - 1]] == TIME_TRIALS)) {
         text = "TIME TRIALS ARE NOT AVAILABLE ONLINE";
     } else if ((gMainMenuSelection == MAIN_MENU_PLAYER_SELECT) &&
                (std::chrono::steady_clock::now() - sOnline.OptionDataRefusedAt < kRefusedNoteTime)) {
         text = "OPTION AND DATA ARE NOT AVAILABLE ONLINE";
+    } else if ((gMainMenuSelection == MAIN_MENU_PLAYER_SELECT) && (gPlayerCount > Netplay_GetConsolePlaces())) {
+        placesText = "THIS ROOM HAS " + std::to_string(Netplay_GetConsolePlaces()) + " PLAYERS";
+        text = placesText.c_str();
     }
     if (text != nullptr) {
         set_text_color(TEXT_YELLOW);

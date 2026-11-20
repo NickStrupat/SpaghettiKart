@@ -1353,6 +1353,12 @@ void main_menu_act(struct Controller* controller, u16 controllerIdx) {
                     gMenuFadeType = MENU_FADE_TYPE_BACK;
                     play_sound2(SOUND_MENU_GO_BACK);
                     newMode = gGameModePlayerSelection[gPlayerCount - 1][gGameModeMenuColumn[gPlayerCount - 1]];
+                } else if ((btnAndStick & A_BUTTON) && Netplay_IsSharedConsole() &&
+                           (gPlayerCount > Netplay_GetConsolePlaces())) {
+                    // @port A netplay room has a controller for each of its places only: more players would leave
+                    // character cursors nobody can move.
+                    play_sound2(SOUND_MENU_FILE_NOT_FOUND);
+                    newMode = gGameModePlayerSelection[gPlayerCount - 1][gGameModeMenuColumn[gPlayerCount - 1]];
                 } else if (btnAndStick & A_BUTTON) {
                     // L800B2C00
                     gMainMenuSelection = MAIN_MENU_MODE_SELECT;

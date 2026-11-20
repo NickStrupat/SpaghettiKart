@@ -112,6 +112,8 @@ CONSOLE_2P_VS = "R_JPAD@60,A@90,D_JPAD@120,A@150,A@180,A@210,A@280,A@350,A@420,A
 CONSOLE_2P_GP = "R_JPAD@60,A@90,A@120,A@150,A@180,A@250,A@320,A@390,A@420"
 # The same with 3P chosen on Game Select (a second R_JPAD), for Grand Prix with three players
 CONSOLE_3P_GP = "R_JPAD@60,R_JPAD@75,A@90,A@120,A@150,A@180,A@250,A@320,A@390,A@420"
+CONSOLE_3P_VS = "R_JPAD@60,R_JPAD@70,A@90,D_JPAD@120,A@150,A@180,A@210,A@280,A@350,A@420,A@450,A@480"
+CONSOLE_4P_VS = "R_JPAD@60,R_JPAD@70,R_JPAD@80,A@90,D_JPAD@120,A@150,A@180,A@210,A@280,A@350,A@420,A@450,A@480"
 
 SCENARIOS = [
     Scenario("vs-2p", "2 players, versus, two full races, connected directly; each hears the other's engine", 2, "vs",
@@ -120,8 +122,10 @@ SCENARIOS = [
     Scenario("vs-4p", "4 players, versus, one full race; each hears the others' engines", 4, "vs",
              track="mk:mario_raceway", series_races=1, peer_env={-1: {"SK_NETPLAY_TEST_ENGINES_AT": "300"}},
              expect={"races_over": 1, "finishes": 3, "engines": 1}),
+    # A race where neither bot makes the top four is raced again, as in the game, so the two cups take 8 races or
+    # many more: 900 s leaves room for about 16.
     Scenario("gp-2p", "2 players and 6 CPUs, the Mushroom Cup twice, with the podium in between", 2, "gp", cup=0,
-             races=2, expect={"cups": 2, "races_over": 8, "podiums": 1, "cpus_racing": 8}, timeout=600),
+             races=2, expect={"cups": 2, "races_over": 8, "podiums": 1, "cpus_racing": 8}, timeout=900),
     Scenario("gp-3p", "3 players and 5 CPUs, the Flower Cup, with the podium", 3, "gp", cup=1,
              expect={"cups": 1, "races_over": 4, "finishes": 3, "cpus_racing": 4}, timeout=600),
     Scenario("gp-4p", "4 players and 4 CPUs, the Star Cup, with the podium", 4, "gp", cup=2,
@@ -207,6 +211,27 @@ SCENARIOS = [
              peer_env={-1: {"SK_NETPLAY_CONSOLE": "1"}, 0: {"SK_TEST_CONSOLE_INPUT": CONSOLE_2P_VS},
                        1: {"SK_TEST_CONSOLE_INPUT": "R_JPAD@290,A@310"}},
              expect={"consoles": 1, "races_over": 1, "menus_in_sync": 1}),
+    Scenario("room-8", "8 players in one room, as many as it holds: 4 race versus from the shared console's menus, "
+             "players 5 to 8 sit it out and watch player 1", 8, "vs", series_races=1,
+             peer_env={-1: {"SK_NETPLAY_CONSOLE": "1"}, 0: {"SK_TEST_CONSOLE_INPUT": CONSOLE_4P_VS},
+                       1: {"SK_TEST_CONSOLE_INPUT": "R_JPAD@290,A@310"},
+                       2: {"SK_TEST_CONSOLE_INPUT": "R_JPAD@292,A@314"},
+                       3: {"SK_TEST_CONSOLE_INPUT": "R_JPAD@294,A@318"}},
+             expect={"consoles": 1, "races_over": 1, "finishes": 1, "menus_in_sync": 1}, timeout=420),
+    Scenario("local-2p", "2 computers, 3 players: the first has 2 players (controllers 1 and 2) and the second 1; a "
+             "3-player versus race from the shared console's menus", 2, "vs", series_races=1,
+             peer_cvars={0: {"gNetplay.LocalPlayers": 2}},
+             peer_env={-1: {"SK_NETPLAY_CONSOLE": "1"},
+                       0: {"SK_TEST_CONSOLE_INPUT": CONSOLE_3P_VS, "SK_TEST_CONSOLE_INPUT_2": "R_JPAD@290,A@310"},
+                       1: {"SK_TEST_CONSOLE_INPUT": "R_JPAD@292,A@314"}},
+             expect={"consoles": 1, "races_over": 1, "finishes": 1, "menus_in_sync": 1, "laps": 9}),
+    Scenario("console-too-many", "2 players on a shared console try a 3-player game: Game Select refuses it (the room "
+             "has 2 places), so they go back to 2 players and race", 2, "vs", series_races=1,
+             peer_env={-1: {"SK_NETPLAY_CONSOLE": "1"},
+                       0: {"SK_TEST_CONSOLE_INPUT": "R_JPAD@60,R_JPAD@70,A@90,L_JPAD@105,A@120,D_JPAD@150,A@180,A@210,"
+                                                    "A@240,A@310,A@380,A@450,A@480,A@510"},
+                       1: {"SK_TEST_CONSOLE_INPUT": "R_JPAD@320,A@340"}},
+             expect={"consoles": 1, "races_over": 1, "finishes": 1, "menus_in_sync": 1}),
     Scenario("console-gp", "2 players on a shared console: a whole Grand Prix from the menus, the podium, then "
              "Game Select again", 2, "gp",
              peer_env={-1: {"SK_NETPLAY_CONSOLE": "1"}, 0: {"SK_TEST_CONSOLE_INPUT": CONSOLE_2P_GP},
