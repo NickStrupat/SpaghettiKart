@@ -15,6 +15,7 @@ details live in the headers under `src/port/netplay/`, which each start with a d
 |---|---|
 | Versus 2–4 players, Battle 2–4, Grand Prix 1–2 players + CPUs (whole cups, podium) | Works, tested by the simulator and by hand |
 | Grand Prix 3–4 players + CPUs (the port's own: the original game had none) | Works in the simulator; not yet played by hand |
+| 5–8 players: Versus, Battle, Grand Prix + CPUs, in an eight-screen split (`SCREEN_MODE_8P`) | Works in the simulator (`gp-5p`, `battle-6p`, `room-8`); not yet played by hand. The Grand Prix goes straight to the next race, without the results between races |
 | Rollback, desync detection | Works; an 8-frame rollback every frame stays in sync on every track and mode |
 | Desync recovery (everyone takes over the host's state, the race goes on) | Works, tested by the simulator on one Mac; not yet tried between two |
 | Room list, ONLINE screen (Z on Game Select), relay server | Works; tested with scripted buttons |
@@ -53,9 +54,9 @@ details live in the headers under `src/port/netplay/`, which each start with a d
    each player moves their own character cursor.
 5. **Z** on Game Select (now **LEAVE**) leaves the room and comes back to the ONLINE screen.
 
-A room holds 8 players; a computer brings one player per controller port in use, up to 4. At most 4 race: Game
-Select offers no more players than the room has, and players beyond the chosen player count sit the race out and
-watch player 1. OPTION, DATA and Time Trials are not
+A room holds 8 players; a computer brings one player per controller port in use, up to 4. All 8 can race: 5 to 8
+players share the screen in a 3x2 or 4x2 grid (an odd count leaves a cell for the minimap). Game Select offers no more
+players than the room has, and players beyond the chosen player count sit the race out and watch player 1. OPTION, DATA and Time Trials are not
 available in a room: they use each player's own saves and ghosts. Someone joining during a race waits for it to end;
 whenever the players change, everyone starts over on Game Select.
 
@@ -126,6 +127,12 @@ Made by the fork's owner, in this order. Later work assumes them.
    keyboard's arrow keys too), chosen for their rhythm; that and the new messages are protocol 4.
 10. **START pauses an online race for everyone** (2026-11-17), as on one console, where only the player who paused
     controls the pause menu. Until then START was dropped from race input, as pausing one peer alone made no sense.
+11. **5 to 8 players from [chrisgilpin/MK64-8p-local](https://github.com/chrisgilpin/MK64-8p-local)** (2026-11-20):
+    a fork of the same upstream with local 8-player split screen. Its 8-player commits were cherry-picked (author
+    kept, `cherry picked from` noted), and only those: not its custom tracks and cups, 400cc, item balance, track
+    editor, debug keyboard shortcuts, or its libultraship changes, which are not published (so controller ports 5 to
+    8 are still to do). Where it overlapped the port's own 3-4 player Grand Prix, the port's version was kept. Its
+    `docs/8P-STATUS.md` lists the bug classes it met; the pitfall below adds the ones found adopting it.
 
 ## How it works
 
@@ -351,7 +358,7 @@ keep them on the relay do not hear each other, and the netplay window says so. A
 
 | Tool | What it does |
 |---|---|
-| `tools/netplay-sim.py` | Plays whole races, cups and battles between bot-driven copies of the game through a relay, fast-forwarded (about 70× real time), and checks that every peer stayed in sync and the races ended as expected. Shared-console scenarios drive the menus with scripted buttons and compare every menu frame. 34 scenarios, run side by side: about 18 to 19 minutes on a 10-core Mac (see "Keeping the simulator fast"). **Run it after any change to netplay, menu or simulation code.** |
+| `tools/netplay-sim.py` | Plays whole races, cups and battles between bot-driven copies of the game through a relay, fast-forwarded (about 70× real time), and checks that every peer stayed in sync and the races ended as expected. Shared-console scenarios drive the menus with scripted buttons and compare every menu frame. 36 scenarios, run side by side: about 25 minutes on a 10-core Mac (see "Keeping the simulator fast"). **Run it after any change to netplay, menu or simulation code.** |
 | Determinism harness | `SK_DETERMINISM_RECORD` / `_VERIFY` / `_ROLLBACK=8`: records a race's inputs and per-frame checksums, replays them, or rolls back 8 frames after every frame. See `DeterminismHarness.h`. |
 | `tools/netplay-stress.sh` | The rollback stress run on every track and arena, 4 at a time: 16 versus tracks, 4 battle arenas, 4 Grand Prix courses with 2 players and 2 with 4. Give it an AddressSanitizer build (below) to look for memory errors too. |
 | `tools/netplay-relay/test_relay.py` | Protocol tests for the relay. |
@@ -453,6 +460,14 @@ If a bug turns up that a removed scenario would have caught, bring that scenario
 ## Pitfalls found so far
 
 Each of these cost a debugging round.
+
+- **Anything sized or counted 4 that means "the players"** breaks at 5 to 8, silently: the game runs on and looks
+  plausible. Found while adopting the 8-player fork (2026-11-20), beyond the fork's own list: menu fades left in
+  transition slot 8 (the loops that cleared slots 0-4), versus and Battle end checks that stopped at 4 players, the
+  Boo's list of players to steal from (a 4-entry local array: 6 players overflowed the stack, and the game crashed on
+  a return address made of floats), the Battle bomb karts of eliminated players, and netplay choosing the 4-screen mode
+  for 5 players, which spawned player 5 as nothing. Search for `4` and `< 5` in any per-player code you touch, local
+  arrays included, and test with 5 or 6 players, not only 8: half-filled grids find the "every slot is a player" bugs.
 
 - **Draw code changes simulation state** (`init_render_player()`, results-screen menu items, the GP points count).
   Never skip drawing a simulated frame. Settings that change drawing change that state too: `gNoCulling` and
@@ -576,6 +591,10 @@ Each of these cost a debugging round.
   waiting for the other; the room then waits for both.
 - The room code on Game Select uses small 10-pixel arrows beside Z LEAVE, the only free place; at the N64's
   resolution they are small.
+- 5 to 8 players: a Grand Prix race skips the results and points between races (the fork's eight-screen mode has no
+  winner-screen transition; its between-race points screen was not taken yet), the eight-screen grid has not been
+  seen in a picture of an online race, and one computer still has only 4 controller ports (libultraship's
+  ControlDeck), so 5 to 8 local players need the plan's Phase D.
 - libultraship's renderer reads past two texture buffers (`ImportTextureI4` at boot, `gfx_load_tlut` on some
   courses), reported by AddressSanitizer on every run; not netplay's, not fixed.
 
