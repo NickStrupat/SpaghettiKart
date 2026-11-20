@@ -16,7 +16,8 @@ namespace {
 
 struct PlayerState {
     s32 Lap = 0;
-    bool Out = false; // Finished the race, or eliminated in Battle
+    bool Out = false;  // Finished the race, or eliminated in Battle
+    s16 Balloons = -1; // Battle: the balloon count last seen; -1 before the first frame
 };
 
 struct State {
@@ -86,6 +87,12 @@ void Update(u32 frame) {
             NetLog("Race: player %d started lap %d at frame %u", i + 1, gLapCountByPlayerId[i] + 1, frame);
         }
         state.Lap = gLapCountByPlayerId[i];
+        // A battle logs nothing else until someone is out, which can take over a minute; the simulator takes a game
+        // that logs nothing for 90 s as stuck.
+        if ((gModeSelection == BATTLE) && (state.Balloons >= 0) && (gPlayerBalloonCount[i] < state.Balloons)) {
+            NetLog("Race: player %d lost a balloon at frame %u", i + 1, frame);
+        }
+        state.Balloons = gPlayerBalloonCount[i];
 
         const bool out = (player.type & PLAYER_CINEMATIC_MODE) != 0;
         if (out && !state.Out) {

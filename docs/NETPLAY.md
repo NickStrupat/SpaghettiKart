@@ -351,7 +351,7 @@ keep them on the relay do not hear each other, and the netplay window says so. A
 
 | Tool | What it does |
 |---|---|
-| `tools/netplay-sim.py` | Plays whole races, cups and battles between bot-driven copies of the game through a relay, fast-forwarded (about 70× real time), and checks that every peer stayed in sync and the races ended as expected. Shared-console scenarios drive the menus with scripted buttons and compare every menu frame. 39 scenarios, about 30 minutes. **Run it after any change to netplay, menu or simulation code.** |
+| `tools/netplay-sim.py` | Plays whole races, cups and battles between bot-driven copies of the game through a relay, fast-forwarded (about 70× real time), and checks that every peer stayed in sync and the races ended as expected. Shared-console scenarios drive the menus with scripted buttons and compare every menu frame. 34 scenarios, run side by side: about 18 to 19 minutes on a 10-core Mac (see "Keeping the simulator fast"). **Run it after any change to netplay, menu or simulation code.** |
 | Determinism harness | `SK_DETERMINISM_RECORD` / `_VERIFY` / `_ROLLBACK=8`: records a race's inputs and per-frame checksums, replays them, or rolls back 8 frames after every frame. See `DeterminismHarness.h`. |
 | `tools/netplay-stress.sh` | The rollback stress run on every track and arena, 4 at a time: 16 versus tracks, 4 battle arenas, 4 Grand Prix courses with 2 players and 2 with 4. Give it an AddressSanitizer build (below) to look for memory errors too. |
 | `tools/netplay-relay/test_relay.py` | Protocol tests for the relay. |
@@ -389,6 +389,66 @@ after every frame): every race in sync, no other errors.
 If the game stops responding for 5 s while in a netplay room or race, `HangWatchdog` runs macOS's `sample` tool on it
 and writes every thread's call stack to `netplay/<date-time>.hang.txt` in the same folder (wait about 10 s before
 force-quitting).
+
+### Keeping the simulator fast (2026-11-19)
+
+By November 2026 a full `netplay-sim.py` run took about 60 minutes: 39 scenarios one after another (3,574 s in the
+last such run). The 6 Grand Prix scenarios took half of that, about 4 minutes per whole cup. The owner asked for it
+to be shorter without losing meaningful coverage. These were the choices.
+
+**1. Scenarios run side by side.** Nothing is lost. Each scenario already had its own relay port, settings folders
+and room file, so the only change is in the runner. `--max-games` limits how many games run at once across all
+scenarios: by default the number of cores less 2, at most 8. A scenario with more players than that, such as
+`room-8`, waits until it can run by itself. Scenarios that depend on the wall clock rather than on game frames have
+`alone=True` and also run by themselves, because a busy CPU would shift them:
+- `voice-direct-lost`: the direct connection is blocked after 5 s, by the clock.
+- `lag`: real time (`SK_FAST=0`), with the relay delaying packets by milliseconds.
+
+The tradeoffs:
+- Each scenario takes longer while others run beside it. Time limits are wall-clock, so a slow Grand Prix (retried
+  races) is closer to its limit than before.
+- The run keeps most cores busy, so someone playing the game on the same Mac will notice. `--max-games 1` brings
+  back one scenario at a time.
+
+**2. Three duplicate scenarios were removed.** Nothing is lost: each was a strict subset of another scenario.
+
+| Removed | Covered by |
+|---|---|
+| `two-series` (two lobby races in one room) | `demo-first`: the same two lobby races, plus the title-screen demo first |
+| `relay-only` (a race with direct connections off) | `voice-relayed`: the same race and the same "no direct connection" check, plus voice |
+| `direct-lost` (the direct connection dies mid-race) | `voice-direct-lost`: the same race and checks, plus voice |
+
+**3. The Grand Prix scenarios were trimmed.** A little coverage is lost.
+- `gp-2p` plays one cup instead of the Mushroom Cup twice, and plays the Flower Cup, since `console-gp` already plays
+  the Mushroom Cup. What's lost: starting a second cup in the same race session, right after a podium, in the
+  host-picks-races mode. `console-gp` still checks what follows a podium on the shared console, the mode players use.
+  This also makes `gp-2p` less flaky: a race where neither bot finishes in the top 4 is raced again, and two cups'
+  worth of retries could reach the old 900 s limit.
+- `gp-3p` (3 players, the Flower Cup, host-picks-races mode) was removed. `console-gp-3p` plays a whole 3-player cup
+  through the shared console's menus, which is the path players use. What's lost: 3-player Grand Prix in the
+  host-picks-races mode, which players can't reach. The Flower Cup's tracks are still raced by `gp-2p`, and every
+  track is raced by `tools/netplay-stress.sh`.
+
+**4. `console-too-many` was merged into `console-2p`.** Nothing is lost. `console-2p` now tries 3 players first,
+is refused (the room has 2 places), goes back to 2 players and carries on as before
+(`CONSOLE_3P_REFUSED_2P_VS`).
+
+**Running side by side exposed one flaky check.** A scenario counts as stuck when no game logs anything for 90 s
+(`quiet_limit`). In a 2-player battle nothing was logged between the start and the first elimination, and two bots
+can go over a minute without a hit: one battle went 78 s with nothing else running, and under load one went past
+90 s. Battles now log each lost balloon (`RaceEvents.cpp`). The 2-player battle scenarios (`battle-2p`,
+`mixed-settings`) also have a 180 s limit, because even with balloons logged, a gap of 63 s was seen.
+
+Result: 34 scenarios, and a full run takes about 19 minutes (see the Testing table).
+
+When adding a scenario:
+- First check whether an existing scenario can take the new check, through its scripted buttons or another
+  `expect`. Each scenario costs at least a minute; a whole cup costs about 4.
+- If the check happens early, end the scenario there with `frames=` rather than running the whole race.
+- If it depends on the wall clock (a delay in milliseconds, `SK_FAST=0`), mark it `alone=True`.
+
+If a bug turns up that a removed scenario would have caught, bring that scenario back. The removed definitions are in
+`tools/netplay-sim.py` at commit `64094a18`.
 
 ## Pitfalls found so far
 

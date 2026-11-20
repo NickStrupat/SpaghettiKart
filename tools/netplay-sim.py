@@ -16,6 +16,9 @@ Usage:
   tools/netplay-sim.py vs-2p gp-2p     Run these
   tools/netplay-sim.py --list          List the scenarios
 
+Scenarios run side by side, up to --max-games games at once (each scenario runs one game per player); the ones that
+depend on the wall clock run alone. --max-games 1 runs them one at a time.
+
 Each game gets a fresh settings folder under --work, so your own settings and saves are never touched. The games need
 the extracted mk64.o2r (--o2r; by default the one the game uses on macOS).
 """
@@ -31,7 +34,9 @@ import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
+from concurrent import futures
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -70,6 +75,7 @@ class Scenario:
     timeout: int = 300  # Seconds
     quiet_limit: int = 90  # Seconds without a new log line from any game before the scenario counts as stuck
     desync_expected: bool = False  # A peer's state is corrupted on purpose: DESYNC lines are not a failure
+    alone: bool = False  # Depends on the wall clock: runs with no other scenario beside it (see --max-games)
 
     def env_for(self, peer: int) -> dict:
         return {**self.peer_env.get(-1, {}), **self.peer_env.get(peer, {})}
@@ -113,6 +119,9 @@ CONSOLE_2P_GP = "R_JPAD@60,A@90,A@120,A@150,A@180,A@250,A@320,A@390,A@420"
 # The same with 3P chosen on Game Select (a second R_JPAD), for Grand Prix with three players
 CONSOLE_3P_GP = "R_JPAD@60,R_JPAD@75,A@90,A@120,A@150,A@180,A@250,A@320,A@390,A@420"
 CONSOLE_3P_VS = "R_JPAD@60,R_JPAD@70,A@90,D_JPAD@120,A@150,A@180,A@210,A@280,A@350,A@420,A@450,A@480"
+# 3P first, which a room of 2 refuses (Game Select stays put); then back to 2P and on as CONSOLE_2P_VS, 30 frames later
+CONSOLE_3P_REFUSED_2P_VS = ("R_JPAD@60,R_JPAD@70,A@90,L_JPAD@105,A@120,D_JPAD@150,A@180,A@210,A@240,A@310,A@380,A@450,"
+                            "A@480,A@510")
 CONSOLE_4P_VS = "R_JPAD@60,R_JPAD@70,R_JPAD@80,A@90,D_JPAD@120,A@150,A@180,A@210,A@280,A@350,A@420,A@450,A@480"
 
 SCENARIOS = [
@@ -122,16 +131,16 @@ SCENARIOS = [
     Scenario("vs-4p", "4 players, versus, one full race; each hears the others' engines", 4, "vs",
              track="mk:mario_raceway", series_races=1, peer_env={-1: {"SK_NETPLAY_TEST_ENGINES_AT": "300"}},
              expect={"races_over": 1, "finishes": 3, "engines": 1}),
-    # A race where neither bot makes the top four is raced again, as in the game, so the two cups take 8 races or
-    # many more: 900 s leaves room for about 16.
-    Scenario("gp-2p", "2 players and 6 CPUs, the Mushroom Cup twice, with the podium in between", 2, "gp", cup=0,
-             races=2, expect={"cups": 2, "races_over": 8, "podiums": 1, "cpus_racing": 8}, timeout=900),
-    Scenario("gp-3p", "3 players and 5 CPUs, the Flower Cup, with the podium", 3, "gp", cup=1,
-             expect={"cups": 1, "races_over": 4, "finishes": 3, "cpus_racing": 4}, timeout=600),
+    # A race where neither bot makes the top four is raced again, as in the game, so the cup takes 4 races or many
+    # more: 600 s leaves room for about 10. The Flower Cup, as console-gp plays the Mushroom Cup.
+    Scenario("gp-2p", "2 players and 6 CPUs, the Flower Cup, with the podium", 2, "gp", cup=1,
+             expect={"cups": 1, "races_over": 4, "cpus_racing": 4}, timeout=600),
     Scenario("gp-4p", "4 players and 4 CPUs, the Star Cup, with the podium", 4, "gp", cup=2,
              expect={"cups": 1, "races_over": 4, "finishes": 4, "cpus_racing": 4}, timeout=600),
+    # Two bots can go over a minute without a hit, and a battle logs nothing between hits, so 2-player battles get
+    # longer before they count as stuck.
     Scenario("battle-2p", "2 players, Battle on Block Fort, until one is out", 2, "battle", track="mk:block_fort",
-             series_races=1, expect={"eliminations": 1, "races_over": 1}),
+             series_races=1, expect={"eliminations": 1, "races_over": 1}, quiet_limit=180),
     Scenario("battle-4p", "4 players, Battle on Big Donut, until one is left", 4, "battle", track="mk:big_donut",
              series_races=1, expect={"eliminations": 3, "races_over": 1}),
     Scenario("restart", "2 players, versus; the host restarts the race twice", 2, "vs", track="mk:royal_raceway",
@@ -147,14 +156,12 @@ SCENARIOS = [
              "only the title screen (gSkipIntro 1) starts", 2, "vs", track="mk:luigi_raceway", races=2,
              series_races=1, cvars={"gSkipIntro": 1}, peer_env={0: {"SK_NETPLAY_TEST_START_DELAY": "1500"}},
              expect={"races_over": 2}),
-    Scenario("two-series", "2 players, two lobby races in one room", 2, "vs", track="mk:wario_stadium", races=2,
-             series_races=1, expect={"races_over": 2}),
     Scenario("music-volume", "2 players, versus; a player presses L, which sets the music volume setting from inside "
              "the simulation", 2, "vs", track="mk:moo_moo_farm", series_races=1,
              peer_env={1: {"SK_NETPLAY_TEST_PRESS_L_AT": "400"}}, expect={"races_over": 1}),
     Scenario("mixed-settings", "2 players whose games took different ways through the menus (one starts at the title "
              "screen, one skips it), as two computers do", 2, "battle", track="mk:block_fort", series_races=1,
-             peer_cvars={0: {"gSkipIntro": 1}}, expect={"races_over": 1}),
+             peer_cvars={0: {"gSkipIntro": 1}}, expect={"races_over": 1}, quiet_limit=180),
     Scenario("mixed-fps", "2 players, versus, one game drawing 60 pictures a second (frame interpolation) and one the "
              "game's own 30", 2, "vs", track="mk:wario_stadium", series_races=1,
              peer_cvars={1: {"gInterpolationFPS": 60}}, expect={"races_over": 1, "finishes": 1}),
@@ -162,16 +169,6 @@ SCENARIOS = [
              "however rollbacks changed them", 3, "vs", track="mk:toads_turnpike", frames=4000,
              peer_env={-1: {"SK_NETPLAY_BOT": "2", "SK_NETPLAY_TEST_SOUND_ROLLBACK_AT": "600"}},
              cvars={"gNetplay.OwnAudio": 0}, expect={"segments": 1, "sound_self_test": 1}),
-    Scenario("relay-only", "2 players, versus, with direct connections turned off: all through the relay", 2, "vs",
-             track="mk:moo_moo_farm", series_races=1, cvars={"gNetplay.DirectConnect": 0},
-             expect={"races_over": 1}, expect_none=("direct",)),
-    Scenario("direct-lost", "2 players, versus; the guest's direct connection dies mid-race and both fall back to "
-             "the relay", 2, "vs", track="mk:kalimari_desert", series_races=1,
-             # The connection dies 5 s after joining, by the clock: run slower, so that the race is still on then.
-             peer_env={-1: {"SK_FAST": "3"}, 1: {"SK_NETPLAY_TEST_BLOCK_DIRECT_MS": "5000"}},
-             expect={"races_over": 1, "direct": 1, "direct_lost": 1}),
-    # Voice chat: with SK_NETPLAY_TEST_VOICE each game hums its own note in place of a microphone, and logs the notes
-    # that reach its speakers (src/port/netplay/VoiceDeviceTest.cpp).
     Scenario("voice", "3 players, versus, with voice chat: each hears the other two", 3, "vs",
              track="mk:luigi_raceway", series_races=1,
              peer_env={0: {"SK_NETPLAY_TEST_VOICE": "1"}, 1: {"SK_NETPLAY_TEST_VOICE": "2"},
@@ -185,23 +182,26 @@ SCENARIOS = [
     Scenario("voice-direct-lost", "2 players, versus, with voice chat; the guest's direct connection dies mid-race: "
              "the race goes on through the relay, the voices stop", 2, "vs", track="mk:kalimari_desert",
              series_races=1,
+             # The connection dies 5 s after joining, by the clock: run slower, so that the race is still on then.
              peer_env={-1: {"SK_FAST": "3"}, 0: {"SK_NETPLAY_TEST_VOICE": "1"},
                        1: {"SK_NETPLAY_TEST_VOICE": "2", "SK_NETPLAY_TEST_BLOCK_DIRECT_MS": "5000"}},
-             expect={"races_over": 1, "direct": 1, "direct_lost": 1, "voice_heard": 1, "voice_stopped": 1}),
+             expect={"races_over": 1, "direct": 1, "direct_lost": 1, "voice_heard": 1, "voice_stopped": 1},
+             alone=True),
     Scenario("relay-host", "2 players, versus; the host reaches the relay on its own computer, the guest by that "
              "computer's network address, as a second computer would", 2, "vs", track="mk:yoshi_valley",
              series_races=1, peer_env={1: {"SK_NETPLAY_RELAY": "{lan}:{port}"}},
              # The host's addresses are loopback ones as the relay sees them; the guest must get its network address.
              expect={"races_over": 1, "direct": 1, "network_address": 1}),
     Scenario("console-2p", "2 players on a shared console: the menus in lockstep (Game Select, characters, course, "
-             "by scripted buttons), a full versus race, the next race, then the menus again; the host's drawing "
-             "settings, which change actor state, and its rules apply to both; the guest's debug tools are off",
+             "by scripted buttons), where 3 players are refused first (the room has 2 places), a full versus race, "
+             "the next race, then the menus again; the host's drawing settings, which change actor state, and its "
+             "rules apply to both; the guest's debug tools are off",
              2, "vs", series_races=1,
              peer_cvars={0: {"gNoCulling": 0, "gDisableLod": 0, "gDisableRubberbanding": 1},
                          1: {"gDrawObjects": 0, "gEnableDebugMode": 1}},
              peer_env={-1: {"SK_NETPLAY_CONSOLE": "1", "SK_NETPLAY_TEST_SAVE_SETTINGS": "1"},
-                       0: {"SK_TEST_CONSOLE_INPUT": CONSOLE_2P_VS},
-                       1: {"SK_TEST_CONSOLE_INPUT": "R_JPAD@290,A@310"}},
+                       0: {"SK_TEST_CONSOLE_INPUT": CONSOLE_3P_REFUSED_2P_VS},
+                       1: {"SK_TEST_CONSOLE_INPUT": "R_JPAD@320,A@340"}},
              # Both save their settings during the room: each file keeps its own player's values, not the room's.
              saved_cvars={0: {"gNoCulling": 0, "gDrawObjects": None, "gEnableDebugMode": None},
                           1: {"gNoCulling": None, "gDisableLod": None, "gDrawObjects": 0, "gEnableDebugMode": 1}},
@@ -224,13 +224,6 @@ SCENARIOS = [
                        0: {"SK_TEST_LOCAL_PLAYERS": "2", "SK_TEST_CONSOLE_INPUT": CONSOLE_3P_VS, "SK_TEST_CONSOLE_INPUT_2": "R_JPAD@290,A@310"},
                        1: {"SK_TEST_CONSOLE_INPUT": "R_JPAD@292,A@314"}},
              expect={"consoles": 1, "races_over": 1, "finishes": 1, "menus_in_sync": 1, "laps": 9}),
-    Scenario("console-too-many", "2 players on a shared console try a 3-player game: Game Select refuses it (the room "
-             "has 2 places), so they go back to 2 players and race", 2, "vs", series_races=1,
-             peer_env={-1: {"SK_NETPLAY_CONSOLE": "1"},
-                       0: {"SK_TEST_CONSOLE_INPUT": "R_JPAD@60,R_JPAD@70,A@90,L_JPAD@105,A@120,D_JPAD@150,A@180,A@210,"
-                                                    "A@240,A@310,A@380,A@450,A@480,A@510"},
-                       1: {"SK_TEST_CONSOLE_INPUT": "R_JPAD@320,A@340"}},
-             expect={"consoles": 1, "races_over": 1, "finishes": 1, "menus_in_sync": 1}),
     Scenario("console-gp", "2 players on a shared console: a whole Grand Prix from the menus, the podium, then "
              "Game Select again", 2, "gp",
              peer_env={-1: {"SK_NETPLAY_CONSOLE": "1"}, 0: {"SK_TEST_CONSOLE_INPUT": CONSOLE_2P_GP},
@@ -297,7 +290,7 @@ SCENARIOS = [
              track="mk:frappe_snowland", frames=1800,
              peer_env={-1: {"SK_FAST": "0", "SK_NETPLAY_DELAY_MS": "60", "SK_NETPLAY_JITTER_MS": "20",
                             "SK_NETPLAY_LOSS": "5"}},
-             expect={"laps": 2}),
+             expect={"laps": 2}, alone=True),
 ]
 
 
@@ -429,16 +422,57 @@ def wait_for_games(games, outputs, deadline, quiet_limit):
     return reason
 
 
+# Every game and relay still running, so that Ctrl-C stops those of every scenario running side by side
+running_lock = threading.Lock()
+running_processes = set()
+used_ports = set()
+
+
+def start_process(*popen_args, **popen_kwargs) -> subprocess.Popen:
+    process = subprocess.Popen(*popen_args, **popen_kwargs)
+    with running_lock:
+        running_processes.add(process)
+    return process
+
+
+def stop_all_processes():
+    with running_lock:
+        processes = list(running_processes)
+    for process in processes:
+        if process.poll() is None:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                process.kill()
+
+
+def pick_relay_port() -> int:
+    """A port no other scenario of this run uses, free for both UDP and TCP (the relay's WebSocket)."""
+    while True:
+        port = random.randint(20000, 40000)
+        with running_lock:
+            if port in used_ports:
+                continue
+            used_ports.add(port)
+        try:
+            for kind in (socket.SOCK_DGRAM, socket.SOCK_STREAM):
+                with socket.socket(socket.AF_INET, kind) as probe:
+                    probe.bind(("", port))
+            return port
+        except OSError:
+            continue
+
+
 def run_scenario(scenario: Scenario, args, run_dir: Path):
     directory = run_dir / scenario.name
     directory.mkdir(parents=True)
-    port = random.randint(20000, 40000)
+    port = pick_relay_port()
     relay_args = [str(args.relay), "--port", str(port), "--no-rate-limits"]
     delay, jitter, loss = scenario.lag
     if delay or jitter or loss:
         relay_args += ["--delay-ms", str(delay), "--jitter-ms", str(jitter), "--loss", str(loss)]
     relay_out = open(directory / "relay.out", "w")
-    relay = subprocess.Popen(relay_args, stdout=relay_out, stderr=subprocess.STDOUT)
+    relay = start_process(relay_args, stdout=relay_out, stderr=subprocess.STDOUT, start_new_session=True)
     time.sleep(0.3)
 
     started = time.monotonic()
@@ -472,8 +506,8 @@ def run_scenario(scenario: Scenario, args, run_dir: Path):
         with open(output_path, "w") as output:
             # After a game crashes, macOS asks whether to reopen its windows at the next start, and the game waits
             # for an answer; this skips that.
-            games.append(subprocess.Popen([str(args.exe), "-ApplePersistenceIgnoreState", "YES"], env=env,
-                                          stdout=output, stderr=subprocess.STDOUT, start_new_session=True))
+            games.append(start_process([str(args.exe), "-ApplePersistenceIgnoreState", "YES"], env=env,
+                                       stdout=output, stderr=subprocess.STDOUT, start_new_session=True))
         # The host creates the room and writes its code; guests wait for it.
         time.sleep(1.0 if i == 0 else 0.3)
 
@@ -481,6 +515,8 @@ def run_scenario(scenario: Scenario, args, run_dir: Path):
     relay.kill()
     relay.wait()
     relay_out.close()
+    with running_lock:
+        running_processes.difference_update(games + [relay])
     elapsed = time.monotonic() - started
 
     problems = []
@@ -566,6 +602,9 @@ def main():
                         help="folder for settings folders and logs")
     parser.add_argument("--speed", type=int, default=10,
                         help="draw one frame in this many and skip pacing; 0 plays in real time")
+    parser.add_argument("--max-games", type=int, default=max(1, min(8, (os.cpu_count() or 2) - 2)),
+                        help="games running at once, across the scenarios run side by side (default: the cores "
+                             "less 2, at most 8); a scenario with more players than this runs alone")
     args = parser.parse_args()
 
     if args.list:
@@ -586,19 +625,57 @@ def main():
 
     run_dir = args.work / time.strftime("run-%Y%m%d-%H%M%S")
     print(f"Logs: {run_dir}")
-    results = []
-    for scenario in selected:
-        print(f"{scenario.name:14} ", end="", flush=True)
-        result = run_scenario(scenario, args, run_dir)
-        results.append(result)
-        verdict = "PASS" if result["passed"] else "FAIL"
-        print(f"{verdict}  {result['elapsed']:5.0f} s  {summarize_events(result['counts'])}")
-        for problem in result["problems"]:
-            print(f"{'':16}- {problem}")
+    started = time.monotonic()
+    results = run_side_by_side(selected, args, run_dir)
 
     failed = [r for r in results if not r["passed"]]
-    print(f"\n{len(results) - len(failed)} of {len(results)} scenarios passed.")
+    if failed:
+        print(f"\nFailed: {', '.join(r['name'] for r in failed)}")
+    minutes = (time.monotonic() - started) / 60
+    print(f"\n{len(results) - len(failed)} of {len(results)} scenarios passed, in {minutes:.0f} minutes.")
     return 1 if failed else 0
+
+
+def run_side_by_side(selected, args, run_dir: Path):
+    """Runs the scenarios, as many at once as --max-games allows, and prints each result as it ends.
+
+    The longest (by time limit) start first, so that the short ones fill the gaps around them rather than a long one
+    running alone at the end. A scenario marked alone, or with more players than --max-games, waits for the others to
+    end and runs by itself."""
+    pending = sorted(selected, key=lambda scenario: -scenario.timeout)
+    running = {}  # future -> scenario
+    results = []
+    with futures.ThreadPoolExecutor(max_workers=max(1, args.max_games)) as pool:
+        try:
+            while pending or running:
+                games = sum(scenario.players for scenario in running.values())
+                alone_running = any(scenario.alone for scenario in running.values())
+                for scenario in list(pending):
+                    runs_alone = scenario.alone or (scenario.players > args.max_games)
+                    if alone_running or (runs_alone and running) or (games + scenario.players > args.max_games
+                                                                      and running):
+                        continue
+                    pending.remove(scenario)
+                    running[pool.submit(run_scenario, scenario, args, run_dir)] = scenario
+                    games += scenario.players
+                    alone_running = runs_alone
+                    if runs_alone:
+                        break
+                done, _ = futures.wait(running, return_when=futures.FIRST_COMPLETED)
+                for future in done:
+                    running.pop(future)
+                    result = future.result()
+                    results.append(result)
+                    verdict = "PASS" if result["passed"] else "FAIL"
+                    print(f"{result['name']:24} {verdict}  {result['elapsed']:5.0f} s  "
+                          f"{summarize_events(result['counts'])}", flush=True)
+                    for problem in result["problems"]:
+                        print(f"{'':26}- {problem}", flush=True)
+        except KeyboardInterrupt:
+            # The worker threads wait for their games, so stop the games before the pool waits for the threads.
+            stop_all_processes()
+            raise
+    return results
 
 
 if __name__ == "__main__":
