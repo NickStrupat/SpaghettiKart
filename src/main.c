@@ -447,26 +447,26 @@ void update_controller(s32 index) {
 }
 
 /**
- * Updates gControllerAny, which holds the combined state of controllers one to four.
+ * Updates gControllerAny, which holds the combined state of every player's controller.
  */
 void combine_controllers(void) {
-    gControllerAny->button = (s16) (((gControllerOne->button | gControllerTwo->button) | gControllerThree->button) |
-                                    gControllerFour->button);
-    gControllerAny->buttonPressed =
-        (s16) (((gControllerOne->buttonPressed | gControllerTwo->buttonPressed) | gControllerThree->buttonPressed) |
-               gControllerFour->buttonPressed);
-    gControllerAny->buttonDepressed = (s16) (((gControllerOne->buttonDepressed | gControllerTwo->buttonDepressed) |
-                                              gControllerThree->buttonDepressed) |
-                                             gControllerFour->buttonDepressed);
-    gControllerAny->stickDirection =
-        (s16) (((gControllerOne->stickDirection | gControllerTwo->stickDirection) | gControllerThree->stickDirection) |
-               gControllerFour->stickDirection);
-    gControllerAny->stickPressed =
-        (s16) (((gControllerOne->stickPressed | gControllerTwo->stickPressed) | gControllerThree->stickPressed) |
-               gControllerFour->stickPressed);
-    gControllerAny->stickDepressed =
-        (s16) (((gControllerOne->stickDepressed | gControllerTwo->stickDepressed) | gControllerThree->stickDepressed) |
-               gControllerFour->stickDepressed);
+    // @port All eight players: with five or more, players five to eight confirm the results and menus too.
+    struct Controller combined = { 0 };
+
+    for (s32 i = 0; i < NUM_PLAYERS; i++) {
+        combined.button |= gControllers[i].button;
+        combined.buttonPressed |= gControllers[i].buttonPressed;
+        combined.buttonDepressed |= gControllers[i].buttonDepressed;
+        combined.stickDirection |= gControllers[i].stickDirection;
+        combined.stickPressed |= gControllers[i].stickPressed;
+        combined.stickDepressed |= gControllers[i].stickDepressed;
+    }
+    gControllerAny->button = combined.button;
+    gControllerAny->buttonPressed = combined.buttonPressed;
+    gControllerAny->buttonDepressed = combined.buttonDepressed;
+    gControllerAny->stickDirection = combined.stickDirection;
+    gControllerAny->stickPressed = combined.stickPressed;
+    gControllerAny->stickDepressed = combined.stickDepressed;
 }
 
 void read_controllers(void) {
@@ -480,7 +480,7 @@ void read_controllers(void) {
         return;
     }
     if (Harness_OverridePads(gControllerPads)) {
-        for (s32 i = 0; i < 4; i++) {
+        for (s32 i = 0; i < NUM_PLAYERS; i++) {
             apply_pad_to_controller(&gControllers[i], &gControllerPads[i]);
         }
     } else {
@@ -985,15 +985,23 @@ void race_render_own_view(s32 playerId) {
             columns = 2;
             rows = 2;
             break;
+        case SCREEN_MODE_8P:
+            mode = RENDER_SCREEN_MODE_8P_PLAYER_ONE + playerId;
+            columns = screen_grid_columns(SCREEN_MODE_8P);
+            rows = screen_grid_rows(SCREEN_MODE_8P);
+            break;
         default:
             // One screen: a single player, or the winner's screen after a versus race.
             race_render_frame();
             return;
     }
 
-    // Scaling rather than setting the size keeps the screen growing at the start of the race.
-    screen->screenWidth = MIN(screen->screenWidth * columns, SCREEN_WIDTH);
-    screen->screenHeight = MIN(screen->screenHeight * rows, SCREEN_HEIGHT);
+    // Scaling rather than setting the size keeps the screen growing at the start of the race. A full cell fills the
+    // window: three columns of 106 make 318, not 320.
+    screen->screenWidth =
+        (screen->screenWidth >= SCREEN_WIDTH / columns) ? SCREEN_WIDTH : screen->screenWidth * columns;
+    screen->screenHeight =
+        (screen->screenHeight >= SCREEN_HEIGHT / rows) ? SCREEN_HEIGHT : screen->screenHeight * rows;
     screen->screenStartX = SCREEN_WIDTH / 2;
     screen->screenStartY = SCREEN_HEIGHT / 2;
     gScreenAspect = (f32) SCREEN_WIDTH / SCREEN_HEIGHT;

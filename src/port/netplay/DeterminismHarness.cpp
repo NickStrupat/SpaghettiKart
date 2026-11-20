@@ -29,11 +29,11 @@ static_assert(std::endian::native == std::endian::little, "Harness log files are
 namespace {
 
 constexpr char kMagic[4] = { 'S', 'K', 'D', 'T' };
-constexpr u32 kFormatVersion = 2;
+constexpr u32 kFormatVersion = 3;
 constexpr u32 kDefaultFrames = 1800;
 // Frames to wait after boot before starting the race, so the engine and menus finish initializing.
 constexpr u32 kBootFrames = 30;
-constexpr size_t kNumPads = 4;
+constexpr size_t kNumPads = NUM_PLAYERS;
 
 
 struct FrameRecord {
@@ -210,7 +210,6 @@ bool RunRollbackCheck() {
 
     SimState::Load(ring[(frame - depth) % ring.size()]);
     for (u32 resimFrame = frame - depth + 1; resimFrame <= frame; resimFrame++) {
-        // The harness records 4 pads; players 5 to 8 stay idle.
         std::array<OSContPad, NUM_PLAYERS> pads = {};
         FillPads(sHarness.Frames[resimFrame].Pads, pads.data());
         SimState_AdvanceFrame(pads.data(), false);

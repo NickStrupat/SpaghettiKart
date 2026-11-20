@@ -273,6 +273,18 @@ void func_8028E678(void) {
                     }
                     D_8015F894 = 8;
                     break;
+                case SCREEN_MODE_8P:
+                    // @port Grand Prix with 5 to 8 players: players one and two's screens become the top quarters of
+                    // the three- and four-player race, then end on the same two-player layout with the results.
+                    gScreenOneCtx->screenStartX = SCREEN_WIDTH / 4;
+                    gScreenOneCtx->screenStartY = SCREEN_HEIGHT / 4;
+                    gScreenOneCtx->screenWidth = SCREEN_WIDTH / 2;
+                    gScreenOneCtx->screenHeight = SCREEN_HEIGHT / 2;
+                    *gScreenTwoCtx = *gScreenOneCtx;
+                    gScreenTwoCtx->screenStartX = (SCREEN_WIDTH * 3) / 4;
+                    gScreenAspect = (f32) SCREEN_WIDTH / SCREEN_HEIGHT;
+                    D_8015F894 = 8;
+                    break;
             }
             break;
         case 8:
@@ -1117,20 +1129,7 @@ void func_8028FCBC(void) {
             } else {
                 switch (gModeSelection) {
                     case GRAND_PRIX:
-                        if (gScreenModeSelection == SCREEN_MODE_8P) {
-                            /* The winner-screen-expand transitions (func_8028E678
-                               and func_8028E438) have no eighth-screen arm, so
-                               they would leave the mode stuck. Advance directly
-                               instead: set_next_course() bumps the cup to the
-                               next track (or ENDING after the last), and the
-                               quit-to-transition fields carry the scene change --
-                               the same three lines func_8028E678 ends on for the
-                               smaller modes, without the screen animation. */
-                            gIsInQuitToMenuTransition = 1;
-                            gQuitToMenuTransitionCounter = 5;
-                            gRaceState = RACE_EXIT;
-                            set_next_course();
-                        } else if (D_80150120 != 0) {
+                        if (D_80150120 != 0) {
                             func_8028E678();
                         } else if (gScreenModeSelection == SCREEN_MODE_1P) {
                             func_80092564();

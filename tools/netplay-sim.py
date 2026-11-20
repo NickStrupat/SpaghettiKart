@@ -505,6 +505,8 @@ def run_scenario(scenario: Scenario, args, run_dir: Path):
         })
         if scenario.track:
             env["SK_NETPLAY_TRACK"] = scenario.track
+        # SK_TEST_SCREENSHOTS given to the simulator: each game saves its pictures in its own folder.
+        env.setdefault("SK_TEST_SCREENSHOT_DIR", str(home))
         for name, value in {**scenario.peer_env.get(-1, {}), **scenario.peer_env.get(i, {})}.items():
             env[name] = value.format(port=port, lan=lan_address() if "{lan}" in value else "")
         output_path = directory / f"p{i}.out"

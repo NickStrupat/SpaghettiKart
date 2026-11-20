@@ -14,7 +14,7 @@
  * Recording options (all optional):
  *   SK_DETERMINISM_FRAMES=1800     Race frames to run (30 per second).
  *   SK_DETERMINISM_MODE=gp|vs|battle
- *   SK_DETERMINISM_PLAYERS=1..4    Human players driven by synthetic inputs.
+ *   SK_DETERMINISM_PLAYERS=1..8    Human players driven by synthetic inputs.
  *   SK_DETERMINISM_TRACK=mk:luigi_raceway   Track resource name (VS and Battle).
  *   SK_DETERMINISM_SEED=1          Seeds both the game RNG and the synthetic inputs.
  *   SK_DETERMINISM_DRIVER=racer    How synthetic players drive: racer (follows the track, uses items) or random.

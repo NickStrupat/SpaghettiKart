@@ -65,6 +65,11 @@ for (const arena of ['big_donut', 'block_fort', 'double_deck', 'skyscraper']) {
 for (const track of ['luigi_raceway', 'frappe_snowland', 'royal_raceway', 'rainbow_road']) {
   races.push({ mode: 'gp', track, players: 2 });
 }
+// 5 to 8 players: the eighth-screen grid, as in tools/netplay-stress.sh
+races.push({ mode: 'gp', track: 'kalimari_desert', players: 5 });
+races.push({ mode: 'vs', track: 'sherbet_land', players: 6 });
+races.push({ mode: 'vs', track: 'wario_stadium', players: 8 });
+races.push({ mode: 'battle', track: 'double_deck', players: 8 });
 const selected = races.filter((race) => !process.env.ONLY || `${race.mode}-${race.track}`.includes(process.env.ONLY));
 
 const browser = await puppeteer.launch({

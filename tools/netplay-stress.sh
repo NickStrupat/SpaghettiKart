@@ -64,6 +64,11 @@ export OUT EXE FRAMES O2R
     for track in moo_moo_farm bowsers_castle; do
         echo "gp $track 4"
     done
+    # 5 to 8 players: the eighth-screen grid, every kart a human in versus and Battle
+    echo "gp kalimari_desert 5"
+    echo "vs sherbet_land 6"
+    echo "vs wario_stadium 8"
+    echo "battle double_deck 8"
 } | xargs -P "$JOBS" -L 1 bash -c 'run "$@"' _
 
 echo "AddressSanitizer reports, by place:"

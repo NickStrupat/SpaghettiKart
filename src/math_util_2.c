@@ -745,9 +745,14 @@ static f32 hud_cell_top(s32 playerId) {
     return hud_cell_height() * (f32) screen_player_row(SCREEN_MODE_8P, playerId);
 }
 
+/* @port Netplay's own view draws one player's screen over the whole window, with the one-player HUD layout. */
+static bool hud_uses_grid(void) {
+    return (gScreenModeSelection == SCREEN_MODE_8P) && (gOwnViewPlayer < 0);
+}
+
 /** Fraction across this player's cell, or the caller's own value in other modes. */
 s32 hud_place_x(s32 playerId, f32 fraction, s32 fallback) {
-    if (gScreenModeSelection != SCREEN_MODE_8P) {
+    if (!hud_uses_grid()) {
         return fallback;
     }
     return (s32) (hud_cell_left(playerId) + (hud_cell_width() * fraction));
@@ -755,7 +760,7 @@ s32 hud_place_x(s32 playerId, f32 fraction, s32 fallback) {
 
 /** Fraction down this player's cell, or the caller's own value in other modes. */
 s32 hud_place_y(s32 playerId, f32 fraction, s32 fallback) {
-    if (gScreenModeSelection != SCREEN_MODE_8P) {
+    if (!hud_uses_grid()) {
         return fallback;
     }
     return (s32) (hud_cell_top(playerId) + (hud_cell_height() * fraction));
@@ -763,7 +768,7 @@ s32 hud_place_y(s32 playerId, f32 fraction, s32 fallback) {
 
 /** Draw scale that keeps an element at a fixed share of the cell's width. */
 f32 hud_place_scale(f32 widthFraction, f32 sourceWidth, f32 fallback) {
-    if (gScreenModeSelection != SCREEN_MODE_8P) {
+    if (!hud_uses_grid()) {
         return fallback;
     }
     return (hud_cell_width() * widthFraction) / sourceWidth;
@@ -776,7 +781,7 @@ void func_80042330(s32 x, s32 y, u16 angle, f32 scale) {
     /* The eighth-screen grid has already placed its HUD in window space via
        hud_grid_x(), because two of its four columns cannot be reached by an edge
        anchor at all. Anchoring here would drag them back out to the edges. */
-    if ((gHUDModes != 2) && (gScreenModeSelection != SCREEN_MODE_8P)) {
+    if ((gHUDModes != 2) && !hud_uses_grid()) {
         if (x < (SCREEN_WIDTH / 2)) {
             x = (s32) OTRGetDimensionFromLeftEdge(x);
         } else {
@@ -830,7 +835,7 @@ void func_80042330_wide(s32 x, s32 y, u16 angle, f32 scale) {
 
     /* Skipped for the eighth-screen grid for the reason given in
        func_80042330 above: hud_grid_x() has already placed x in window space. */
-    if (gScreenModeSelection != SCREEN_MODE_8P) {
+    if (!hud_uses_grid()) {
         if (x < (SCREEN_WIDTH / 2)) {
             x = (s32) OTRGetDimensionFromLeftEdge(x);
         } else {
