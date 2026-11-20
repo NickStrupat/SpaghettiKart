@@ -8,6 +8,7 @@
 #include <array>
 #include <string>
 
+#include "defines.h"
 #include "tools/netplay-relay/RelayProtocol.h"
 
 constexpr size_t kNumGameplayIntCVars = 38;
@@ -23,7 +24,7 @@ struct RaceConfig {
     s32 CCSelection = 2;                        // CC_50 .. CC_EXTRA
     s32 MirrorMode = 0;
     s8 PlayerCount = 1;                         // Human players
-    std::array<s8, 4> Characters = { 0, 1, 2, 3 };
+    std::array<s8, NUM_PLAYERS> Characters = { 0, 1, 2, 3, 4, 5, 6, 7 };
     s32 CupIndex = 0;                           // Grand Prix only
     s8 CourseIndexInCup = 0;                    // Grand Prix only
     u16 RandomSeed = 0;

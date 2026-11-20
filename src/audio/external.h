@@ -234,6 +234,9 @@ void func_800C400C(void);
 void func_800C4084(u16);
 void func_800C40F0(u8);
 void play_sound(u32, Vec3f*, u8, f32*, f32*, s8*);
+/** The camera of sounds that belong to no screen (menu sounds, play_sound2()): heard on every screen. */
+#define AUDIO_NO_CAMERA NUM_PLAYERS
+
 /** @port: play_sound() without netplay's filtering: queues the sound now. */
 void queue_sound(u32 soundBits, Vec3f* position, u8 cameraId, f32* freqScale, f32* volume, s8* reverb);
 /**
@@ -360,11 +363,11 @@ extern struct Unk_8018EFD8 D_8018EFD8[];
 // These are indexes for D_8018EFD8, but their purpose is unknown
 extern u8 D_8018FB90;
 extern u8 D_8018FB91;
-extern Camera* gCopyCamera[NUM_PLAYERS];
+extern Camera* gCopyCamera[NUM_PLAYERS + 1];
 extern Vec3f gVelocityCamera[NUM_PLAYERS];
 extern Vec3f gCameraLastPos[NUM_PLAYERS];
 extern u8 D_8018FC08;
-extern s16 D_8018FC10[4][2];
+extern s16 D_8018FC10[NUM_PLAYERS][2];
 
 extern struct SoundCharacteristics sSoundBanks[SOUND_BANK_COUNT][20];
 extern u8 sSoundBankUsedListBack[SOUND_BANK_COUNT];
@@ -384,7 +387,7 @@ extern struct Sound sSoundRequests[0x100];
 
 // Data entries
 extern u8 D_800E9DA0;
-extern s32 D_800E9DB4[];
+extern s32 D_800E9DB4[NUM_PLAYERS];
 extern f32 D_800E9DC4[NUM_PLAYERS]; // = { 1.0f, 1.0f, 1.0f, 1.0f };
 extern f32 D_800E9DD4[NUM_PLAYERS]; // = { 0.0f, 0.0f, 0.0f, 0.0f };
 extern f32 D_800E9DE4[NUM_PLAYERS]; // = { 0.0f, 0.0f, 0.0f, 0.0f };

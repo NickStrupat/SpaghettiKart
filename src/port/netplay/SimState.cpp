@@ -339,7 +339,7 @@ extern "C" void SimState_SetHostControlsMenus(bool enabled) {
 extern "C" void SimState_ResetControllers(void) {
     // Applying a released pad twice clears both the held state and the edges computed from it.
     for (int pass = 0; pass < 2; pass++) {
-        for (size_t i = 0; i < 4; i++) {
+        for (size_t i = 0; i < NUM_PLAYERS; i++) {
             OSContPad released = {};
             apply_pad_to_controller(&gControllers[i], &released);
         }
@@ -364,7 +364,7 @@ extern "C" void SimState_EndSimFrame(void) {
 extern "C" void SimState_AdvanceFrame(OSContPad* pads, bool shown) {
     sResimulating = !shown;
     FrameInterpolation_SetRecordingPaused(!shown);
-    for (size_t i = 0; i < 4; i++) {
+    for (size_t i = 0; i < NUM_PLAYERS; i++) {
         apply_pad_to_controller(&gControllers[i], &pads[i]);
     }
     UpdateMenuController();

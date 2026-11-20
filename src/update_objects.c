@@ -2413,8 +2413,9 @@ s32 func_8007B040(s32 objectIndex, s32 playerId) {
     s32 var_t3;
     s32 temp_a0;
     s32 item;
-    s32 sp50[4];
-    s32 sp40[4];
+    // @port Sized for every other player who may hold an item: with 6 or more players, 4 overflowed the stack.
+    s32 sp50[NUM_PLAYERS];
+    s32 sp40[NUM_PLAYERS];
     s32 var_v1_2;
     Player* sp38;
     s16 temp_a1;

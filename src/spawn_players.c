@@ -808,9 +808,13 @@ void spawn_players_gp_eight_player(f32* arg0, f32* arg1, f32 arg2) {
         if (i < humans) {
             characterId = gCharacterSelections[i];
             flags = PLAYER_EXISTS | PLAYER_START_SEQUENCE | PLAYER_HUMAN;
-        } else {
+        } else if (gModeSelection == GRAND_PRIX) {
             characterId = cpuChars[i - humans];
             flags = PLAYER_EXISTS | PLAYER_CPU | PLAYER_START_SEQUENCE;
+        } else {
+            // @port Versus has no CPUs: the karts beyond the players are left out, as in the other versus spawns
+            characterId = cpuChars[i - humans];
+            flags = PLAYER_CPU | PLAYER_START_SEQUENCE;
         }
 
         spawn_player(&gPlayers[i], i, arg0[D_80165270[i]], arg1[D_80165270[i]], arg2, 32768.0f, characterId, flags);
@@ -971,7 +975,7 @@ static void fill_battle_ring(f32* x, f32* z, f32 radius) {
 }
 
 /**
- * Battle spawn for the eighth-screen mode: every slot human.
+ * Battle spawn for the eighth-screen mode: a human in each of the first gPlayerCountSelection1 slots.
  *
  * spawn_players_4p_battle below already fills all eight slots -- four humans and
  * four CPUs -- so this is the same conversion the Grand Prix path needs, not a
@@ -985,8 +989,14 @@ void spawn_players_8p_battle(f32* arg0, f32* arg1, f32 arg2) {
     for (i = PLAYER_ONE; i < NUM_PLAYERS; i++) {
         u16 yaw = (u16) (i * (0x10000 / NUM_PLAYERS));
 
-        spawn_player(&gPlayers[i], i, arg0[i], arg1[i], arg2, (f32) yaw, gCharacterSelections[i],
-                     PLAYER_EXISTS | PLAYER_START_SEQUENCE | PLAYER_HUMAN);
+        // @port Only the players present: with fewer than 8, the rest are left out as spawn_players_4p_battle
+        // leaves out karts 5 to 8, or their full balloons would keep the battle from ever ending.
+        if (i < gPlayerCountSelection1) {
+            spawn_player(&gPlayers[i], i, arg0[i], arg1[i], arg2, (f32) yaw, gCharacterSelections[i],
+                         PLAYER_EXISTS | PLAYER_START_SEQUENCE | PLAYER_HUMAN);
+        } else {
+            spawn_player(&gPlayers[i], i, arg0[i], arg1[i], arg2, (f32) yaw, i, PLAYER_START_SEQUENCE | PLAYER_CPU);
+        }
     }
     D_80164A28 = 0;
     func_80039AE4();

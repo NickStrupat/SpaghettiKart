@@ -247,7 +247,7 @@ void CM_BombKartsWaypoint(s32 cameraId) {
 
 void CM_DisplayBattleBombKart(s32 playerId, s32 primAlpha) {
 
-    if ((playerId < 0) || (playerId > 4)) {
+    if ((playerId < 0) || (playerId >= NUM_PLAYERS)) {
         return;
     }
 

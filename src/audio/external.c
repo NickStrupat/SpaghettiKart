@@ -27,11 +27,13 @@ UnkStruct8018EF18 D_8018EF18[16];
 struct Unk_8018EFD8 D_8018EFD8[50];
 u8 D_8018FB90;
 u8 D_8018FB91;
-Camera* gCopyCamera[NUM_PLAYERS];
+// One per screen's camera, then one for sounds that belong to no camera (AUDIO_NO_CAMERA). @port: 8 screens, for
+// netplay rooms of 5 to 8 racers; the original had 4, and its no-camera sounds read past the end of the array.
+Camera* gCopyCamera[NUM_PLAYERS + 1];
 Vec3f gVelocityCamera[NUM_PLAYERS];
 Vec3f gCameraLastPos[NUM_PLAYERS];
 u8 D_8018FC08;
-s16 D_8018FC10[4][2];
+s16 D_8018FC10[NUM_PLAYERS][2];
 struct Sound sSoundRequests[0x100];
 struct SoundCharacteristics sSoundBanks[SOUND_BANK_COUNT][20];
 u8 sSoundBankUsedListBack[SOUND_BANK_COUNT];
@@ -48,8 +50,8 @@ struct_D_801930D0_entry D_801930D0[3];
 
 u8 D_800E9DA0 = 0;
 UNUSED s32 D_800E9DA4[] = { 0, 0, 0, 0 };
-s32 D_800E9DB4[] = { 0, 0, 0, 0 };
-f32 D_800E9DC4[] = { 1.0f, 1.0f, 1.0f, 1.0f };
+s32 D_800E9DB4[NUM_PLAYERS] = { 0 };
+f32 D_800E9DC4[NUM_PLAYERS] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
 f32 D_800E9DD4[] = { 0.0f, 0.0f, 0.0f, 0.0f };
 f32 D_800E9DE4[] = { 0.0f, 0.0f, 0.0f, 0.0f };
 f32 D_800E9DF4[] = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
@@ -66,9 +68,9 @@ f32 D_800E9EB4[] = { 0.0f, 0.0f, 0.0f, 0.0f };
 f32 D_800E9EC4[] = { 0.0f, 0.0f, 0.0f, 0.0f };
 f32 D_800E9ED4[] = { 0.0f, 0.0f, 0.0f, 0.0f };
 f32 D_800E9EE4[] = { 0.0f, 0.0f, 0.0f, 0.0f };
-f32 D_800E9EF4[] = { 1.0f, 1.0f, 1.0f, 1.0f };
+f32 D_800E9EF4[NUM_PLAYERS] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
 f32 D_800E9F04[] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
-f32 D_800E9F14[] = { 1.0f, 1.0f, 1.0f, 1.0f };
+f32 D_800E9F14[NUM_PLAYERS] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
 u8 D_800E9F24[] = { 0, 0, 0, 0, 0, 0, 0, 0 };
 u8 D_800E9F2C[NUM_PLAYERS] = { 0, 0, 0, 0, 0, 0, 0, 0 };
 f32 D_800E9F34[] = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
@@ -213,7 +215,7 @@ void audio_set_only_camera(s8 cameraId) {
 
 /**
  * @returns true for a sound that belongs to another split-screen camera than the only one heard. Cameras past the
- * last screen, and camera 4 (sounds that belong to no camera), are always heard.
+ * last screen, and AUDIO_NO_CAMERA (sounds that belong to no camera), are always heard.
  */
 static bool is_other_camera(u8 cameraId) {
     return (sOnlyCameraId >= 0) && (cameraId <= D_800EA1C0) && (cameraId != sOnlyCameraId);
@@ -709,6 +711,7 @@ void func_800C2474(void) {
     gCopyCamera[5] = camera6;
     gCopyCamera[6] = camera7;
     gCopyCamera[7] = camera8;
+    gCopyCamera[AUDIO_NO_CAMERA] = camera1;
     D_8018FB91 = 0;
     D_8018FB90 = 1;
     D_800EA0F4 = 0;
@@ -726,7 +729,7 @@ void func_800C2474(void) {
     D_800EA17C = 0.85f;
     D_800EA180 = 0;
     D_800EA184 = 0;
-    for (var_v0 = 0; var_v0 < 4; var_v0++) {
+    for (var_v0 = 0; var_v0 < NUM_PLAYERS; var_v0++) {
         D_800E9DB4[var_v0] = 0;
         D_800E9DF4[var_v0] = 0; // This is an f32 FYI, but 0.0f doesn't match right :)
         gVelocityCamera[var_v0][0] = 0.0f;
@@ -3089,7 +3092,7 @@ void play_sound2(s32 soundBits) {
     if ((soundBits == SOUND_ACTION_REV_ENGINE_2) && (IsDkJungle())) {
         soundBits = SOUND_ARG_LOAD(0x49, 0x00, 0x80, 0x28);
     }
-    play_sound(soundBits, &D_800EA1C8, 4, &D_800EA1D4, &D_800EA1D4, (s8*) &D_800EA1DC);
+    play_sound(soundBits, &D_800EA1C8, AUDIO_NO_CAMERA, &D_800EA1D4, &D_800EA1D4, (s8*) &D_800EA1DC);
 }
 
 void play_sequence(u16 arg0) {
@@ -3401,7 +3404,7 @@ void func_800C9D80(Vec3f position, Vec3f velocity, u32 soundBits) {
     u8 var_s0;
     struct Unk_8018EFD8* temp_v0;
 
-    if ((D_800EA108 == 0) && (D_800EA0F0 == 0) && ((s32) D_800EA1C0 < 4)) {
+    if ((D_800EA108 == 0) && (D_800EA0F0 == 0) && ((s32) D_800EA1C0 < NUM_PLAYERS)) {
         for (var_s0 = 0; var_s0 < ((D_800EA1C0 + 1)); var_s0++) {
             temp_v0 = func_800C1C88(0U, position, velocity, D_800EA1C8, (u8) var_s0, soundBits);
             if (temp_v0 != 0) {

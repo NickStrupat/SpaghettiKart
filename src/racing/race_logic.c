@@ -92,12 +92,13 @@ void func_8028E028(void) {
 void update_player_battle_status(void) {
     Player* player;
     s32 playerIndex;
-    s16 playersAlive[4];
-    s16 playersDead[4];
+    s16 playersAlive[NUM_PLAYERS];
+    s16 playersDead[NUM_PLAYERS];
     s16 aliveCounter = 0;
     s16 deadCounter = 0;
 
-    for (playerIndex = 0; playerIndex < 4; playerIndex++) {
+    // @port Every player: Battle has up to 8 (the karts beyond the player count do not exist)
+    for (playerIndex = 0; playerIndex < NUM_PLAYERS; playerIndex++) {
         player = &gPlayers[playerIndex];
         if (!(player->type & PLAYER_EXISTS)) {
             continue;
@@ -600,6 +601,17 @@ void func_8028EF28(void) {
                                 if (currentPosition == 2) {
                                     gRaceState = RACE_FINISHED;
                                     i = gPlayerPositionLUT[3];
+                                    gPlayers[i].triggers |= SPINOUT_TRIGGER;
+                                    gPlayers[i].type |= PLAYER_CPU;
+                                    func_800CA118((u8) i);
+                                }
+                                break;
+                            default:
+                                // @port 5 to 8 players: as with 3 and 4, the race is over once all but the last have
+                                // finished. The win tallies (gNmiUnknown2/3) only have tables for 3 and 4 players.
+                                if (currentPosition == gPlayerCountSelection1 - 2) {
+                                    gRaceState = RACE_FINISHED;
+                                    i = gPlayerPositionLUT[gPlayerCountSelection1 - 1];
                                     gPlayers[i].triggers |= SPINOUT_TRIGGER;
                                     gPlayers[i].type |= PLAYER_CPU;
                                     func_800CA118((u8) i);

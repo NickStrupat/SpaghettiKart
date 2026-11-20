@@ -976,6 +976,7 @@ void player_use_item(Player* player) {
 void check_player_use_item(void) {
     Player* player;
     struct Controller* controller;
+    struct Controller noController = { 0 };
     s32 playerId;
 
     /* Vanilla stopped at gControllers[4], which was one past the four human
@@ -998,6 +999,11 @@ void check_player_use_item(void) {
                     if ((player - gPlayerOne) == 0) {
                         controller = gControllerEight;
                     }
+                }
+                // @port With six or more players those trailing slots belong to real players, whose Z would fire
+                // this kart's items. Nothing presses for it then, as nothing fed the unused slots before.
+                if ((controller != &gControllers[playerId]) && ((controller - gControllers) < gPlayerCountSelection1)) {
+                    controller = &noController;
                 }
             }
 

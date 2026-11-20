@@ -49,7 +49,7 @@ constexpr u8 kUnknownLatencyInputDelay = 1;
 // that frame's checksum, so keep about a second of snapshots to still have the desynced frame for its report.
 constexpr size_t kNumSnapshots = 32;
 static_assert(kNumSnapshots >= kPredictionWindow + 2);
-constexpr size_t kMaxPlayers = 4;
+constexpr size_t kMaxPlayers = NUM_PLAYERS;
 // GekkoNet averages frame advantage over 26 frames; re-check only once the average reflects earlier waits.
 constexpr u32 kTimeSyncInterval = 26;
 // The stats overlay sums up the last two seconds.

@@ -20,7 +20,7 @@ extern "C" {
 
 namespace {
 
-constexpr size_t kMaxPlayers = 4;
+constexpr size_t kMaxPlayers = NUM_PLAYERS;
 // Peers start at different moments; give up if they have not all connected after this long.
 constexpr auto kConnectTimeout = std::chrono::seconds(30);
 

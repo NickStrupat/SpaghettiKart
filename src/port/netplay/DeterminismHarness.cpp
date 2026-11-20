@@ -210,7 +210,8 @@ bool RunRollbackCheck() {
 
     SimState::Load(ring[(frame - depth) % ring.size()]);
     for (u32 resimFrame = frame - depth + 1; resimFrame <= frame; resimFrame++) {
-        std::array<OSContPad, kNumPads> pads;
+        // The harness records 4 pads; players 5 to 8 stay idle.
+        std::array<OSContPad, NUM_PLAYERS> pads = {};
         FillPads(sHarness.Frames[resimFrame].Pads, pads.data());
         SimState_AdvanceFrame(pads.data(), false);
 

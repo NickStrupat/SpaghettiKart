@@ -1484,7 +1484,7 @@ void func_80091B78(void) {
     func_800AF9B0();
     unref_D_8018EE0C = 0;
 
-    for (i = 0; i < 5; i++) {
+    for (i = 0; i < SCREEN_SLOT_COUNT; i++) {
         gTransitionType[i] = 0;
     }
 
@@ -1579,7 +1579,7 @@ void func_80091FA4(void) {
     // sMenuTextureList = (u16*) get_next_available_memory_addr(0x000124F8);
     sTKMK00_LowResBuffer = (u8*) get_next_available_memory_addr(0x00001000);
 
-    for (i = 0; i < 5; i++) {
+    for (i = 0; i < SCREEN_SLOT_COUNT; i++) {
         gTransitionType[i] = 0;
     }
 
@@ -2566,7 +2566,7 @@ void func_80093E60(void) {
     // sMenuTextureList = (u16*) get_next_available_memory_addr(0x000124F8);
     sTKMK00_LowResBuffer = get_next_available_memory_addr(0x00001000);
 
-    for (i = 0; i < 5; i++) {
+    for (i = 0; i < SCREEN_SLOT_COUNT; i++) {
         gTransitionType[i] = 0;
     }
 

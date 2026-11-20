@@ -76,7 +76,7 @@ void SimState_EndSimFrame(void);
  * Advances the race by one frame from the given pads: simulates, draws and collects garbage, in the same order as
  * race_logic_loop(). Draw code also mutates simulation state, so every frame is drawn the same way on every peer:
  * split screen, into the off-screen gfx pool, then discarded. SimState_DrawFrame() draws what is displayed.
- * @param pads Four pads, one per local controller slot.
+ * @param pads NUM_PLAYERS pads, one per player.
  * @param shown True for the frame that will be displayed. Other frames, such as those re-simulated after a
  *              rollback, run without sounds.
  */

@@ -151,8 +151,11 @@ s32 RaceConfig::GetScreenMode() const {
             return SCREEN_MODE_1P;
         case 2:
             return SCREEN_MODE_2P_SPLITSCREEN_HORIZONTAL;
-        default:
+        case 3:
+        case 4:
             return SCREEN_MODE_3P_4P_SPLITSCREEN;
+        default:
+            return SCREEN_MODE_8P;
     }
 }
 

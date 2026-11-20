@@ -1096,7 +1096,8 @@ extern "C" bool Netplay_ConsumeLocalPads(OSContPad* pads) {
         return true;
     }
     if (MenuSession::TakePads(pads)) {
-        for (s32 i = 0; i < kNumControllers; i++) {
+        // Every player on the console, which can have more than this computer's controllers.
+        for (s32 i = 0; i < NUM_PLAYERS; i++) {
             apply_pad_to_controller(&gControllers[i], &pads[i]);
         }
         combine_controllers();

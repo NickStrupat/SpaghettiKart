@@ -66,7 +66,7 @@ void BeginFrame(const OSContPad* localPads);
  */
 bool IsWaiting();
 /**
- * Puts every player's pad for the frame about to run into pads[0..3].
+ * Puts every player's pad for the frame about to run into pads[0 .. NUM_PLAYERS - 1].
  * @returns false when no menu frame runs this iteration.
  */
 bool TakePads(OSContPad* pads);

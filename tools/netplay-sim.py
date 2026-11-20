@@ -123,6 +123,9 @@ CONSOLE_3P_VS = "R_JPAD@60,R_JPAD@70,A@90,D_JPAD@120,A@150,A@180,A@210,A@280,A@3
 CONSOLE_3P_REFUSED_2P_VS = ("R_JPAD@60,R_JPAD@70,A@90,L_JPAD@105,A@120,D_JPAD@150,A@180,A@210,A@240,A@310,A@380,A@450,"
                             "A@480,A@510")
 CONSOLE_4P_VS = "R_JPAD@60,R_JPAD@70,R_JPAD@80,A@90,D_JPAD@120,A@150,A@180,A@210,A@280,A@350,A@420,A@450,A@480"
+# 8P on Game Select (seven R_JPADs), then on as CONSOLE_4P_VS
+CONSOLE_8P_VS = ("R_JPAD@40,R_JPAD@45,R_JPAD@50,R_JPAD@55,R_JPAD@60,R_JPAD@65,R_JPAD@70,A@90,D_JPAD@120,A@150,A@180,"
+                 "A@210,A@280,A@350,A@420,A@450,A@480")
 
 SCENARIOS = [
     Scenario("vs-2p", "2 players, versus, two full races, connected directly; each hears the other's engine", 2, "vs",
@@ -137,12 +140,17 @@ SCENARIOS = [
              expect={"cups": 1, "races_over": 4, "cpus_racing": 4}, timeout=600),
     Scenario("gp-4p", "4 players and 4 CPUs, the Star Cup, with the podium", 4, "gp", cup=2,
              expect={"cups": 1, "races_over": 4, "finishes": 4, "cpus_racing": 4}, timeout=600),
+    # 5 to 8 players race in the eight-screen mode (SCREEN_MODE_8P); an odd count leaves a cell for the minimap.
+    Scenario("gp-5p", "5 players and 3 CPUs, the Mushroom Cup, with the podium", 5, "gp", cup=0,
+             expect={"cups": 1, "races_over": 4, "finishes": 4, "cpus_racing": 4}, timeout=600),
     # Two bots can go over a minute without a hit, and a battle logs nothing between hits, so 2-player battles get
     # longer before they count as stuck.
     Scenario("battle-2p", "2 players, Battle on Block Fort, until one is out", 2, "battle", track="mk:block_fort",
              series_races=1, expect={"eliminations": 1, "races_over": 1}, quiet_limit=180),
     Scenario("battle-4p", "4 players, Battle on Big Donut, until one is left", 4, "battle", track="mk:big_donut",
              series_races=1, expect={"eliminations": 3, "races_over": 1}),
+    Scenario("battle-6p", "6 players, Battle on Double Deck, until one is left", 6, "battle", track="mk:double_deck",
+             series_races=1, expect={"eliminations": 5, "races_over": 1}),
     Scenario("restart", "2 players, versus; the host restarts the race twice", 2, "vs", track="mk:royal_raceway",
              series_races=2, peer_env={0: {"SK_NETPLAY_TEST_CONTROLS": "restart@400"}}, expect={"segments": 3}),
     Scenario("guest-leaves", "3 players, versus; player 3 leaves mid-race and everyone returns to the room", 3, "vs",
@@ -211,13 +219,11 @@ SCENARIOS = [
              peer_env={-1: {"SK_NETPLAY_CONSOLE": "1"}, 0: {"SK_TEST_CONSOLE_INPUT": CONSOLE_2P_VS},
                        1: {"SK_TEST_CONSOLE_INPUT": "R_JPAD@290,A@310"}},
              expect={"consoles": 1, "races_over": 1, "menus_in_sync": 1}),
-    Scenario("room-8", "8 players in one room, as many as it holds: 4 race versus from the shared console's menus, "
-             "players 5 to 8 sit it out and watch player 1", 8, "vs", series_races=1,
-             peer_env={-1: {"SK_NETPLAY_CONSOLE": "1"}, 0: {"SK_TEST_CONSOLE_INPUT": CONSOLE_4P_VS},
-                       1: {"SK_TEST_CONSOLE_INPUT": "R_JPAD@290,A@310"},
-                       2: {"SK_TEST_CONSOLE_INPUT": "R_JPAD@292,A@314"},
-                       3: {"SK_TEST_CONSOLE_INPUT": "R_JPAD@294,A@318"}},
-             expect={"consoles": 1, "races_over": 1, "finishes": 1, "menus_in_sync": 1}, timeout=420),
+    Scenario("room-8", "8 players in one room, as many as it holds, race versus from the shared console's menus",
+             8, "vs", series_races=1,
+             peer_env={-1: {"SK_NETPLAY_CONSOLE": "1"}, 0: {"SK_TEST_CONSOLE_INPUT": CONSOLE_8P_VS},
+                       **{p: {"SK_TEST_CONSOLE_INPUT": f"R_JPAD@{288 + 2 * p},A@{306 + 4 * p}"} for p in range(1, 8)}},
+             expect={"consoles": 1, "races_over": 1, "finishes": 7, "menus_in_sync": 1}, timeout=420),
     Scenario("local-2p", "2 computers, 3 players: the first has 2 players (controllers 1 and 2) and the second 1; a "
              "3-player versus race from the shared console's menus", 2, "vs", series_races=1,
              peer_env={-1: {"SK_NETPLAY_CONSOLE": "1"},
