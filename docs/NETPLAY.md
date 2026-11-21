@@ -481,6 +481,13 @@ Each of these cost a debugging round.
   took 80% of a simulated frame once the 8 controller ports' bindings were in the file (2026-11-20; a stress race
   went from 45 s to 8 s after it read `GetNestedJson()` once instead). Read per-frame settings from one copy.
 
+- **State the menus keep outside the C globals survives a reset to Game Select.** The boot-state restore covers the
+  sim sections only. `TrackBrowser_SetTrackFromCup()` remembered the last track it picked and skipped picking it
+  again, though a reset loads Mario Raceway behind its back: players whose last console had reached the track screen
+  raced Mario Raceway, a player who joined fresh raced the cup's track, and the race desynced on frame 0 (the flaky
+  `console-spectator`, 1 run in 4, 2026-11-20). The menu checksum missed it, since the race's track is the World's,
+  not the globals'; it now hashes the World's cup and track as well.
+
 - **Draw code changes simulation state** (`init_render_player()`, results-screen menu items, the GP points count).
   Never skip drawing a simulated frame. Settings that change drawing change that state too: `gNoCulling` and
   `gDisableLod` are room rules, not each player's own. Two Macs desynced on frame 0 because one had culling off. The

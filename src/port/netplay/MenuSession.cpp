@@ -87,6 +87,14 @@ u64 MenuChecksum() {
     HashValue(hash, gCupSelection);
     HashValue(hash, gCourseIndexInCup);
     HashValue(hash, gCurrentCourseId);
+    // The race starts on the World's track, which the cup screens pick apart from the globals above
+    HashValue(hash, GetCupIndex());
+    HashValue(hash, GetCupCursorPosition());
+    if (const Track* track = GetWorld()->GetTrack()) {
+        for (char c : track->ResourceName) {
+            HashValue(hash, c);
+        }
+    }
     return hash;
 }
 

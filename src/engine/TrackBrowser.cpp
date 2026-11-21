@@ -83,8 +83,12 @@ extern "C" void TrackBrowser_SetTrack(const char* name) {
 static std::string sCurrentlySelectedTrack = "";
 extern "C" void TrackBrowser_SetTrackFromCup(void) {
     const std::string& track = GetWorld()->GetCurrentCup()->GetTrack();
-    // Prevent repeated invoke spams
-    if (track != sCurrentlySelectedTrack) {
+    // Prevent repeated invoke spams. The World's own track counts too: a reset to the menus sets Mario Raceway
+    // without going through here, and skipping the cup's track then raced the wrong one (in netplay, a different one
+    // from a peer that never picked a track before).
+    const Track* current = GetWorld()->GetTrack();
+    const bool loaded = (current != nullptr) && (current->ResourceName == track);
+    if ((track != sCurrentlySelectedTrack) || !loaded) {
         sCurrentlySelectedTrack = track;
         TrackBrowser::Instance->SetTrack(track);
     }
