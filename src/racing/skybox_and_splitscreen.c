@@ -567,14 +567,11 @@ void func_802A4EF4(void) {
             func_8001F394(gPlayerFour);
             break;
         case SCREEN_MODE_8P:
-            func_8001F394(gPlayerOne);
-            func_8001F394(gPlayerTwo);
-            func_8001F394(gPlayerThree);
-            func_8001F394(gPlayerFour);
-            func_8001F394(gPlayerFive);
-            func_8001F394(gPlayerSix);
-            func_8001F394(gPlayerSeven);
-            func_8001F394(gPlayerEight);
+            // @port One camera per human (see spawn_players.c): the CPU karts after them have none, and asking for
+            // theirs printed a warning for each, every frame.
+            for (s32 i = PLAYER_ONE; (i < gPlayerCount) && (i < NUM_PLAYERS); i++) {
+                func_8001F394(&gPlayers[i]);
+            }
             break;
     }
 }

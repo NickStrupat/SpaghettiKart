@@ -24,6 +24,14 @@
 #include "engine/GameAPI.h"
 #include "port/Game.h"
 
+// @port Whether each missing-camera warning was printed. After a race, camera 1 follows the winner, so player 1 has
+// no camera of their own and both functions below skip them every frame: the warning is worth seeing once, not
+// hundreds of thousands of times. Not simulation state: a rollback must not print it again.
+NOT_SIM_STATE_BEGIN
+static bool sWarnedNoCameraShake = false;
+static bool sWarnedNoCameraEffects = false;
+NOT_SIM_STATE_END
+
 /**
  * Indexed directly by gActiveScreenMode -- one entry per screen mode, no bounds
  * check at any of its six read sites. A subscript is not a branch: no default
@@ -397,7 +405,10 @@ void func_8001CA24(Player* player, f32 arg1) {
     Camera* camera = CM_GetPlayerCamera(player - gPlayerOne);
 
     if (NULL == camera) {
-        printf("[camera.c][func_8001CA24] Could not find a camera using GetPlayerCamera()\n");
+        if (!sWarnedNoCameraShake) {
+            printf("[camera.c][func_8001CA24] Could not find a camera using GetPlayerCamera() (printed once)\n");
+            sWarnedNoCameraShake = true;
+        }
         return;
     }
 
@@ -1191,7 +1202,10 @@ void func_8001F394(Player* player) {
     Camera* camera = CM_GetPlayerCamera(playerIndex);
 
     if (NULL == camera) {
-        printf("[camera.c][func_8001F394] Could not find a camera using GetPlayerCamera()\n");
+        if (!sWarnedNoCameraEffects) {
+            printf("[camera.c][func_8001F394] Could not find a camera using GetPlayerCamera() (printed once)\n");
+            sWarnedNoCameraEffects = true;
+        }
         return;
     }
 
