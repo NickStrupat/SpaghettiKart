@@ -952,7 +952,10 @@ void init_hud_eight_player(void) {
         init_item_window(gItemWindowObjectByPlayerId[i]);
     }
 
-    D_8018D158 = (s32) gPlayerCount;
+    // How many karts the minimap marks and the course's hazards hit (code_80086E70.c): every one in a Grand Prix, as
+    // with four players. The player count left the karts ranked below it off the minimap, the humans among them, and
+    // let the CPUs past player 5 to 8 drive through hazards.
+    D_8018D158 = (gModeSelection == GRAND_PRIX) ? NUM_PLAYERS : (s32) gPlayerCount;
     D_8018D3C4 = 0x00000014;
     D_8018D3BC = 0x00000010;
     D_8018D3C0 = 0x0000001E;

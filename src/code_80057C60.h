@@ -99,6 +99,7 @@ void render_hud_3p_multi(void);
 void func_800597B8(void);
 void render_hud_4p_multi(void);
 void render_hud_8p_multi(s32);
+void draw_8p_item_windows(void);
 void func_80059820(s32);
 void randomize_seed_from_controller(s32);
 void func_8005994C(void);

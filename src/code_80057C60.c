@@ -990,6 +990,23 @@ void draw_8p_minimap_cell(void) {
     CM_GetProps()->Minimap.Pos[0].Y = savedY;
 }
 
+/**
+ * The eighth-screen grid's item boxes, drawn over the whole window like the rank labels. Each screen's own HUD pass
+ * draws inside its split screen, which squeezes everything placed by matrix into that screen's share of the window: a
+ * third of the width and half the height in a 3x2 grid, so the box came out a third of its size and away from where
+ * hud_place_x() put it. The quadrant's split screens are half the window both ways, which its item box was made for.
+ */
+void draw_8p_item_windows(void) {
+    s32 i;
+
+    if ((gScreenModeSelection != SCREEN_MODE_8P) || (gOwnViewPlayer >= 0) || gDemoMode) {
+        return;
+    }
+    for (i = PLAYER_ONE; (i < gPlayerCountSelection1) && (i < NUM_PLAYERS); i++) {
+        func_8004E6C4(i);
+    }
+}
+
 void func_800591B4(void) {
 
     if ((gHUDDisable == 0) && (D_800DC5B8 != 0)) {
@@ -1025,6 +1042,7 @@ void func_800591B4(void) {
             }
             func_800590D4();
         }
+        draw_8p_item_windows();
         func_8005902C();
         func_80057DD0();
         func_80057CE4();
@@ -1117,7 +1135,10 @@ void render_hud_lap_3p_4p(s32 playerId) {
             }
         }
     }
-    func_8004E6C4(playerId);
+    // The eighth-screen grid draws its item boxes over the whole window instead: see draw_8p_item_windows()
+    if (gScreenModeSelection != SCREEN_MODE_8P) {
+        func_8004E6C4(playerId);
+    }
 }
 
 void func_800596A8(void) {

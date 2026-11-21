@@ -2446,10 +2446,12 @@ void func_8004E6C4(s32 playerId) {
     objectIndex = gItemWindowObjectByPlayerId[playerId];
     object = &gObjectList[objectIndex];
     if (object->state >= 2) {
-        /* The box slides in from outside its own cell rather than from a fixed
+        /* The box slides in from its own cell's outer edge rather than from a fixed
            128 units away, so the entrance covers the same ground whatever the
            window size. slideItemBoxX runs 0 to +-128 as it arrives, which makes
-           the remaining share of the journey (128 - |slide|) / 128. */
+           the remaining share of the journey (128 - |slide|) / 128. It is drawn
+           over the whole window (see draw_8p_item_windows()), where nothing clips
+           it to its cell, so it starts inside the cell, not past its edge. */
         s32 slid;
         f32 remaining;
         f32 itemFraction;
@@ -2460,6 +2462,7 @@ void func_8004E6C4(s32 playerId) {
             slid = -slid;
         }
         remaining = (128.0f - (f32) slid) / 128.0f;
+        remaining *= HUD_CELL_ITEM_X - (HUD_CELL_ITEM_WIDTH / 2.0f);
         itemFraction = screen_cell_is_right_half(SCREEN_MODE_8P, playerId) ? (HUD_CELL_ITEM_X + remaining)
                                                                           : (HUD_CELL_ITEM_X - remaining);
 
