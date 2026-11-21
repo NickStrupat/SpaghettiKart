@@ -316,13 +316,12 @@ Unk_D_800E70A0 D_800E7480[] = {
 
 /* Cursor tint, one per player. render_cursor_player() indexes this by player, so
    it needs an entry for each of them: at five it ran off the end for players six
-   through eight. The first four are the original colours; the last four are new
-   and chosen to stay apart from them, since players five through eight reuse the
-   four border textures and the tint is what tells the two halves apart. */
+   through eight. The first four are the original colours; the last four are the
+   first four with the hue turned as their borders' is (sExtraCursorHueShift). */
 RGBA16 D_800E74A8[NUM_PLAYERS] = {
     { 0x00, 0xf3, 0xf3, 0xff }, { 0xff, 0xa8, 0xc3, 0xff }, { 0xff, 0xfe, 0x7a, 0xff },
-    { 0x7b, 0xfc, 0x7b, 0xff }, { 0xff, 0x8c, 0x1a, 0xff }, { 0xb4, 0x82, 0xff, 0xff },
-    { 0xff, 0xff, 0xff, 0xff }, { 0xff, 0x5a, 0x5a, 0xff },
+    { 0x7b, 0xfc, 0x7b, 0xff }, { 0x00, 0x00, 0xf3, 0xff }, { 0xff, 0xa8, 0xf4, 0xff },
+    { 0xa3, 0xff, 0x7a, 0xff }, { 0x7b, 0xfc, 0xf1, 0xff },
 };
 
 RGBA16 D_800E74D0[] = {
@@ -6671,29 +6670,6 @@ void render_menus(MenuItem* arg0) {
                 var_a1 = arg0->type - MENU_ITEM_UI_1P_GAME;
                 func_800A8270(var_a1, arg0);
                 func_800A0FA4(arg0, var_a1);
-                /* Counts past four borrow the four-player icon, so the number
-                   itself has to be drawn or the picker looks stuck on 4P.
-
-                   Drawn through the menu's own text path -- the same one
-                   draw_version() uses a few cases above -- rather than
-                   print_str_num(). That prints through the debug text routines,
-                   which emit their own texture and render-mode commands without
-                   restoring what the menu had set; the count came out as a
-                   couple of grey boxes and every menu item drawn after it was
-                   corrupted.
-
-                   Placed in the gap between the banner and the icon row, which
-                   is clear at every player count, rather than following the
-                   icon: the icons slide in from off-screen and a label pinned to
-                   one would spend the transition outside the frame. */
-                if ((arg0->type == MENU_ITEM_UI_4P_GAME) && (gPlayerCount > 4)) {
-                    char countLabel[16];
-
-                    sprintf(countLabel, "%d PLAYERS", gPlayerCount);
-                    set_text_color(TEXT_GREEN);
-                    print_text1(SCREEN_WIDTH / 2 - (s32) ((f32) get_string_width(countLabel) * 0.25f), 62, countLabel,
-                                0, 0.5f, 0.5f, 0);
-                }
                 break;
             case MENU_ITEM_UI_OK:
                 func_800A8564(arg0);
@@ -7274,19 +7250,163 @@ void func_800A0EB8(UNUSED MenuItem* arg0, s32 arg1) {
     gDisplayListHead = render_menu_textures(gDisplayListHead, D_0200184C, (s32) temp_v0->column, (s32) temp_v0->row);
 }
 
+/* @port The Game Select box standing for the player count: the fourth from four players up, since the ROM's boxes go
+   up to 4P GAME only. */
+static s32 game_select_column_type(void) {
+    return MENU_ITEM_UI_1P_GAME + MIN(gPlayerCount, 4) - 1;
+}
+
+/* @port From five players up, the fourth box wears 4P GAME's art with the digit redrawn, 5P GAME to 8P GAME, made
+   the first time it is drawn. The new digits follow the ROM's: strokes three pixels wide, a darker left edge and
+   bottom row, a black outline. */
+#define GAME_BOX_WIDTH 64
+#define GAME_BOX_HEIGHT 54
+#define GAME_BOX_CLEAR_LEFT 3 // The old digit and its outline: these columns and rows
+#define GAME_BOX_CLEAR_RIGHT 12
+#define GAME_BOX_CLEAR_TOP 37
+#define GAME_BOX_CLEAR_BOTTOM 52
+#define GAME_BOX_DIGIT_LEFT 6
+#define GAME_BOX_DIGIT_TOP 39
+#define GAME_BOX_DIGIT_WIDTH 7
+#define GAME_BOX_DIGIT_ROWS 12
+// A row each, from the top; bit 6 is the leftmost pixel
+static const u8 sGameBoxDigits[4][GAME_BOX_DIGIT_ROWS] = {
+    { 0x7F, 0x7F, 0x70, 0x70, 0x7E, 0x7F, 0x07, 0x07, 0x07, 0x77, 0x7F, 0x3E }, // 5
+    { 0x3E, 0x7F, 0x70, 0x70, 0x7E, 0x7F, 0x77, 0x77, 0x77, 0x77, 0x7F, 0x3E }, // 6
+    { 0x7F, 0x7F, 0x07, 0x07, 0x0E, 0x0E, 0x1C, 0x1C, 0x38, 0x38, 0x38, 0x38 }, // 7
+    { 0x3E, 0x7F, 0x77, 0x77, 0x7F, 0x3E, 0x7F, 0x77, 0x77, 0x77, 0x7F, 0x3E }, // 8
+};
+
+NOT_SIM_STATE_BEGIN
+// RGBA5551 like the ROM's, high byte first
+static u8 sGameBoxPixels[4][GAME_BOX_WIDTH * GAME_BOX_HEIGHT * 2];
+static MenuTexture sGameBoxColumns[4][5];
+static bool sGameBoxesMade = false;
+NOT_SIM_STATE_END
+
+static bool game_box_digit_pixel(s32 digit, s32 x, s32 y) {
+    x -= GAME_BOX_DIGIT_LEFT;
+    y -= GAME_BOX_DIGIT_TOP;
+    return (x >= 0) && (x < GAME_BOX_DIGIT_WIDTH) && (y >= 0) && (y < GAME_BOX_DIGIT_ROWS) &&
+           ((sGameBoxDigits[digit][y] >> (GAME_BOX_DIGIT_WIDTH - 1 - x)) & 1);
+}
+
+/** The colours of 4P GAME's digit: [0] its outline, [1] its face, [2] its darker edge. Each is the commonest. */
+static void game_box_digit_colors(const u8* pixels, u16 colors[3]) {
+    u16 seen[64];
+    s32 counts[64];
+    s32 kinds[64];
+    s32 numSeen = 0;
+
+    for (s32 y = GAME_BOX_CLEAR_TOP; y <= GAME_BOX_CLEAR_BOTTOM; y++) {
+        for (s32 x = GAME_BOX_CLEAR_LEFT; x <= GAME_BOX_CLEAR_RIGHT; x++) {
+            s32 i = (y * GAME_BOX_WIDTH) + x;
+            u16 color = (pixels[i * 2] << 8) | pixels[(i * 2) + 1];
+            s32 green = (color >> 6) & 0x1F;
+            s32 j;
+
+            if ((color & 1) == 0) {
+                continue;
+            }
+            for (j = 0; (j < numSeen) && (seen[j] != color); j++) {}
+            if (j == numSeen) {
+                if (numSeen == ARRAY_COUNT(seen)) {
+                    continue;
+                }
+                seen[j] = color;
+                counts[j] = 0;
+                kinds[j] = (green < 4) ? 0 : ((green >= 24) ? 1 : 2);
+                numSeen++;
+            }
+            counts[j]++;
+        }
+    }
+    for (s32 kind = 0; kind < 3; kind++) {
+        s32 best = -1;
+
+        colors[kind] = (kind == 0) ? 0x0001 : ((kind == 1) ? 0x07C1 : 0x0401);
+        for (s32 j = 0; j < numSeen; j++) {
+            if ((kinds[j] == kind) && ((best < 0) || (counts[j] > counts[best]))) {
+                best = j;
+            }
+        }
+        if (best >= 0) {
+            colors[kind] = seen[best];
+        }
+    }
+}
+
+static u16 game_box_pixel(s32 digit, s32 x, s32 y, const u16 colors[3]) {
+    if (game_box_digit_pixel(digit, x, y)) {
+        bool edge = !game_box_digit_pixel(digit, x - 1, y) || ((y - GAME_BOX_DIGIT_TOP) == GAME_BOX_DIGIT_ROWS - 1);
+        return edge ? colors[2] : colors[1];
+    }
+    for (s32 dy = -1; dy <= 1; dy++) {
+        for (s32 dx = -1; dx <= 1; dx++) {
+            if (game_box_digit_pixel(digit, x + dx, y + dy)) {
+                return colors[0];
+            }
+        }
+    }
+    return 0x0000;
+}
+
+static void make_game_boxes(void) {
+    MenuTexture* source = D_800E8234[3 * 2]; // 4P GAME's column
+    const u8* pixels = (const u8*) GameEngine_GetResourceDataByName((const char*) source[0].textureData);
+    u16 colors[3];
+
+    if (pixels == NULL) {
+        return;
+    }
+    game_box_digit_colors(pixels, colors);
+    for (s32 digit = 0; digit < 4; digit++) {
+        u8* out = sGameBoxPixels[digit];
+
+        memcpy(out, pixels, sizeof(sGameBoxPixels[digit]));
+        for (s32 y = GAME_BOX_CLEAR_TOP; y <= GAME_BOX_CLEAR_BOTTOM; y++) {
+            for (s32 x = GAME_BOX_CLEAR_LEFT; x <= GAME_BOX_CLEAR_RIGHT; x++) {
+                s32 i = (y * GAME_BOX_WIDTH) + x;
+                u16 color = game_box_pixel(digit, x, y, colors);
+
+                out[i * 2] = color >> 8;
+                out[(i * 2) + 1] = color & 0xFF;
+            }
+        }
+        for (s32 i = 0; i < ARRAY_COUNT(sGameBoxColumns[digit]); i++) {
+            sGameBoxColumns[digit][i] = source[i];
+        }
+        sGameBoxColumns[digit][0].textureData = (u64*) out;
+    }
+    sGameBoxesMade = true;
+}
+
+/** The art for Game Select column arg1 (from 0): its box, then its list of modes. */
+static MenuTexture* game_select_column_textures(s32 arg1) {
+    if ((arg1 == 3) && (gPlayerCount > 4)) {
+        if (!sGameBoxesMade) {
+            make_game_boxes();
+        }
+        if (sGameBoxesMade) {
+            return sGameBoxColumns[gPlayerCount - 5];
+        }
+    }
+    return D_800E8234[(arg1 * 2) + 0];
+}
+
 void func_800A0FA4(MenuItem* arg0, s32 arg1) {
     switch (arg0->state) {
         case 0:
         case 2:
         case 3:
             gDisplayListHead = render_menu_textures(
-                 gDisplayListHead, D_800E8234[(arg1 * 2) + 0], arg0->column, arg0->row);
+                 gDisplayListHead, game_select_column_textures(arg1), arg0->column, arg0->row);
             gDisplayListHead = render_menu_textures(
                 gDisplayListHead, D_800E8234[(arg1 * 2) + 1], arg0->column, arg0->row);
             break;
         case 1:
         case 4:
-            gDisplayListHead = func_8009BC9C(gDisplayListHead, D_800E8234[(arg1 * 2) + 0],
+            gDisplayListHead = func_8009BC9C(gDisplayListHead, game_select_column_textures(arg1),
                                              arg0->column, arg0->row, 2, arg0->param1);
             gDisplayListHead = func_8009BC9C(gDisplayListHead, D_800E8234[(arg1 * 2) + 1],
                                              arg0->column, arg0->row, 2, arg0->param1);
@@ -7317,25 +7437,184 @@ void func_800A10CC(MenuItem* arg0) {
     }
 }
 
+/* @port The ROM has cursor borders for four players only. Players five to eight wear players one to four's with the
+   hue turned to a colour between the original four's (violet, magenta, yellow and teal), made from the ROM's art the
+   first time they are drawn, with their own numeral in the corner in place of the borrowed one. */
+#define CURSOR_BORDER_SIZE 64
+#define CURSOR_NUMERAL_RIGHT 13 // The numeral's corner: these columns and rows, from the bottom left
+#define CURSOR_NUMERAL_TOP 48
+static const s32 sExtraCursorHueShift[4] = { 60, 326, 42, 55 }; // Degrees, for players five to eight
+// The numerals 5 to 8, drawn as the ROM's 1 to 4 are: white, a shadow below and to the right. A row each, from the
+// top; the high bit is the leftmost pixel.
+#define CURSOR_DIGIT_ROWS 11
+#define CURSOR_DIGIT_LEFT 2
+#define CURSOR_DIGIT_TOP 50
+static const u8 sCursorDigits[4][CURSOR_DIGIT_ROWS] = {
+    { 0xFF, 0xFF, 0xC0, 0xC0, 0xFE, 0xFF, 0x03, 0x03, 0xC3, 0xFF, 0x7E }, // 5
+    { 0x7E, 0xFF, 0xC0, 0xC0, 0xFE, 0xFF, 0xC3, 0xC3, 0xC3, 0xFF, 0x7E }, // 6
+    { 0xFF, 0xFF, 0x03, 0x06, 0x0C, 0x18, 0x30, 0x30, 0x30, 0x30, 0x30 }, // 7
+    { 0x7E, 0xFF, 0xC3, 0xC3, 0xFF, 0x7E, 0xC3, 0xC3, 0xC3, 0xFF, 0x7E }, // 8
+};
+
+NOT_SIM_STATE_BEGIN
+// RGBA5551 like the ROM's, high byte first
+static u8 sExtraCursorBorderPixels[4][CURSOR_BORDER_SIZE * CURSOR_BORDER_SIZE * 2];
+static MenuTexture sExtraCursorBorders[4][3];
+static bool sExtraCursorBordersMade = false;
+NOT_SIM_STATE_END
+
+static f32 hsl_channel(f32 p, f32 q, f32 t) {
+    if (t < 0.0f) {
+        t += 1.0f;
+    } else if (t > 1.0f) {
+        t -= 1.0f;
+    }
+    if (t < 1.0f / 6.0f) {
+        return p + ((q - p) * 6.0f * t);
+    }
+    if (t < 0.5f) {
+        return q;
+    }
+    if (t < 2.0f / 3.0f) {
+        return p + ((q - p) * ((2.0f / 3.0f) - t) * 6.0f);
+    }
+    return p;
+}
+
+/** Turns the hue of an RGBA5551 colour by this many degrees, keeping its lightness and saturation. */
+static u16 rotate_hue_rgba5551(u16 color, s32 degrees) {
+    f32 r = ((color >> 11) & 0x1F) / 31.0f;
+    f32 g = ((color >> 6) & 0x1F) / 31.0f;
+    f32 b = ((color >> 1) & 0x1F) / 31.0f;
+    // Lightness and saturation stay, so do the brightest and darkest channels
+    f32 high = MAX(r, MAX(g, b));
+    f32 low = MIN(r, MIN(g, b));
+    f32 chroma = high - low;
+    f32 hue;
+
+    if (chroma <= 0.0f) {
+        return color; // Grey has no hue
+    }
+    if (high == r) {
+        hue = (g - b) / chroma;
+    } else if (high == g) {
+        hue = ((b - r) / chroma) + 2.0f;
+    } else {
+        hue = ((r - g) / chroma) + 4.0f;
+    }
+    hue = (hue / 6.0f) + (degrees / 360.0f);
+    hue -= floorf(hue);
+    r = hsl_channel(low, high, hue + (1.0f / 3.0f));
+    g = hsl_channel(low, high, hue);
+    b = hsl_channel(low, high, hue - (1.0f / 3.0f));
+    return ((u16) (r * 31.0f + 0.5f) << 11) | ((u16) (g * 31.0f + 0.5f) << 6) | ((u16) (b * 31.0f + 0.5f) << 1) |
+           (color & 1);
+}
+
+static bool in_cursor_numeral_corner(s32 pixel) {
+    return ((pixel % CURSOR_BORDER_SIZE) <= CURSOR_NUMERAL_RIGHT) && ((pixel / CURSOR_BORDER_SIZE) >= CURSOR_NUMERAL_TOP);
+}
+
+static u16 cursor_pixel(const u8* pixels, s32 pixel) {
+    return (pixels[pixel * 2] << 8) | pixels[(pixel * 2) + 1];
+}
+
+/** The colour most of the numeral's corner is, which fills it once the numeral is gone. */
+static u16 cursor_corner_color(const u8* pixels) {
+    u16 best = 0;
+    s32 bestCount = 0;
+
+    for (s32 i = 0; i < CURSOR_BORDER_SIZE * CURSOR_BORDER_SIZE; i++) {
+        u16 color = cursor_pixel(pixels, i);
+        s32 count = 0;
+
+        if (!in_cursor_numeral_corner(i) || ((color & 1) == 0)) {
+            continue;
+        }
+        for (s32 j = 0; j < CURSOR_BORDER_SIZE * CURSOR_BORDER_SIZE; j++) {
+            count += in_cursor_numeral_corner(j) && (cursor_pixel(pixels, j) == color);
+        }
+        if (count > bestCount) {
+            best = color;
+            bestCount = count;
+        }
+    }
+    return best;
+}
+
+static bool cursor_digit_pixel(s32 digit, s32 x, s32 y) {
+    x -= CURSOR_DIGIT_LEFT;
+    y -= CURSOR_DIGIT_TOP;
+    return (x >= 0) && (x < 8) && (y >= 0) && (y < CURSOR_DIGIT_ROWS) && ((sCursorDigits[digit][y] >> (7 - x)) & 1);
+}
+
+/** The numeral's colour at this pixel of the corner, or the corner's own where the numeral is not. */
+static u16 cursor_corner_pixel(s32 digit, s32 pixel, u16 corner) {
+    s32 x = pixel % CURSOR_BORDER_SIZE;
+    s32 y = pixel / CURSOR_BORDER_SIZE;
+
+    if (cursor_digit_pixel(digit, x, y)) {
+        return 0xFFFF;
+    }
+    if (cursor_digit_pixel(digit, x - 1, y - 1)) {
+        // The corner's colour at a third of its brightness
+        return ((((corner >> 11) & 0x1F) / 3) << 11) | ((((corner >> 6) & 0x1F) / 3) << 6) |
+               ((((corner >> 1) & 0x1F) / 3) << 1) | 1;
+    }
+    return corner;
+}
+
+static void make_extra_cursor_borders(void) {
+    for (s32 i = 0; i < 4; i++) {
+        const MenuTexture* source = gMenuTexturesBorderPlayer[i];
+        // The border itself; the entry before it is the glow, which the tint colours
+        const MenuTexture* border = &source[1];
+        const u8* pixels = (const u8*) GameEngine_GetResourceDataByName((const char*) border->textureData);
+        u8* out = sExtraCursorBorderPixels[i];
+        u16 corner;
+
+        if (pixels == NULL) {
+            return;
+        }
+        corner = cursor_corner_color(pixels);
+        for (s32 p = 0; p < CURSOR_BORDER_SIZE * CURSOR_BORDER_SIZE; p++) {
+            u16 color = cursor_pixel(pixels, p);
+
+            if (in_cursor_numeral_corner(p) && (color & 1)) {
+                color = cursor_corner_pixel(i, p, corner);
+            }
+            color = rotate_hue_rgba5551(color, sExtraCursorHueShift[i]);
+            out[p * 2] = color >> 8;
+            out[(p * 2) + 1] = color & 0xFF;
+        }
+        sExtraCursorBorders[i][0] = source[0];
+        sExtraCursorBorders[i][1] = *border;
+        sExtraCursorBorders[i][1].textureData = (u64*) out;
+        sExtraCursorBorders[i][2] = source[2];
+    }
+    sExtraCursorBordersMade = true;
+}
+
 void render_cursor_player(MenuItem* arg0, s32 arg1, s32 arg2) {
     RGBA16* temp_v1;
+    MenuTexture* textures = gMenuTexturesBorderPlayer[arg1 % ARRAY_COUNT(gMenuTexturesBorderPlayer)];
 
     temp_v1 = &D_800E74A8[arg1];
     gDPSetPrimColor(gDisplayListHead++, 0, 0, temp_v1->red, temp_v1->green, temp_v1->blue, temp_v1->alpha);
     gDPSetEnvColor(gDisplayListHead++, arg2, arg2, arg2, 0x00);
-    /* Only four border textures exist and the ROM has no art for a fifth through
-       eighth, so players above the fourth reuse them and are told apart by the
-       tint above. The numeral in the border art is the original player's, so two
-       cursors will show the same digit until there is art for the rest. */
-    gDisplayListHead =
-        render_menu_textures(gDisplayListHead, gMenuTexturesBorderPlayer[arg1 % ARRAY_COUNT(gMenuTexturesBorderPlayer)],
-                             arg0->column, arg0->row);
-
-    /* The borrowed border carries the original player's numeral baked into it,
-       so a fifth player wearing the first player's art reads as another "1".
-       Painting the right number over that corner is what makes the two tell
-       apart; the tint alone was not enough to stop it looking like a duplicate. */
     if (arg1 >= (s32) ARRAY_COUNT(gMenuTexturesBorderPlayer)) {
+        if (!sExtraCursorBordersMade) {
+            make_extra_cursor_borders();
+        }
+        if (sExtraCursorBordersMade) {
+            textures = sExtraCursorBorders[arg1 % ARRAY_COUNT(gMenuTexturesBorderPlayer)];
+        }
+    }
+    gDisplayListHead = render_menu_textures(gDisplayListHead, textures, arg0->column, arg0->row);
+
+    /* Without its own border (the ROM's art could not be read), a player above the
+       fourth wears a borrowed one as it is: paint the right number over its numeral. */
+    if ((arg1 >= (s32) ARRAY_COUNT(gMenuTexturesBorderPlayer)) && !sExtraCursorBordersMade) {
         char playerNumber[4];
 
         sprintf(playerNumber, "%d", arg1 + 1);
@@ -9771,6 +10050,9 @@ void func_800A8270(s32 index, MenuItem* arg1) {
     s32 var_s2;
     s32 var_s3;
     s32 var_s4;
+    // @port The column standing for the player count lists that count's modes, past four too
+    bool selected = (index + MENU_ITEM_UI_1P_GAME) == game_select_column_type();
+    s32 modes = selected ? (gPlayerCount - 1) : index;
 
     if (arg1->param1 < 32) {
         temp_t6 = (arg1->param1 << 6) / 64;
@@ -9783,7 +10065,7 @@ void func_800A8270(s32 index, MenuItem* arg1) {
         gDPSetRenderMode(gDisplayListHead++, G_RM_OPA_SURF, G_RM_OPA_SURF2);
         gDPSetCombineMode(gDisplayListHead++, G_CC_DECALRGBA, G_CC_DECALRGBA);
 
-        if ((index + 1) == gPlayerCount) {
+        if (selected) {
             if ((gMainMenuSelection == MAIN_MENU_OPTION) || (gMainMenuSelection == MAIN_MENU_DATA) ||
                 (gMainMenuSelection == MAIN_MENU_PLAYER_SELECT)) {
                 gDisplayListHead = draw_flash_select_case_slow(gDisplayListHead, var_s3, var_s0, var_s4, var_s0 + 53);
@@ -9795,8 +10077,8 @@ void func_800A8270(s32 index, MenuItem* arg1) {
             gDisplayListHead = func_80098FC8(gDisplayListHead, var_s3, var_s0, var_s4, var_s0 + 53);
         }
 
-        for (var_s0 += 65, var_s2 = 0; var_s2 <= gPlayerModeSelection[index]; var_s2++, var_s0 += 18) {
-            if ((var_s2 == gGameModeMenuColumn[index]) && ((index + 1) == gPlayerCount) && (gMainMenuSelection >= 4)) {
+        for (var_s0 += 65, var_s2 = 0; var_s2 <= gPlayerModeSelection[modes]; var_s2++, var_s0 += 18) {
+            if ((var_s2 == gGameModeMenuColumn[modes]) && selected && (gMainMenuSelection >= 4)) {
                 if (gMainMenuSelection == MAIN_MENU_MODE_SELECT) {
                     gDisplayListHead =
                         draw_flash_select_case_slow(gDisplayListHead, var_s3, var_s0, var_s4, var_s0 + 17);
@@ -10376,14 +10658,14 @@ void func_800A9C40(MenuItem* arg0) {
     switch (arg0->state) {
         case 0:
             func_800AA280(arg0);
-            if ((gPlayerCount + 0xA) == arg0->type) {
+            if (game_select_column_type() == arg0->type) {
                 arg0->state = 2;
             } else {
                 arg0->state = 1;
             }
             break;
         case 4:
-            if ((gPlayerCount + 0xA) == arg0->type) {
+            if (game_select_column_type() == arg0->type) {
                 arg0->state = 2;
                 arg0->param1 = 0;
                 break;
@@ -10404,7 +10686,7 @@ void func_800A9C40(MenuItem* arg0) {
             }
             break;
         case 3:
-            if ((gPlayerCount + 0xA) == arg0->type) {
+            if (game_select_column_type() == arg0->type) {
                 arg0->state = 2;
             }
             break;
@@ -10416,12 +10698,7 @@ void func_800A9C40(MenuItem* arg0) {
 
 void func_800A9D5C(MenuItem* arg0) {
     Unk_D_800E70A0* temp_v0;
-    /* The four icons are types 0xB through 0xE, so the selected one is the type
-       matching the count. There is no art past four players, so counts above it
-       keep the four-player icon lit and the real number is drawn beside it in
-       render_player_count_overlay(). Without this nothing at all is highlighted
-       once the picker passes four. */
-    s32 selectedType = (gPlayerCount > 4) ? MENU_ITEM_UI_4P_GAME : (gPlayerCount + 0xA);
+    s32 selectedType = game_select_column_type();
 
     if (selectedType == arg0->type) {
         arg0->priority = 0x0A;
@@ -10968,19 +11245,9 @@ void func_800AAE18(MenuItem* arg0) {
  **/
 MenuItem* get_menu_item_player_count(void) {
     /* Every caller is func_800A9E58, which lays the game-mode and CC rows out
-       from this item's column and row. There is no icon past 4P GAME, so counts
-       above four have to borrow one, and an unclamped count found no item at
-       all -- returned NULL, and took the whole 50/100/150cc row with it.
-       (func_800A9D5C makes the same substitution when deciding which icon to
-       light, but borrows the fourth, because that is the one it draws.)
-
-       Two rather than four, because this row hangs to the *right* of whichever
-       column it is anchored to. Vanilla only ever shows it for one and two
-       players -- the counts that offer Grand Prix -- so the fourth column has
-       never had to fit it, and anchoring there ran the CC boxes off the right
-       edge of the screen. Two is the rightmost column vanilla proves it fits
-       under. */
-    s32 count = ((gPlayerCount > 4) ? 2 : gPlayerCount) - 1;
+       from this item's column and row: the column standing for the player
+       count, the fourth from four players up (game_select_column_type()). */
+    s32 count = game_select_column_type() - MENU_ITEM_UI_1P_GAME;
     for (size_t i = 0; i < ARRAY_COUNT(gMenuItems); i++) {
         if (gMenuItems[i].type == (count + MENU_ITEM_UI_1P_GAME)) {
             return &gMenuItems[i];
