@@ -282,6 +282,12 @@ SCENARIOS = [
              "menu, and the race goes on to its end", 2, "vs", track="mk:moo_moo_farm", series_races=1,
              peer_env={1: {"SK_NETPLAY_TEST_RACE_INPUT": "START@300,A@420"}},
              expect={"paused": 1, "went_on": 1, "races_over": 1}),
+    # Players 5 to 8 could not pause before; the split screen, not the own view, draws the pause menu over its cells.
+    Scenario("pause-6p", "6 players, Battle on Big Donut, on the split screen; player 6 pauses the battle for all, "
+             "then picks CONTINUE GAME, and it goes on to its end", 6, "battle", track="mk:big_donut",
+             series_races=1, cvars={"gNetplay.OwnView": 0},
+             peer_env={5: {"SK_NETPLAY_TEST_RACE_INPUT": "START@300,A@420"}},
+             expect={"paused": 1, "went_on": 1, "eliminations": 5, "races_over": 1}, timeout=420),
     Scenario("console-pause", "2 players on a shared console; the guest pauses and picks COURSE CHANGE, which takes "
              "everyone back to the course select menu, in lockstep", 2, "vs", races=1,
              peer_env={-1: {"SK_NETPLAY_CONSOLE": "1"}, 0: {"SK_TEST_CONSOLE_INPUT": CONSOLE_2P_VS},

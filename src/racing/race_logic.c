@@ -54,7 +54,8 @@ u16 D_802BA048;
 void func_8028DF00(void) {
     struct Controller* controllers = &gControllers[0];
     s32 i;
-    for (i = 0; i < 4; i++) {
+    // @port All eight controllers: any player can pause, and each one's held buttons are restored when it ends
+    for (i = 0; i < NUM_PLAYERS; i++) {
         D_802BA040[i] = controllers->button;
         controllers++;
     }
@@ -63,7 +64,8 @@ void func_8028DF00(void) {
 void func_8028DF38(void) {
     struct Controller* controllers = &gControllers[0];
     s32 i;
-    for (i = 0; i < 4; i++) {
+    // @port All eight controllers, as func_8028DF00()
+    for (i = 0; i < NUM_PLAYERS; i++) {
         controllers->buttonPressed = (controllers->button & (D_802BA040[i] ^ controllers->button));
         controllers->buttonDepressed = (D_802BA040[i] & (D_802BA040[i] ^ controllers->button));
         controllers->button = D_802BA040[i];
@@ -859,8 +861,8 @@ void func_8028F970(void) {
         return;
     }
 
-    //! @todo increasing players past four would require increase this loop iterator.
-    for (i = 0; i < 4; i++) {
+    // @port Every player: up to 8 can be human, and any of them can pause
+    for (i = 0; i < NUM_PLAYERS; i++) {
 
         Player* player = &gPlayers[i];
         struct Controller* controller = &gControllers[i];

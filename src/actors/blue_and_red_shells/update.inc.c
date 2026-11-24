@@ -162,7 +162,8 @@ s16 func_802B3FD0(Player* owner, struct ShellActor* shell) {
     s16 playerId = -1;
     f32 smallestDistance = 25000000.0f;
 
-    for (playerIndex = 0; playerIndex < 4; playerIndex++) {
+    // @port Every player: Battle has up to 8 (the karts beyond the player count do not exist)
+    for (playerIndex = 0; playerIndex < NUM_PLAYERS; playerIndex++) {
         player = &gPlayers[playerIndex];
         if ((player->type & PLAYER_EXISTS) == 0) {
             continue;

@@ -373,7 +373,7 @@ keep them on the relay do not hear each other, and the netplay window says so. A
 
 | Tool | What it does |
 |---|---|
-| `tools/netplay-sim.py` | Plays whole races, cups and battles between bot-driven copies of the game through a relay, fast-forwarded (about 70× real time), and checks that every peer stayed in sync and the races ended as expected. Shared-console scenarios drive the menus with scripted buttons and compare every menu frame. 37 scenarios, run side by side: about 10 minutes on a 10-core Mac (see "Keeping the simulator fast"). **Run it after any change to netplay, menu or simulation code.** |
+| `tools/netplay-sim.py` | Plays whole races, cups and battles between bot-driven copies of the game through a relay, fast-forwarded (about 70× real time), and checks that every peer stayed in sync and the races ended as expected. Shared-console scenarios drive the menus with scripted buttons and compare every menu frame. 38 scenarios, run side by side: about 10 minutes on a 10-core Mac (see "Keeping the simulator fast"). **Run it after any change to netplay, menu or simulation code.** |
 | Determinism harness | `SK_DETERMINISM_RECORD` / `_VERIFY` / `_ROLLBACK=8`: records a race's inputs and per-frame checksums, replays them, or rolls back 8 frames after every frame. See `DeterminismHarness.h`. |
 | `tools/netplay-stress.sh` | The rollback stress run on every track and arena, 4 at a time: 16 versus tracks, 4 battle arenas, 4 Grand Prix courses with 2 players and 2 with 4, and 4 races with 5 to 8 players. Give it an AddressSanitizer build (below) to look for memory errors too. |
 | `tools/netplay-relay/test_relay.py` | Protocol tests for the relay. |

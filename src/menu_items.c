@@ -8755,6 +8755,42 @@ void render_pause_menu_time_trials(MenuItem* arg0) {
     }
 }
 
+/** How many screen modes the pause menus' position tables have a row for: the races' and battles' all four of the
+ * original's, Grand Prix's only one player and two over each other. */
+#define PAUSE_TABLE_MODES 4
+#define PAUSE_TABLE_MODES_GRAND_PRIX 2
+
+/**
+ * @port The pause menu is drawn in the split screen of the player who paused, from a table with a row of positions per
+ * screen mode. In a screen mode its table has no row for (the eight-screen split, whose cells are too small for the
+ * menu, and Grand Prix in more than two screens) the menu is drawn over the whole screen, as a one-player game's.
+ * The screen mode to draw the menu as.
+ */
+static s32 pause_menu_screen_mode(s32 tableModes) {
+    return (gScreenModeSelection < tableModes) ? gScreenModeSelection : SCREEN_MODE_1P;
+}
+
+/** The screen to draw the pause menu over, as pause_menu_screen_mode(). */
+static ScreenContext pause_menu_screen(s32 tableModes) {
+    ScreenContext screen = gScreenContexts[gIsGamePaused - 1];
+
+    if (gScreenModeSelection >= tableModes) {
+        screen.screenStartX = SCREEN_WIDTH / 2;
+        screen.screenStartY = SCREEN_HEIGHT / 2;
+        screen.screenWidth = SCREEN_WIDTH;
+        screen.screenHeight = SCREEN_HEIGHT;
+    }
+    return screen;
+}
+
+/** The pause menu's entry in a position table, as pause_menu_screen_mode(). */
+static s32 pause_menu_table_index(s32 tableModes) {
+    if (gScreenModeSelection >= tableModes) {
+        return 0;
+    }
+    return (gScreenModeSelection * 4) + (gIsGamePaused - 1);
+}
+
 void render_pause_menu_versus(MenuItem* arg0) {
     s16 temp_t0;
     s16 temp_v1;
@@ -8766,14 +8802,16 @@ void render_pause_menu_versus(MenuItem* arg0) {
     s32 rightEdge;
     Unk_D_800E70A0* temp_s3;
     ScreenContext* temp_v0;
+    ScreenContext pauseScreen;
 
-    temp_v0 = &gScreenContexts[gIsGamePaused - 1];
+    pauseScreen = pause_menu_screen(PAUSE_TABLE_MODES);
+    temp_v0 = &pauseScreen;
     temp_v1 = temp_v0->screenStartX;
     temp_t0 = temp_v0->screenStartY;
     temp_t3 = temp_v0->screenWidth / 2;
     temp_t4 = temp_v0->screenHeight / 2;
 
-    switch (gScreenModeSelection) {
+    switch (pause_menu_screen_mode(PAUSE_TABLE_MODES)) {
         case SCREEN_MODE_2P_SPLITSCREEN_HORIZONTAL:
             leftEdge = OTRGetDimensionFromLeftEdge(0);
             rightEdge = OTRGetDimensionFromRightEdge(SCREEN_WIDTH);
@@ -8808,7 +8846,7 @@ void render_pause_menu_versus(MenuItem* arg0) {
             break;
     }
 
-    temp_s3 = &D_800E8540[(gScreenModeSelection * 4) + (gIsGamePaused - 1)];
+    temp_s3 = &D_800E8540[pause_menu_table_index(PAUSE_TABLE_MODES)];
     for (var_s0 = 0; var_s0 < 4; var_s0++) {
         if (var_s0 > 0) {
             var_s1 = var_s0 + 1;
@@ -8830,15 +8868,17 @@ void render_pause_grand_prix(MenuItem* arg0) {
     s32 var_s0;
     Unk_D_800E70A0* temp_s3;
     ScreenContext* temp_v0;
+    ScreenContext pauseScreen;
     f32 one = 1.0f;
 
-    temp_v0 = &gScreenContexts[gIsGamePaused - 1];
+    pauseScreen = pause_menu_screen(PAUSE_TABLE_MODES_GRAND_PRIX);
+    temp_v0 = &pauseScreen;
     temp_v1 = temp_v0->screenStartX;
     temp_t0 = temp_v0->screenStartY;
     temp_t3 = temp_v0->screenWidth / 2;
     temp_t4 = temp_v0->screenHeight / 2;
 
-    switch (gScreenModeSelection) {
+    switch (pause_menu_screen_mode(PAUSE_TABLE_MODES_GRAND_PRIX)) {
         case SCREEN_MODE_1P:
         case SCREEN_MODE_2P_SPLITSCREEN_HORIZONTAL:
             gDisplayListHead = draw_box_wide(gDisplayListHead, temp_v1 - temp_t3, temp_t0 - temp_t4, temp_v1 + temp_t3,
@@ -8857,7 +8897,7 @@ void render_pause_grand_prix(MenuItem* arg0) {
             break;
     }
 
-    temp_s3 = &D_800E85C0[(gScreenModeSelection * 4) + (gIsGamePaused - 1)];
+    temp_s3 = &D_800E85C0[pause_menu_table_index(PAUSE_TABLE_MODES_GRAND_PRIX)];
     temp_s0 = ((get_string_width(gCupNames[GetCupIndex()]) * one) + 10.0f) / 2;
     temp_s1 = ((get_string_width(D_800E76CC[gCCSelection]) * one) + 10.0f) / 2;
     set_text_color(TEXT_YELLOW);
@@ -8874,6 +8914,7 @@ void render_pause_grand_prix(MenuItem* arg0) {
 
 void render_pause_battle(MenuItem* arg0) {
     ScreenContext* temp_v0;
+    ScreenContext pauseScreen;
     s16 temp_t0;
     s16 temp_v1;
     s32 temp_t3;
@@ -8884,13 +8925,14 @@ void render_pause_battle(MenuItem* arg0) {
     s32 rightEdge;
     Unk_D_800E70A0* temp_s3;
 
-    temp_v0 = &gScreenContexts[gIsGamePaused - 1];
+    pauseScreen = pause_menu_screen(PAUSE_TABLE_MODES);
+    temp_v0 = &pauseScreen;
     temp_v1 = temp_v0->screenStartX;
     temp_t0 = temp_v0->screenStartY;
     temp_t3 = temp_v0->screenWidth / 2;
     temp_t4 = temp_v0->screenHeight / 2;
 
-    switch (gScreenModeSelection) {
+    switch (pause_menu_screen_mode(PAUSE_TABLE_MODES)) {
         case SCREEN_MODE_2P_SPLITSCREEN_HORIZONTAL:
             leftEdge = OTRGetDimensionFromLeftEdge(0);
             rightEdge = OTRGetDimensionFromRightEdge(SCREEN_WIDTH);
@@ -8925,7 +8967,7 @@ void render_pause_battle(MenuItem* arg0) {
             break;
     }
 
-    temp_s3 = &D_800E8600[(gScreenModeSelection * 4) + (gIsGamePaused - 1)];
+    temp_s3 = &D_800E8600[pause_menu_table_index(PAUSE_TABLE_MODES)];
     for (var_a1 = 0; var_a1 < 4; var_a1++) {
         if (var_a1 > 0) {
             var_s1 = var_a1 + 1;
@@ -8965,13 +9007,13 @@ void func_800A54EC(void) {
             var_v1 = &D_800E8538[0];
             break;
         case 2:
-            var_v1 = &D_800E8540[(gScreenModeSelection * 4) + (gIsGamePaused - 1)];
+            var_v1 = &D_800E8540[pause_menu_table_index(PAUSE_TABLE_MODES)];
             break;
         case 0:
-            var_v1 = &D_800E85C0[(gScreenModeSelection * 4) + (gIsGamePaused - 1)];
+            var_v1 = &D_800E85C0[pause_menu_table_index(PAUSE_TABLE_MODES_GRAND_PRIX)];
             break;
         case 3:
-            var_v1 = &D_800E8600[(gScreenModeSelection * 4) + (gIsGamePaused - 1)];
+            var_v1 = &D_800E8600[pause_menu_table_index(PAUSE_TABLE_MODES)];
             break;
     }
     whyTheSequel = D_800F0B50[why];

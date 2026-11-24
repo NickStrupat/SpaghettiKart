@@ -624,7 +624,12 @@ void evaluate_collision_player_palm_trees(Player* player) {
 void evaluate_collision_players_palm_trees(void) {
     s32 index;
 
-    for (index = 0; index < 4; index++) {
+    // @port Every player: up to 8 can be human. The original checks only the first four karts, whatever drives them;
+    // the karts beyond keep that, unless a human drives them, so a race's computer players still pass through.
+    for (index = 0; index < NUM_PLAYERS; index++) {
+        if ((index >= 4) && !(gPlayers[index].type & PLAYER_HUMAN)) {
+            continue;
+        }
         if (((gPlayers[index].type & 0xC000) != 0) &&
             ((s8) (u8) get_surface_type(gPlayers[index].collision.meshIndexZX) == GRASS)) {
             evaluate_collision_player_palm_trees(&gPlayers[index]);
@@ -1137,7 +1142,8 @@ void init_kiwano_fruit(void) {
     s32 i;
 
     // phi_s0 = 0;
-    for (i = 0; i < 4; i++) {
+    // @port Every player: up to 8 can be human, and each gets a fruit
+    for (i = 0; i < NUM_PLAYERS; i++) {
         phi_s1 = &gPlayers[i];
         // temp_v0 = *phi_s1;
         if ((phi_s1->type & PLAYER_HUMAN) == 0) {
