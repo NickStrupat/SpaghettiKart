@@ -499,6 +499,14 @@ Each of these cost a debugging round.
   - A field with one bit per camera, with no room for four more: an actor's flags hold which of cameras 1 to 4 drew
     it in their low four bits, and the bits above mean other things. Cameras 5 to 8 have
     `AActor::SeenByCamerasFiveToEight`, and the simulation reads both through `actor_seen_by_a_camera()`.
+  Found by a wider search (2026-11-24): Versus for 5 to 8 players had no item table, so every item box gave nothing
+  (it now uses the 4-player table, ranks spread over its 4 rows: `RaceManager::GetItemTableRank()`); every racer has
+  a Lakitu, and those of players 5 to 8, CPUs in any Grand Prix included, wrote their textures past a 4-player
+  `gLakituTextureBuffer`; in the eight-screen split the per-kart updates (tyre spin, colour effects, hit spins, hops,
+  smoke and sparks) looped over the human players only, leaving a Grand Prix's CPU karts out, and with 3 or 4 players
+  no kart got smoke or sparks in Grand Prix; a `switch` on the player count stopped at 4 and left the race-start
+  Lakitu's timing from the last race; the fades had no eight-screen arm, so leaving the results cut to black. The
+  AddressSanitizer build cannot see the Lakitu kind of overflow: its global redzones are off (below).
   The audio tables in `audio/external.c` look 4 long (`f32 D_800E9DD4[] = { 0.0f, 0.0f, 0.0f, 0.0f }`) but are 8:
   `audio/external.h` declares them with `NUM_PLAYERS` entries before the definitions, which makes the definitions
   that size.

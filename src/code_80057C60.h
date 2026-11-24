@@ -429,7 +429,7 @@ extern Vec3su D_80183E98;
 // extern s32 indexObjectList1[]; -> objects.h
 // extern s32 indexObjectList2[]; -> objects.h
 
-extern const char* gLakituTextureBuffer[4][2];
+extern const char* gLakituTextureBuffer[NUM_PLAYERS][2];
 // extern s32 indexObjectList3[]; -> objects.h
 
 extern const char** gLakituTexturePtr;

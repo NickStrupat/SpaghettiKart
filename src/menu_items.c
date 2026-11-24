@@ -40,6 +40,7 @@
 //! @todo Move gGfxPool out of main.h
 // Unfortunately that's not a small effort due to weird import structure in this project
 #include "main.h"
+#include <screen_grid.h>
 
 #include "stdio.h"
 #include "port/Engine.h"
@@ -5133,6 +5134,28 @@ void func_8009CA6C(s32 arg0) {
 }
 
 // Lakitu tow transition out of black
+/**
+ * @port A screen's fade on the eight-screen split, which the fades had no arm for: nothing faded, and leaving the
+ * results cut to black. The box covers the screen's cell, out to the window's edge for the cells in the outer columns
+ * (as the quadrant arms do for the left and right screens), or the whole window for SCREEN_FULLSCREEN_SLOT. `left` to
+ * `bottom` is the screen's box in 320x240.
+ */
+static Gfx* draw_8p_fade_box(Gfx* displayListHead, s32 screen, s32 left, s32 top, s32 right, s32 bottom, u32 red,
+                             u32 green, u32 blue, u32 alpha) {
+    if ((screen < 0) || (screen >= NUM_PLAYERS)) {
+        return draw_box_wide(displayListHead, left, top, right, bottom, red, green, blue, alpha);
+    }
+    const s32 column = screen_player_column(SCREEN_MODE_8P, screen);
+
+    if (column == 0) {
+        left = OTRGetDimensionFromLeftEdge(0);
+    }
+    if (column == (screen_grid_columns(SCREEN_MODE_8P) - 1)) {
+        right = OTRGetDimensionFromRightEdge(SCREEN_WIDTH);
+    }
+    return draw_box_wide_pause_background(displayListHead, left, top, right, bottom, red, green, blue, alpha);
+}
+
 void draw_fade_in(s32 arg0, s32 arg1, s32 arg2) {
     RGBA16* color;
     s16 x, y, w, h;
@@ -5195,6 +5218,11 @@ void draw_fade_in(s32 arg0, s32 arg1, s32 arg2) {
                                                  color->red, color->green, color->blue,
                                                  0xFF - (gCurrentTransitionTime[arg0] * 0xFF / gTransitionDuration[arg0]));
             }
+            break;
+        case SCREEN_MODE_8P:
+            gDisplayListHead = draw_8p_fade_box(gDisplayListHead, arg0, x - (w / 2), y - (h / 2), (w / 2) + x,
+                                                (h / 2) + y, color->red, color->green, color->blue,
+                                                0xFF - (gCurrentTransitionTime[arg0] * 0xFF / gTransitionDuration[arg0]));
             break;
     }
 
@@ -5656,6 +5684,10 @@ void func_8009D77C(s32 arg0, s32 arg1, s32 arg2) {
                                                  temp_v0_2->red, temp_v0_2->green, temp_v0_2->blue, var_t2);
             }
             break;
+        case SCREEN_MODE_8P:
+            gDisplayListHead = draw_8p_fade_box(gDisplayListHead, arg0, var_t3 - temp_v1, var_t4 - temp_t8, someMath0,
+                                                someMath1, temp_v0_2->red, temp_v0_2->green, temp_v0_2->blue, var_t2);
+            break;
     }
 
     if (arg1 == 0) {
@@ -5733,6 +5765,10 @@ void func_8009D998(s32 arg0) {
                     draw_box_wide_pause_background(gDisplayListHead, var_t0 - temp_v0, var_t1 - temp_v1,
                                                    rightEdge + someMath0, someMath1, 0, 0, 0, 0x000000FF);
             }
+            break;
+        case SCREEN_MODE_8P:
+            gDisplayListHead = draw_8p_fade_box(gDisplayListHead, arg0, var_t0 - temp_v0, var_t1 - temp_v1, someMath0,
+                                                someMath1, 0, 0, 0, 0x000000FF);
             break;
     }
 }

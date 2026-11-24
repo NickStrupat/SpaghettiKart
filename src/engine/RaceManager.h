@@ -44,10 +44,18 @@ public:
     virtual void SetItemTables();
     RandomItemTable* GetHumanItemTable() { return mHumanItemTable; }
     RandomItemTable* GetCPUItemTable() { return mCPUItemTable; }
+    /**
+     * @port The row of the item tables for a racer at `rank` (from 0). Versus for five to eight players uses the
+     * four-player table, which has four rows: the ranks are spread over them, two racers or fewer to a row, so first
+     * place gets first place's odds and last place last place's. Otherwise the rank itself.
+     */
+    uint32_t GetItemTableRank(uint32_t rank) const;
 protected:
     World& WorldContext;
     RandomItemTable* mHumanItemTable;
     RandomItemTable* mCPUItemTable;
+    // Racers spread over the four rows of the four-player Versus table (GetItemTableRank()), or 0
+    uint32_t mRacersOverFourRanks = 0;
     std::unordered_map<std::string, RandomItemTable> mItemTables;
 };
 

@@ -404,7 +404,13 @@ void func_8006FA94(void) {
                 D_8018D2AC = 60;
             }
             break;
+        // @port Five to eight players too, as four: they kept the last race's values, among them the starting
+        // Lakitu's timing (D_8018D180)
         case 4:
+        case 5:
+        case 6:
+        case 7:
+        case 8:
             if (gModeSelection == 2) {
                 D_8018D114 = 10;
                 D_8018D178 = 30;

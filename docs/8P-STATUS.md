@@ -40,6 +40,11 @@ Confirmed working this session:
   camera effects work, and C-right toggles the HUD. Actors remember which of
   cameras five to eight drew them (`AActor::SeenByCamerasFiveToEight`). Checked
   by the simulator (`pause-6p`) and the rollback stress run, not yet by hand.
+- **Versus for five to eight players hands out items** from the four-player
+  table, the ranks spread over its four rows (`RaceManager::GetItemTableRank()`):
+  before, every item box gave nothing. A Grand Prix's CPU karts get their tyre
+  spin, colour effects, hit spins, hops, smoke and sparks on the eight-screen
+  split, and the split fades in and out. (2026-11-24)
 - **A stock 2P 150cc Grand Prix no longer crashes under ASan** — a pre-existing
   texture over-read, fixed engine-side (see libultraship notes).
 
@@ -98,7 +103,12 @@ by a value that now reaches eight.** Check this list before theorising:
     eight-screen render ids are a range (12–19), not per-screen constants, so the
     HUD/menu dispatch switches needed a range arm, not eight more cases.
 13. **Count-ladders** (`case 1: … case 4:`) that silently do nothing past four —
-    replace with a loop bounded by the count and `NUM_PLAYERS`.
+    replace with a loop bounded by the count and `NUM_PLAYERS`. Watch for the
+    ones that set state: past four they keep the last race's values (the
+    race-start Lakitu timing in `func_8006FA94()`), or set nothing at all (the
+    Versus item table in `RaceManager::SetItemTables()`). A screen-mode `switch`
+    with no `SCREEN_MODE_8P` arm and no `default` draws nothing on the split (the
+    fades in `menu_items.c`).
 14. **A table indexed by screen mode or player count with no eighth-screen row.**
     `D_800E7188` (character staging) is indexed `screenMode * 4`; `SCREEN_MODE_8P`
     (mode 4) read past its end and crashed a five-player start. Gets its own row,
@@ -114,6 +124,14 @@ by a value that now reaches eight.** Check this list before theorising:
     cameras one to four drew it in bits 0–3, and bits 4–7 are taken. Cameras
     five to eight get their own field on `AActor`, read together through
     `actor_seen_by_a_camera()`.
+17. **Loops bounded by the human count where the karts are meant.** In a Grand
+    Prix the karts after the human players are CPUs: an eight-screen arm that
+    loops to `gPlayerCountSelection1` leaves them out. Loop to `NUM_PLAYERS` and
+    let the callee skip karts that do not exist.
+18. **A global overflowed into its neighbours.** `gLakituTextureBuffer[4][2]`
+    took Lakitu textures for all eight racers. The AddressSanitizer build has
+    global redzones off (`-asan-globals=0`, snapshots copy whole sections), so it
+    never reports this kind: only reading the sizes finds it.
 
 Two engine-level over-reads this session were **not** player-count bugs but the
 same "descriptor claims more than the buffer holds" family: a display list can
@@ -171,6 +189,10 @@ fetch them — they would be lost. All are worth sending to Kenix3/libultraship.
   through the generic draw helpers.
 - A top-row viewport was once seen rendering mostly black; not observed recently,
   watch for it.
+- Left as they are, unless the owner asks: Moo Moo Farm spawns its trees with
+  five to eight players, though the original drops them with four
+  (`MooMooFarm::BeginPlay()`, `gPlayerCountSelection1 != 4`); the win tallies in
+  `func_8028E028()` count two to four player games only.
 
 ## Things that are settled, so do not re-derive them
 

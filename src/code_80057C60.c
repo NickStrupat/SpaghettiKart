@@ -286,7 +286,9 @@ s32 indexObjectList2[32];
  * I'm also not certain about its dimensions
  * I think the entires in this array are way over-sized
  */
-const char* gLakituTextureBuffer[4][2];
+// @port One per player: every racer has a Lakitu (CM_SpawnStarterLakitu()), and those of players five to eight wrote
+// their textures past the end of a four-player buffer, even in a one-player Grand Prix's CPU karts.
+const char* gLakituTextureBuffer[NUM_PLAYERS][2];
 /**
  * Boos in Banshee Boardwalk
  * Spawners for the 4 small fire breaths inside Bowser's Castle
@@ -6877,7 +6879,11 @@ void func_8006E058(void) {
 
             break;
         case SCREEN_MODE_3P_4P_SPLITSCREEN:
-            if ((VERSUS == gModeSelection) || (BATTLE == gModeSelection)) {
+            if (gModeSelection == GRAND_PRIX) { // @port 3p/4p Grand Prix: every kart's smoke and sparks, CPUs too
+                for (s32 i = 0; i < NUM_PLAYERS; i++) {
+                    func_8006E420(&gPlayers[i], i, 0);
+                }
+            } else if ((VERSUS == gModeSelection) || (BATTLE == gModeSelection)) {
                 func_8006E420(gPlayerOne, 0, 0);
                 func_8006E420(gPlayerTwo, 1, 0);
                 func_8006E420(gPlayerThree, 2, 0);
@@ -6889,10 +6895,9 @@ void func_8006E058(void) {
 
             break;
         case SCREEN_MODE_8P:
-            // Unlike the quadrant arm this is not gated on Versus or Battle:
-            // Grand Prix is the mode eight players are for, and the 1P arm above
-            // already calls this for all eight slots in Grand Prix.
-            for (s32 i = PLAYER_ONE; (i < gPlayerCountSelection1) && (i < NUM_PLAYERS); i++) {
+            // @port Every kart that exists: in Grand Prix the CPU karts after the human players too, which were left
+            // without smoke and sparks. In Versus and Battle the karts after them do not exist.
+            for (s32 i = PLAYER_ONE; i < NUM_PLAYERS; i++) {
                 func_8006E420(&gPlayers[i], i, 0);
             }
             break;

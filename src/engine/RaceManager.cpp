@@ -123,6 +123,8 @@ void RaceManager::SetItemTables() {
     std::optional<std::string> humanTableName;
     std::optional<std::string> cpuTableName;
 
+    mRacersOverFourRanks = 0;
+
     switch(gModeSelection) {
         case GRAND_PRIX:
             if (CVarGetInteger("gHarderCPU", false) == true) {
@@ -147,6 +149,14 @@ void RaceManager::SetItemTables() {
                     humanTableName = "mk:versus_4p";
                     cpuTableName = "mk:versus_4p";
                     break;
+                default:
+                    // @port Five to eight players had no table, and every item box gave nothing
+                    if (gPlayerCountSelection1 > FOUR_PLAYERS_SELECTED) {
+                        humanTableName = "mk:versus_4p";
+                        cpuTableName = "mk:versus_4p";
+                        mRacersOverFourRanks = std::min<uint32_t>(gPlayerCountSelection1, NUM_PLAYERS);
+                    }
+                    break;
             }
             break;
         case BATTLE:
@@ -167,6 +177,13 @@ void RaceManager::SetItemTables() {
     printf("[RaceManager] Selected cpu item probability table %s\n", cpuTableName.value_or("none").c_str());
 }
 
+uint32_t RaceManager::GetItemTableRank(uint32_t rank) const {
+    if (mRacersOverFourRanks == 0) {
+        return rank;
+    }
+    return std::min<uint32_t>((rank * FOUR_PLAYERS_SELECTED) / mRacersOverFourRanks, FOUR_PLAYERS_SELECTED - 1);
+}
+
 extern "C" int16_t RaceManager_GetRandomHumanItem(uint32_t rank) {
     auto& raceManager = GetWorld()->GetRaceManager();
 
@@ -176,7 +193,7 @@ extern "C" int16_t RaceManager_GetRandomHumanItem(uint32_t rank) {
         return ITEM_NONE;
     }
 
-    return table->Roll(rank);
+    return table->Roll(raceManager.GetItemTableRank(rank));
 }
 
 extern "C" int16_t RaceManager_GetRandomCPUItem(uint32_t rank) {
@@ -187,5 +204,5 @@ extern "C" int16_t RaceManager_GetRandomCPUItem(uint32_t rank) {
         return ITEM_NONE;
     }
 
-    return table->Roll(rank);
+    return table->Roll(raceManager.GetItemTableRank(rank));
 }

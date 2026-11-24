@@ -884,10 +884,10 @@ void func_8002276C(void) {
             }
             break;
         case SCREEN_MODE_8P:
-            // Not gated on Versus or Battle: the full-screen arm above already
-            // calls this for all eight slots in Grand Prix, which is the mode
-            // eight players exist for.
-            for (s32 i = PLAYER_ONE; (i < gPlayerCountSelection1) && (i < NUM_PLAYERS); i++) {
+            // @port Every kart that exists: in Grand Prix the CPU karts after the human players too, which were left
+            // without tyre spin, colour effects, hit spins and hops. In Versus and Battle the karts after them do not
+            // exist (func_80022A98() skips them).
+            for (s32 i = PLAYER_ONE; i < NUM_PLAYERS; i++) {
                 func_80022A98(&gPlayers[i], i);
             }
             break;
