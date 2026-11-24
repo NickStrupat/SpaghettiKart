@@ -1653,13 +1653,36 @@ bool is_character_spot_free(s32 gridId) {
     if (CVarGetInteger("gUniqueCharacterSelections", false) == false) {
         return true;
     }
-  
+    /* @port With more than four players a cursor may pass over the others: the original rule kept every cursor off
+       every other one, which with six cursors on eight characters left most moves blocked, and with eight all of
+       them. character_taken() keeps the characters unique instead, when a player picks one. */
+    if (gPlayerCount > 4) {
+        return true;
+    }
+
     for (size_t i = 0; i < ARRAY_COUNT(gCharacterGridSelections); i++) {
         if (gridId == gCharacterGridSelections[i]) {
             return false;
         }
     }
     return true;
+}
+
+/**
+ * @port Whether another player has already picked the character at this player's cursor, with unique characters and
+ * more than four players, where cursors may share a spot (see is_character_spot_free()).
+ */
+static bool character_taken(u16 controllerIdx) {
+    if ((CVarGetInteger("gUniqueCharacterSelections", false) == false) || (gPlayerCount <= 4)) {
+        return false;
+    }
+    for (size_t i = 0; i < ARRAY_COUNT(gCharacterGridSelections); i++) {
+        if ((i != controllerIdx) && gCharacterGridIsSelected[i] &&
+            (gCharacterGridSelections[i] == gCharacterGridSelections[controllerIdx])) {
+            return true;
+        }
+    }
+    return false;
 }
 
 // Grid positions are from right to left, then top to bottom
@@ -1703,7 +1726,10 @@ void player_select_menu_act(struct Controller* controller, u16 controllerIdx) {
                     }
                 }
                 // L800B3684
-                if ((btnAndStick & A_BUTTON) && (gCharacterGridIsSelected[controllerIdx] == 0)) {
+                if ((btnAndStick & A_BUTTON) && (gCharacterGridIsSelected[controllerIdx] == 0) &&
+                    character_taken(controllerIdx)) {
+                    play_sound2(SOUND_MENU_GO_BACK);
+                } else if ((btnAndStick & A_BUTTON) && (gCharacterGridIsSelected[controllerIdx] == 0)) {
                     gCharacterGridIsSelected[controllerIdx] = true;
                     i = sCharacterGridOrder[gCharacterGridSelections[controllerIdx] - 1];
                     func_800C90F4(controllerIdx, 0x2900800e + (i << 4));

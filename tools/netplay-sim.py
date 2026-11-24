@@ -223,10 +223,14 @@ SCENARIOS = [
              peer_env={-1: {"SK_NETPLAY_CONSOLE": "1"}, 0: {"SK_TEST_CONSOLE_INPUT": CONSOLE_2P_VS},
                        1: {"SK_TEST_CONSOLE_INPUT": "R_JPAD@290,A@310"}},
              expect={"consoles": 1, "races_over": 1, "menus_in_sync": 1}),
+    # Above 4 players cursors pass each other and a character another player has picked is refused (unique characters
+    # are a netplay default): players 3 and 7 land on 4 and 8, picked just before, then step left to a free one.
     Scenario("room-8", "8 players in one room, as many as it holds, race versus from the shared console's menus",
              8, "vs", series_races=1,
              peer_env={-1: {"SK_NETPLAY_CONSOLE": "1"}, 0: {"SK_TEST_CONSOLE_INPUT": CONSOLE_8P_VS},
-                       **{p: {"SK_TEST_CONSOLE_INPUT": f"R_JPAD@{288 + 2 * p},A@{306 + 4 * p}"} for p in range(1, 8)}},
+                       **{p: {"SK_TEST_CONSOLE_INPUT": f"R_JPAD@{288 + 2 * p},A@{306 + 4 * p}"} for p in range(1, 8)},
+                       3: {"SK_TEST_CONSOLE_INPUT": "R_JPAD@294,A@318,L_JPAD@322,L_JPAD@326,A@330"},
+                       7: {"SK_TEST_CONSOLE_INPUT": "R_JPAD@302,A@334,L_JPAD@336,L_JPAD@339,L_JPAD@342,A@345"}},
              expect={"consoles": 1, "races_over": 1, "finishes": 7, "menus_in_sync": 1}, timeout=420),
     Scenario("local-2p", "2 computers, 3 players: the first has 2 players (controllers 1 and 2) and the second 1; a "
              "3-player versus race from the shared console's menus", 2, "vs", series_races=1,
@@ -240,7 +244,9 @@ SCENARIOS = [
              peer_env={-1: {"SK_NETPLAY_CONSOLE": "1"},
                        0: {"SK_TEST_LOCAL_PLAYERS": "6", "SK_TEST_CONSOLE_INPUT": CONSOLE_7P_VS,
                            **{f"SK_TEST_CONSOLE_INPUT_{p + 1}": f"R_JPAD@{288 + 2 * p},A@{306 + 4 * p}"
-                              for p in range(1, 6)}},
+                              for p in range(1, 6)},
+                           # Refused on 4, as in room-8, then two to the left
+                           "SK_TEST_CONSOLE_INPUT_4": "R_JPAD@294,A@318,L_JPAD@322,L_JPAD@326,A@330"},
                        1: {"SK_TEST_CONSOLE_INPUT": "R_JPAD@300,A@330"}},
              expect={"consoles": 1, "races_over": 1, "finishes": 1, "menus_in_sync": 1}),
     Scenario("console-gp", "2 players on a shared console: a whole Grand Prix from the menus, the podium, then "
