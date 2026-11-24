@@ -51,7 +51,7 @@ details live in the headers under `src/port/netplay/`, which each start with a d
 4. In a room, every player's game shows the same screens. You are the controller of your place in the room (the host
    is controller 1); the names along the bottom of Game Select say who is who. Pick the player count, mode,
    characters and course in the normal menus, as on one console: anyone can move the Game Select and course cursors,
-   each player moves their own character cursor.
+   each player moves their own character cursor. Right from 4P on Game Select goes on to 5P to 8P.
 5. **Z** on Game Select (now **LEAVE**) leaves the room and comes back to the ONLINE screen.
 
 A room holds 8 players; a computer brings one player per controller port in use, up to 8. All 8 can race: 5 to 8
@@ -94,7 +94,9 @@ Each player's row in the netplay window says where voice stands with them (talki
 has a box to mute them; a corner of the screen names who is talking.
 
 The host's gameplay settings (enhancements, rules, vehicle counts, unique characters) and whether the host unlocked
-Extra mode apply to everyone in the room. During a race, the netplay window can leave it, which takes everyone back to
+Extra mode apply to everyone in the room. Unique characters is on unless the host turned it off: with up to 4 players
+a character cursor cannot move onto another; with more, cursors pass each other and A on a character another player
+has picked is refused (`character_taken` in `src/menus.c`), as 6 cursors on 8 characters left most moves blocked. During a race, the netplay window can leave it, which takes everyone back to
 the menus.
 
 ## Decisions
@@ -278,6 +280,13 @@ one at a time, numbered in one sequence:
 The **ONLINE screen** (`OnlineMenu.cpp`) is a menu screen of the port's own (`ONLINE_MENU`), drawn with the menus'
 helpers. Game Select's "Z ONLINE" button is the port's own art (`tools/make-online-button.py`, converted with
 `tools/png-to-texture.py`), in the style of OPTION and DATA.
+
+The **5 to 8 player menu art** is made at runtime from the game's own textures, so nothing derived from the ROM is in
+the repository (`src/menu_items.c`). Game Select's fourth box stands for 4 to 8 players: at 5 to 8 it reads 5P GAME to
+8P GAME, its digit redrawn in the style of the box's own 1 to 4 (`make_game_boxes`), and keeps its GP / VS / BATTLE
+list (`game_select_column_type`). Character select's cursors for players 5 to 8 are the cursors of players 1 to 4
+turned in hue, with their number redrawn in the corner (`make_extra_cursor_borders`). The 5P to 8P box still shows the
+4P box's four faces.
 
 ### Relay, lobby and direct connections
 
@@ -487,6 +496,14 @@ Each of these cost a debugging round.
   raced Mario Raceway, a player who joined fresh raced the cup's track, and the race desynced on frame 0 (the flaky
   `console-spectator`, 1 run in 4, 2026-11-20). The menu checksum missed it, since the race's track is the World's,
   not the globals'; it now hashes the World's cup and track as well.
+- **A screen's own HUD pass draws inside its split screen**, so anything placed by matrix is squeezed into that
+  screen's share of the window. The quadrant's item box was made for half the window both ways; in the eight-screen
+  grid it came out a third of its size and out of place (2026-11-21). The grid's item boxes are drawn with the rank
+  labels over the whole window instead (`draw_8p_item_windows`), as netplay's own view does
+  (`render_own_view_overlay`).
+- **The player count is not the kart count.** A Grand Prix races 8 karts whatever the player count; counts set from
+  `gPlayerCount` for 5 to 8 players left the karts ranked below it off the minimap, humans among them, and let CPUs
+  past it drive through the course's hazards (`D_8018D158`, 2026-11-21). With 3 and 4 players it was already 8.
 
 - **Draw code changes simulation state** (`init_render_player()`, results-screen menu items, the GP points count).
   Never skip drawing a simulated frame. Settings that change drawing change that state too: `gNoCulling` and
@@ -612,7 +629,8 @@ Each of these cost a debugging round.
   resolution they are small.
 - 5 to 8 players: controllers 5 to 8 have been tested only with scripted input (`local-6p`), not real gamepads.
   The fork's own between-race points screen and 5 to 8 player menu art were not taken: the results reuse the 3 and
-  4 player path, and a room picks its player count from the controllers.
+  4 player path, and the menu art is made at runtime (see [Shared console](#shared-console)). With 6 or 8 players no
+  cell is free for the minimap, so the grid has none; with 5 or 7 it is drawn at its usual size in the free cell.
 - libultraship's renderer reads past two texture buffers (`ImportTextureI4` at boot, `gfx_load_tlut` on some
   courses), reported by AddressSanitizer on every run; not netplay's, not fixed.
 
@@ -658,3 +676,11 @@ Each of these cost a debugging round.
 | `89bdc437` | Public rooms, private rooms and matchmaking |
 | `d1aaca81` | START pauses an online race for everyone |
 | `0890b1f4` | Browsers connect directly to desktop games in matched rooms |
+| `e1205fc9` | Grand Prix for 3 and 4 players, with CPUs in the free karts |
+| `71932538`, `64094a18` | Rooms of 8 places; a computer's players counted from its controllers |
+| `a5d04ce5`, `3cfa5fb6` | 5 to 8 players online, from the 8-player fork (decision 11): results, own view, stress coverage |
+| `cf3b20d9`, `9d29f309` | Controller ports 5 to 8 (decision 12), settings read once per frame, the gamepad name button fix |
+| `1d6f41b3` | Every peer races the track the menus picked |
+| `4adeb71c` | Game Select and character select cursors for 5 to 8 players |
+| `991ed9d6` | Item boxes and minimap for 5 to 8 players |
+| `6b63810f` | Character select cursors pass each other above 4 players |

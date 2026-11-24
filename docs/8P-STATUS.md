@@ -1,5 +1,10 @@
 # Eight-player local multiplayer — status
 
+> Kept as the [8-player fork](https://github.com/chrisgilpin/MK64-8p-local) wrote it, for its list of bug classes.
+> Parts are out of date in this repository, where `docs/NETPLAY.md` is current: the grid follows the human count with
+> a minimap in a free cell, the item boxes draw over the whole window, Game Select reads 5P GAME to 8P GAME instead of
+> a "N PLAYERS" label, players 5 to 8 have hue-turned cursors, and above 4 players character cursors pass each other.
+
 Branch `8p-local`, forked from HarbourMasters/SpaghettiKart at `33817cd11`.
 
 ## Where this stands
