@@ -122,8 +122,9 @@ and the archive maker too, so a player can pick their ROM offline. The player's 
 ## Testing
 
 `tools/web-check/check.mjs` loads the page in a headless Chrome of its own (not the browser anyone has open),
-prints the page's console, presses keys and saves pictures of the page. Its header lists the steps. This starts a
-race on Luigi Raceway from a fresh profile and holds the accelerator:
+prints the page's console, presses keys and saves pictures of the page. Its header lists the steps. It,
+`stress.mjs` and `netplay.mjs` start Chrome with `--mute-audio`: the game's sound is mixed but never played, on a
+computer others may be using. This starts a race on Luigi Raceway from a fresh profile and holds the accelerator:
 
 ```sh
 cd tools/web-check && npm install && cd ../..        # once

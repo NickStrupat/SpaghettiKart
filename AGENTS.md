@@ -60,5 +60,9 @@ against each other (or against a desktop game) through a local relay. A "functio
   `src/port/netplay/TestScreenshots.h`) saves the game's own frames as PNGs without any screen capture.
 - Match the surrounding code: its comment density, naming and idiom. New netplay code follows the style of the
   existing files in `src/port/netplay/` (doc comments on declarations, plain-language comments on why).
+- Update the documentation after a change, in the same commit: `docs/NETPLAY.md` (the state of each part, decisions,
+  pitfalls found), `docs/8P-STATUS.md` for 5 to 8 player work, `docs/WEB.md` for the browser build, the header of
+  any file whose behaviour changed, and this file (build steps, tests, scenario counts). A change isn't done while
+  the documents describe the code as it was.
 - Commit messages start with `Netplay: ` for netplay work. Commit and push only when asked.
 - Mac to Mac is the only target for now; don't spend effort on Windows or Linux unless asked.

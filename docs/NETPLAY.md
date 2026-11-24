@@ -15,7 +15,7 @@ details live in the headers under `src/port/netplay/`, which each start with a d
 |---|---|
 | Versus 2–4 players, Battle 2–4, Grand Prix 1–2 players + CPUs (whole cups, podium) | Works, tested by the simulator and by hand |
 | Grand Prix 3–4 players + CPUs (the port's own: the original game had none) | Works in the simulator; not yet played by hand |
-| 5–8 players: Versus, Battle, Grand Prix + CPUs, in an eight-screen split (`SCREEN_MODE_8P`), from up to 8 controllers on one computer | Works in the simulator (`gp-5p`, `battle-6p`, `room-8`, `local-6p`) and the rollback stress run; not yet played by hand. Online each computer shows its own player full screen; between Grand Prix races, the results and points show on players 1 and 2's screens, as with 3 and 4 |
+| 5–8 players: Versus, Battle, Grand Prix + CPUs, in an eight-screen split (`SCREEN_MODE_8P`), from up to 8 controllers on one computer | Works in the simulator (`gp-5p`, `battle-6p`, `pause-6p`, `room-8`, `local-6p`) and the rollback stress run; not yet played by hand. Online each computer shows its own player full screen; between Grand Prix races, the results and points show on players 1 and 2's screens, as with 3 and 4 |
 | Rollback, desync detection | Works; an 8-frame rollback every frame stays in sync on every track and mode |
 | Desync recovery (everyone takes over the host's state, the race goes on) | Works, tested by the simulator on one Mac; not yet tried between two |
 | Room list, ONLINE screen (Z on Game Select), relay server | Works; tested with scripted buttons |
@@ -254,7 +254,9 @@ A lobby race is a series of segments, one GekkoNet session per loaded race (each
   reads the controller of the player who paused, as the game does. Its choices start the quit transition like the
   results menu's. A pause can never be predicted wrongly: prediction repeats a player's last input, which never makes
   a new press. With "Show only my player", the pause menu belongs to a split screen nobody sees: the player who paused
-  gets it as a one-player game's, the others a line saying who paused (`render_own_view_menus()`).
+  gets it as a one-player game's, the others a line saying who paused (`render_own_view_menus()`). Any of 8 players
+  can pause. On the eight-screen split, and in Grand Prix with 3 or 4 players, the menu's position tables have no
+  row, so it is drawn over the whole window as a one-player game's (`pause_menu_screen()` in `menu_items.c`).
 
 ### Shared console
 
@@ -386,6 +388,10 @@ PNG files (`TestScreenshots.h`): it reads the game's own framebuffer, so it need
 It also pictures races (netplay or not), but not ImGui windows. Pictures of simulator races were taken with
 `--speed 0` (real time).
 
+The tests play no sound, as they run on a computer that people use. The simulator's games run at volume 0
+(`gGameMasterVolume` in each settings folder, `write_home()`), which also silences the real-time `lag` scenario; a
+scenario can set its own. The browser checks start Chrome with `--mute-audio`: the sound is mixed but not played.
+
 When a session fails, each peer writes `<prefix>.seg<N>.kept.txt`, the checksum breakdown of every frame it still
 kept; diffing the peers' files shows the first component that differs. A peer that detects a desync also writes
 `<prefix>.desync-p<player>-s<segment>-f<frame>.txt`. The prefix is the test log path (`SK_NETPLAY_LOG`), or else
@@ -484,6 +490,18 @@ Each of these cost a debugging round.
   for 5 players, which spawned player 5 as nothing, and the controllers combined into "any controller" (results and
   menus) and the determinism harness's pads, both still 4. Search for `4` and `< 5` in any per-player code you touch, local
   arrays included, and test with 5 or 6 players, not only 8: half-filled grids find the "every slot is a player" bugs.
+  Found later by searching for loops of 4 (2026-11-24): Battle red shells looked for their target among players 1
+  to 4; palm trees, DK Jungle's fruit, START, the lightning's flash, the look-behind camera and the reset of the
+  camera effects (boost, Thwomp) skipped players or screens 5 to 8; C-right did not toggle the HUD past 4 players;
+  the pause menu's position tables had no eight-screen row. Two kinds needed more than a wider loop:
+  - A loop that covered the first four karts whatever drove them (palm trees) now covers humans past the fourth
+    only, so a Grand Prix's computer players still pass through, as in the original.
+  - A field with one bit per camera, with no room for four more: an actor's flags hold which of cameras 1 to 4 drew
+    it in their low four bits, and the bits above mean other things. Cameras 5 to 8 have
+    `AActor::SeenByCamerasFiveToEight`, and the simulation reads both through `actor_seen_by_a_camera()`.
+  The audio tables in `audio/external.c` look 4 long (`f32 D_800E9DD4[] = { 0.0f, 0.0f, 0.0f, 0.0f }`) but are 8:
+  `audio/external.h` declares them with `NUM_PLAYERS` entries before the definitions, which makes the definitions
+  that size.
 
 - **libultraship's `Config::GetInt` / `GetFloat` rebuild the whole settings JSON on every call.** Fine once, ruinous
   per frame: `GameplayCVarOverride::KeepPlayerValuesSaved()`, run every frame of a room, made a dozen such calls and
@@ -505,7 +523,8 @@ Each of these cost a debugging round.
   `gPlayerCount` for 5 to 8 players left the karts ranked below it off the minimap, humans among them, and let CPUs
   past it drive through the course's hazards (`D_8018D158`, 2026-11-21). With 3 and 4 players it was already 8.
 
-- **Draw code changes simulation state** (`init_render_player()`, results-screen menu items, the GP points count).
+- **Draw code changes simulation state** (`init_render_player()`, results-screen menu items, the GP points count,
+  which cameras drew an actor: `actor_rendered()`, read by triple green shells and the hit voice lines).
   Never skip drawing a simulated frame. Settings that change drawing change that state too: `gNoCulling` and
   `gDisableLod` are room rules, not each player's own. Two Macs desynced on frame 0 because one had culling off. The
   debug switches that skip drawing (`gDraw*`, `gRenderCollisionMesh`) and debug mode are forced to their defaults in
@@ -684,3 +703,5 @@ Each of these cost a debugging round.
 | `4adeb71c` | Game Select and character select cursors for 5 to 8 players |
 | `991ed9d6` | Item boxes and minimap for 5 to 8 players |
 | `6b63810f` | Character select cursors pass each other above 4 players |
+| `b2e3c4f2` | Red shells, palm trees, fruit and pausing for players 5 to 8; the pause menu over the whole window where its tables have no row |
+| `30ece859` | Lightning, look-behind camera, camera effects, seen actors and the HUD toggle for players 5 to 8; silent tests |

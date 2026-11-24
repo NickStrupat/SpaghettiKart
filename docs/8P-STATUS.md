@@ -33,6 +33,13 @@ Confirmed working this session:
 - **The per-player HUD draws on all eight screens**, positioned from each cell's
   live rectangle (`hud_place_x/y/scale` in `math_util_2.c`), so it tracks a
   window resized mid-race.
+- **Races and battles treat players five to eight as the first four** (2026-11-24):
+  red shells target them, palm trees stop them, DK Jungle throws fruit at them,
+  the lightning flashes their screens, they can pause (the pause menu is drawn
+  over the whole window on the eight-screen split), their look-behind camera and
+  camera effects work, and C-right toggles the HUD. Actors remember which of
+  cameras five to eight drew them (`AActor::SeenByCamerasFiveToEight`). Checked
+  by the simulator (`pause-6p`) and the rollback stress run, not yet by hand.
 - **A stock 2P 150cc Grand Prix no longer crashes under ASan** — a pre-existing
   texture over-read, fixed engine-side (see libultraship notes).
 
@@ -76,7 +83,10 @@ by a value that now reaches eight.** Check this list before theorising:
    site, so `ARRAY_COUNT` lies (capped the player picker at four)
 8. **Unsized `extern`** — the definition wins, so widening `NUM_PLAYERS` never
    reaches the table (the audio voice tables; and `gPlayerModeSelection`, whose
-   four-entry definition crashed the mode column at five players)
+   four-entry definition crashed the mode column at five players). The reverse
+   holds too: a sized `extern` in scope at an unsized definition makes the
+   definition that size, so `f32 D_800E9DD4[] = { 0, 0, 0, 0 }` in
+   `audio/external.c` is 8 long. Check the header before "fixing" one.
 9. Second array dimensions
 10. **A sentinel slot whose index equals the old player count.** `gControllers[4]`
     was the combined-input aggregate; index 4 of the transition tables means "the
@@ -91,7 +101,19 @@ by a value that now reaches eight.** Check this list before theorising:
     replace with a loop bounded by the count and `NUM_PLAYERS`.
 14. **A table indexed by screen mode or player count with no eighth-screen row.**
     `D_800E7188` (character staging) is indexed `screenMode * 4`; `SCREEN_MODE_8P`
-    (mode 4) read past its end and crashed a five-player start. Gets its own row.
+    (mode 4) read past its end and crashed a five-player start. Gets its own row,
+    or, where a row makes no sense (the pause menu in a cell too small for it),
+    the one-player layout over the whole window.
+15. **Plain `for (i = 0; i < 4; i++)` over players or screens.** Grep the
+    loops, not only the arrays: red shell targets, palm trees, DK fruit, START,
+    the lightning flash, camera switches and camera-effect resets all stopped at
+    four with arrays already sized eight. Where the original covered the first
+    four karts whatever drove them, widen it for humans only, so CPUs behave as
+    before.
+16. **One bit per camera with no room for more.** An actor's flags keep which of
+    cameras one to four drew it in bits 0–3, and bits 4–7 are taken. Cameras
+    five to eight get their own field on `AActor`, read together through
+    `actor_seen_by_a_camera()`.
 
 Two engine-level over-reads this session were **not** player-count bugs but the
 same "descriptor claims more than the buffer holds" family: a display list can
@@ -151,6 +173,11 @@ fetch them — they would be lost. All are worth sending to Kenix3/libultraship.
   watch for it.
 
 ## Things that are settled, so do not re-derive them
+
+- The original game's quirks stay unless online play or five to eight players
+  need a change (the owner's call). The Battle red shell's distance check adds
+  the Z gap instead of squaring it (`func_802B51E8`), so it can pick someone who
+  is not the nearest: left as it is.
 
 - `NUM_PLAYERS 8`, `Player gPlayers[8]`, `gControllerFive..Eight`,
   `gItemWindowObjectByPlayerId[8]` all existed in vanilla. Grand Prix already
