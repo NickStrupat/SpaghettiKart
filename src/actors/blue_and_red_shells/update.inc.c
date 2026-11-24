@@ -419,7 +419,7 @@ void update_actor_red_blue_shell(struct ShellActor* shell) {
         case TRIPLE_GREEN_SHELL:
             func_802B3B44(shell);
             if (shell->someTimer == 0) {
-                if ((shell->flags & 0xF) == 0) {
+                if (!actor_seen_by_a_camera((struct Actor*) shell)) {
                     destroy_destructable_actor((struct Actor*) shell);
                 } else {
                     shell->someTimer -= 1;

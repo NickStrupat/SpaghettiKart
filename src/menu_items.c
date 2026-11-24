@@ -1487,7 +1487,7 @@ void func_80091B78(void) {
         gTransitionType[i] = 0;
     }
 
-    for (i = 0; i < 4; i++) {
+    for (i = 0; i < NUM_PLAYERS; i++) {
         D_8018E838[i] = 0;
     }
 
@@ -1582,7 +1582,7 @@ void func_80091FA4(void) {
         gTransitionType[i] = 0;
     }
 
-    for (i = 0; i < 4; i++) {
+    for (i = 0; i < NUM_PLAYERS; i++) {
         D_8018E838[i] = 0;
     }
 
@@ -2569,7 +2569,7 @@ void func_80093E60(void) {
         gTransitionType[i] = 0;
     }
 
-    for (i = 0; i < 4; i++) {
+    for (i = 0; i < NUM_PLAYERS; i++) {
         D_8018E838[i] = 0;
     }
 
@@ -5989,15 +5989,16 @@ void func_8009E2F0(s32 arg0) {
     }
     D_8018E840[arg0]++;
     if ((u32) D_8018E840[arg0] >= 0x26U) {
-        for (someIndex = 0; someIndex < 4; someIndex++) {
+        for (someIndex = 0; someIndex < NUM_PLAYERS; someIndex++) {
             D_8018E838[someIndex] = 0;
         }
     }
 }
 
+/** The lightning's flash, on every screen. @port All eight: screens five to eight did not flash. */
 void func_8009E5BC(void) {
     s32 i;
-    for (i = 0; i < 4; i++) {
+    for (i = 0; i < NUM_PLAYERS; i++) {
         func_8009E5FC(i);
     }
 }

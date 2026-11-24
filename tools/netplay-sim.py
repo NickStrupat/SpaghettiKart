@@ -333,11 +333,12 @@ def lan_address() -> str:
 
 
 def write_home(home: Path, o2r: Path, index: int, cvars: dict):
-    """Creates a settings folder: windows small and tiled, no intro, no vsync."""
+    """Creates a settings folder: windows small and tiled, no intro, no vsync, and silent: fast-forwarded games play no
+    sound anyway, but a real-time scenario (lag) would play its races out loud. A scenario can set gGameMasterVolume."""
     home.mkdir(parents=True, exist_ok=True)
     width, height = 400, 300
     config = {
-        "CVars": {"gSkipIntro": 3, "gVsyncEnabled": 0, "gInterpolationFPS": 30, **cvars},
+        "CVars": {"gSkipIntro": 3, "gVsyncEnabled": 0, "gInterpolationFPS": 30, "gGameMasterVolume": 0, **cvars},
         "Window": {
             "Width": width,
             "Height": height,

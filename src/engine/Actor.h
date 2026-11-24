@@ -40,6 +40,13 @@ public:
 
     bool bPendingDestroy = false;
 
+    /**
+     * @port Which of cameras five to eight drew this actor in the frame drawn last, from bit 0 for camera five: the
+     * same as the low four bits of Flags hold for cameras one to four, where there is no room for four more. The
+     * simulation reads both (actor_seen_by_a_camera()), so this is simulation state, saved with the actor.
+     */
+    uint8_t SeenByCamerasFiveToEight = 0;
+
     virtual ~AActor() = default;  // Virtual destructor for proper cleanup in derived classes
 
     explicit AActor();

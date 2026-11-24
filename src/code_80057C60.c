@@ -1547,6 +1547,16 @@ void func_8005A380(void) {
     }
 }
 
+/** @port Whether any of the first `players` controllers pressed one of `buttons` this frame. */
+static bool any_player_pressed(u16 buttons, s32 players) {
+    for (s32 i = 0; (i < players) && (i < NUM_PLAYERS); i++) {
+        if (gControllers[i].buttonPressed & buttons) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void func_8005A3C0(void) {
     bool b = false;
     if ((gGamestate != ENDING) && (gGamestate != CREDITS_SEQUENCE) && !D_8018D204) {
@@ -1602,9 +1612,13 @@ void func_8005A3C0(void) {
                     b = true;
                 }
                 break;
+            // @port Five to eight players too, who start with four players' HUD (func_8006F8CC()), from any controller
             case 4:
-                if ((gControllerOne->buttonPressed & R_CBUTTONS) || (gControllerTwo->buttonPressed & R_CBUTTONS) ||
-                    (gControllerThree->buttonPressed & R_CBUTTONS) || (gControllerFour->buttonPressed & R_CBUTTONS)) {
+            case 5:
+            case 6:
+            case 7:
+            case 8:
+                if (any_player_pressed(R_CBUTTONS, gPlayerCountSelection1)) {
                     gHUDModes = (gHUDModes + 1) & 1;
                     D_801657F8 = (D_801657F8 + 1) & 1;
                     D_80165800[0] = (D_80165800[0] + 1) & 1;

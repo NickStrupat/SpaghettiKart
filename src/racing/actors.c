@@ -145,6 +145,7 @@ void actor_init(struct Actor* actor, Vec3f startingPos, Vec3s startingRot, Vec3f
     vec3f_copy_return(actor->velocity, startingVelocity);
     actor->type = actorType;
     actor->flags = -0x8000;
+    CM_ClearActorSeenByCamerasFiveToEight(actor);
     actor->unk_04 = 0;
     actor->state = 0;
     actor->unk_08 = 0.0f;
@@ -340,6 +341,10 @@ void actor_not_rendered(Camera* arg0, struct Actor* arg1) {
         case PLAYER_FOUR:
             arg1->flags &= ~(1 << PLAYER_FOUR);
             break;
+        default:
+            // @port Cameras five to eight, which have no bits in flags
+            CM_SetActorSeenByCamera(arg1, arg0 - camera1, false);
+            break;
     }
 }
 
@@ -357,7 +362,19 @@ void actor_rendered(Camera* arg0, struct Actor* arg1) {
         case PLAYER_FOUR:
             arg1->flags |= 1 << PLAYER_FOUR;
             break;
+        default:
+            // @port Cameras five to eight, which have no bits in flags
+            CM_SetActorSeenByCamera(arg1, arg0 - camera1, true);
+            break;
     }
+}
+
+/**
+ * @port Whether any camera drew the actor in the frame drawn last: the original's `flags & 0xF`, which covers only
+ * cameras one to four, and cameras five to eight.
+ */
+bool actor_seen_by_a_camera(struct Actor* actor) {
+    return ((actor->flags & 0xF) != 0) || CM_IsActorSeenByCamerasFiveToEight(actor);
 }
 
 void func_80297340(Camera* arg0) {
@@ -2000,7 +2017,7 @@ void evaluate_collision_between_player_actor(Player* player, struct Actor* actor
             player->triggers |= HIT_BANANA_TRIGGER;
             owner = &gPlayers[temp_v1];
             if (owner->type & PLAYER_HUMAN) {
-                if (actor->flags & 0xF) {
+                if (actor_seen_by_a_camera(actor)) {
                     if (temp_lo != temp_v1) {
                         func_800C90F4(temp_v1, (owner->characterId * 0x10) + SOUND_ARG_LOAD(0x29, 0x00, 0x80, 0x06));
                     }
@@ -2132,7 +2149,7 @@ void evaluate_collision_between_player_actor(Player* player, struct Actor* actor
             player->triggers |= VERTICAL_TUMBLE_TRIGGER;
             owner = &gPlayers[temp_v1];
             if (owner->type & PLAYER_HUMAN) {
-                if (actor->flags & 0xF) {
+                if (actor_seen_by_a_camera(actor)) {
                     if (temp_lo != temp_v1) {
                         func_800C90F4(temp_v1, (owner->characterId * 0x10) + SOUND_ARG_LOAD(0x29, 0x00, 0x80, 0x06));
                     }

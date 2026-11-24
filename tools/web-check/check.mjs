@@ -32,7 +32,9 @@ const kNoise = /Loaded bank|Loaded sequence/;
 const browser = await puppeteer.launch({
   executablePath: process.env.CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
   headless: true,
-  args: ['--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'],
+  // --mute-audio: the game's sound is mixed as usual but never played, on a computer others may be using.
+  args: ['--use-angle=metal', '--mute-audio', '--enable-gpu', '--ignore-gpu-blocklist',
+    '--autoplay-policy=no-user-gesture-required'],
   defaultViewport: { width: 960, height: 720 },
 });
 const page = await browser.newPage();

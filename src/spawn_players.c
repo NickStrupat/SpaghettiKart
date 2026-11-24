@@ -1443,7 +1443,8 @@ void spawn_players_and_cameras(void) {
         mode = 3;
     }
 
-    for (size_t i = 0; i < 4; i++) {
+    // @port Every player's camera effect: those of players five to eight went on into the next race
+    for (size_t i = 0; i < NUM_PLAYERS; i++) {
         D_80164A08[i] = 0;
         D_80164498[i] = 0;
     }

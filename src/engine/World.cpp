@@ -102,7 +102,8 @@ void World::SetCurrentCup(Cup* cup) {
 
 void World::TickCameras() {
 
-    for (size_t i = 0; i < 4; i++) {
+    // Every screen: the look-behind camera of screens five to eight never came in
+    for (size_t i = 0; i < NUM_PLAYERS; i++) {
         ScreenContext* screen = &gScreenContexts[i];
         if (NULL == screen->pendingCamera) { continue; }
         if (screen->pendingCamera != screen->camera) {

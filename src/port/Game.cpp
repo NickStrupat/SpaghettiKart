@@ -806,6 +806,28 @@ size_t CM_FindActorIndex(Actor* actor) {
     return -1;
 }
 
+void CM_SetActorSeenByCamera(struct Actor* actor, s32 cameraId, bool seen) {
+    if ((cameraId < 4) || (cameraId >= NUM_PLAYERS)) {
+        return;
+    }
+    AActor* a = GetWorld()->ConvertActorToAActor(actor);
+    const uint8_t bit = 1 << (cameraId - 4);
+
+    if (seen) {
+        a->SeenByCamerasFiveToEight |= bit;
+    } else {
+        a->SeenByCamerasFiveToEight &= ~bit;
+    }
+}
+
+bool CM_IsActorSeenByCamerasFiveToEight(struct Actor* actor) {
+    return GetWorld()->ConvertActorToAActor(actor)->SeenByCamerasFiveToEight != 0;
+}
+
+void CM_ClearActorSeenByCamerasFiveToEight(struct Actor* actor) {
+    GetWorld()->ConvertActorToAActor(actor)->SeenByCamerasFiveToEight = 0;
+}
+
 void CM_DeleteActor(size_t index) {
     auto& actors = GetWorld()->Actors;
     if (index < actors.size()) {

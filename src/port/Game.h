@@ -168,6 +168,12 @@ void CM_ActorGenerateCollision(struct Actor* actor);
 void Editor_AddLight(s8* direction);
 size_t CM_GetActorSize();
 size_t CM_FindActorIndex(struct Actor* actor);
+/** Records whether camera five to eight (`cameraId` 4 to 7) drew the actor: AActor::SeenByCamerasFiveToEight. */
+void CM_SetActorSeenByCamera(struct Actor* actor, s32 cameraId, bool seen);
+/** Whether any of cameras five to eight drew the actor in the frame drawn last. */
+bool CM_IsActorSeenByCamerasFiveToEight(struct Actor* actor);
+/** Forgets which of cameras five to eight drew the actor, for an actor started in a reused slot. */
+void CM_ClearActorSeenByCamerasFiveToEight(struct Actor* actor);
 void CM_ActorCollision(Player* player, struct Actor* actor);
 void CM_CleanCameras(void);
 void CM_CleanWorld(void);

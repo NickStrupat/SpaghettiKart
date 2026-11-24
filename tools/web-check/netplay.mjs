@@ -89,7 +89,9 @@ async function startBrowserPlayer(index, roomCode) {
     headless: true,
     // Chrome hides each browser's local addresses behind .local names, which two headless Chromes on one computer
     // cannot look up in each other: WebRTC would never connect. Players on different computers do not need this.
-    args: ['--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist', '--disable-features=WebRtcHideLocalIpsWithMdns',
+    // --mute-audio: the games' sound is mixed as usual but never played, on a computer others may be using.
+    args: ['--use-angle=metal', '--mute-audio', '--enable-gpu', '--ignore-gpu-blocklist',
+      '--disable-features=WebRtcHideLocalIpsWithMdns',
       // A microphone that beeps, allowed without asking: no real one is ever opened.
       ...(process.env.VOICE === 'mic' ? ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'] : []),
       ...(process.env.CHROME_ARGS || '').split(' ').filter((arg) => arg !== '')],

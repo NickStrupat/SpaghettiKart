@@ -75,7 +75,8 @@ const selected = races.filter((race) => !process.env.ONLY || `${race.mode}-${rac
 const browser = await puppeteer.launch({
   executablePath: process.env.CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
   headless: true,
-  args: ['--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist'],
+  // --mute-audio: the game's sound is mixed as usual but never played, on a computer others may be using.
+  args: ['--use-angle=metal', '--mute-audio', '--enable-gpu', '--ignore-gpu-blocklist'],
   defaultViewport: { width: 400, height: 300 },
 });
 
