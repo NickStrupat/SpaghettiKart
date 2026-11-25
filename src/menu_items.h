@@ -230,6 +230,11 @@ enum MENU_ITEM_TYPE {
     MENU_ITEM_TYPE_0B2,
     MENU_ITEM_TYPE_0B3,
     MENU_ITEM_TYPE_0B4,
+    // @port The results' portraits of players five to eight, after the original four
+    MENU_ITEM_TYPE_0B5,
+    MENU_ITEM_TYPE_0B6,
+    MENU_ITEM_TYPE_0B7,
+    MENU_ITEM_TYPE_0B8,
     MENU_ITEM_TYPE_0B9 = 0xB9,
     MENU_ITEM_TYPE_0BA,
     MENU_ITEM_TYPE_0BB,
@@ -663,7 +668,9 @@ void rmonPrintf(const char*, ...);
 #define MENU_ITEMS_MAX 0x20
 #define D_8018DEE0_SIZE 0x10
 #define D_8018E060_SIZE 0x10
-#define D_8018E0E8_SIZE 0x05
+// @port A face per results portrait, and the end marker: the original's 5 held four players, and five to eight wrote
+// past it (func_80099E60(), all the portraits' first frames at once)
+#define D_8018E0E8_SIZE (NUM_PLAYERS + 1)
 #define TEXTURE_MAP_MAX 0xC8
 #define D_8018E768_SIZE 0x08
 

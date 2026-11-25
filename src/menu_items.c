@@ -258,6 +258,41 @@ Unk_D_800E70A0 D_800E7300[] = {
     { 0x18, 0x23, 0x00, 0x00 }, { 0x5d, 0x23, 0x00, 0x00 }, { 0xa2, 0x23, 0x00, 0x00 }, { 0xe7, 0x23, 0x00, 0x00 },
 };
 
+/* @port The VS and Battle results of five to eight players: D_800E7300 has rows for two to four. Their portraits are
+   drawn smaller, in two rows of up to four (the top row takes the odd one), each with its tallies to its right. */
+#define RESULTS_SMALL_PORTRAIT_SCALE 0.55f
+#define RESULTS_SMALL_CELL_WIDTH 80                                      // A portrait and its tallies
+#define RESULTS_SMALL_TOP_ROW 0x23                                        // As D_800E7300's
+#define RESULTS_SMALL_ROW_STEP 50                                         // 76 * 0.55 tall, and a gap
+#define RESULTS_SMALL_TALLY_X 37                                          // Past the portrait, 64 * 0.55 wide
+
+static void render_results_small_tallies(void);
+
+/** Whether the results show five to eight players, in the smaller layout. */
+static bool results_use_small_portraits(void) {
+    return gPlayerCount > 4;
+}
+
+/** Where player `player`'s portrait settles on the VS or Battle results (its top left corner, in 320x240). */
+static void results_portrait_position(s32 player, s32* column, s32* row) {
+    s32 count = gPlayerCount;
+
+    if (count <= 4) {
+        *column = D_800E7300[((count - 2) * 4) + player].column;
+        *row = D_800E7300[((count - 2) * 4) + player].row;
+        return;
+    }
+    if (count > NUM_PLAYERS) {
+        count = NUM_PLAYERS;
+    }
+    const s32 topRow = (count + 1) / 2;
+    const s32 inRow = (player < topRow) ? topRow : (count - topRow);
+    const s32 index = (player < topRow) ? player : (player - topRow);
+
+    *column = ((SCREEN_WIDTH - (inRow * RESULTS_SMALL_CELL_WIDTH)) / 2) + (index * RESULTS_SMALL_CELL_WIDTH);
+    *row = RESULTS_SMALL_TOP_ROW + ((player < topRow) ? 0 : RESULTS_SMALL_ROW_STEP);
+}
+
 Unk_D_800E70A0 D_800E7360[] = {
     { 0x61, 0xa7, 0x00, 0x00 },
     { 0x61, 0xb6, 0x00, 0x00 },
@@ -3227,12 +3262,48 @@ Gfx* func_80095BD0_wide_right(Gfx* displayListHead, u8* arg1, f32 arg2, f32 arg3
 }
 
 // Player select menu character border
+NOT_SIM_STATE_BEGIN
+/**
+ * @port The scale the menus' textures are drawn at, around an origin in 320x240: the results' portraits of five to
+ * eight players are drawn smaller (set_menu_texture_scale()). 1 draws them as they are.
+ */
+static f32 sMenuTextureScale = 1.0f;
+static s32 sMenuTextureOriginX = 0;
+static s32 sMenuTextureOriginY = 0;
+NOT_SIM_STATE_END
+
+/** Draws the menus' textures at `scale` around (`originX`, `originY`) until set back to 1. */
+static void set_menu_texture_scale(f32 scale, s32 originX, s32 originY) {
+    sMenuTextureScale = scale;
+    sMenuTextureOriginX = originX;
+    sMenuTextureOriginY = originY;
+}
+
+/** A texture rectangle at sMenuTextureScale: the corners in pixels, moved toward the origin, the steps made longer. */
+static Gfx* scaled_menu_texture_rectangle(Gfx* displayListHead, s32 ulx, s32 uly, s32 lrx, s32 lry, s32 s, s32 t,
+                                          s32 dsdx, s32 dtdy) {
+    const f32 scale = sMenuTextureScale;
+    const s32 originX = sMenuTextureOriginX << 2;
+    const s32 originY = sMenuTextureOriginY << 2;
+
+    gSPWideTextureRectangle(displayListHead++, originX + (s32) (((ulx << 2) - originX) * scale),
+                            originY + (s32) (((uly << 2) - originY) * scale),
+                            originX + (s32) (((lrx << 2) - originX) * scale),
+                            originY + (s32) (((lry << 2) - originY) * scale), G_TX_RENDERTILE, s, t,
+                            (s32) (dsdx / scale), (s32) (dtdy / scale));
+    return displayListHead;
+}
+
 Gfx* func_80095E10(Gfx* displayListHead, s8 textureFormat, s32 texScaleS, s32 texScaleT, s32 srcX, s32 srcY,
                    s32 srcWidth, s32 srcHeight, s32 screenX, s32 screenY, u8* textureData, u32 texWidth,
                    UNUSED u32 texHeight) {
     gDPLoadTextureTile(displayListHead++, textureData, textureFormat, G_IM_SIZ_16b, texWidth, texHeight, srcX, srcY,
                        srcX + srcWidth - 1, srcY + srcHeight - 1, 0, G_TX_NOMIRROR | G_TX_WRAP,
                        G_TX_NOMIRROR | G_TX_WRAP, 0, 0, G_TX_NOLOD, G_TX_NOLOD);
+    if (sMenuTextureScale != 1.0f) {
+        return scaled_menu_texture_rectangle(displayListHead, screenX, screenY, screenX + srcWidth,
+                                             screenY + srcHeight, 0, 0, texScaleS, texScaleT);
+    }
     gSPWideTextureRectangle(displayListHead++, screenX << 2, screenY << 2, (screenX + srcWidth) << 2,
                             (screenY + srcHeight) << 2, G_TX_RENDERTILE, 0, 0, texScaleS, texScaleT);
     return displayListHead;
@@ -3456,6 +3527,11 @@ Gfx* func_80097E58(Gfx* displayListHead, s8 textureFormat, u32 uls, u32 ult, UNU
                        ult, textureWidth - 1, textureHeight - 1, 0, G_TX_NOMIRROR | G_TX_WRAP,
                        G_TX_NOMIRROR | G_TX_WRAP, 5, 5, G_TX_NOLOD, G_TX_NOLOD);
     screenX += (s32) ((f32) (textureWidth / 2) * (1.0f - percent));
+    if (sMenuTextureScale != 1.0f) {
+        return scaled_menu_texture_rectangle(displayListHead, screenX, screenY,
+                                             screenX + (s32) ((f32) textureWidth * percent), screenY + textureHeight, 0,
+                                             (ult << 5) & 0xFFFF, (s32) (1.0f / percent * 1024.0f), 1024);
+    }
     gSPWideTextureRectangle(displayListHead++, (screenX) << 2, screenY << 2,
                             (screenX + (s32) ((f32) textureWidth * percent)) << 2, (screenY + textureHeight) << 2, 0, 0,
                             (ult << 5) & 0xFFFF, (s32) (1.0f / percent * 1024.0f), 1024);
@@ -6377,6 +6453,10 @@ void add_menu_item(s32 type, s32 column, s32 row, s8 priority) {
         case MENU_ITEM_TYPE_0B2:
         case MENU_ITEM_TYPE_0B3:
         case MENU_ITEM_TYPE_0B4:
+        case MENU_ITEM_TYPE_0B5:
+        case MENU_ITEM_TYPE_0B6:
+        case MENU_ITEM_TYPE_0B7:
+        case MENU_ITEM_TYPE_0B8:
             temp_a1 = D_800EFD64[gCharacterSelections[type - MENU_ITEM_TYPE_0B1]];
             var_v1_3 = 0;
             stackPadding0 = type - MENU_ITEM_TYPE_0B1;
@@ -6401,7 +6481,8 @@ void add_menu_item(s32 type, s32 column, s32 row, s8 priority) {
             }
             var_ra->D_8018DEE0_index = func_8009A478(var_a0, stackPadding0);
             load_menu_img_comp_type(D_800E7D54[temp_a1], LOAD_MENU_IMG_TKMK00_ONCE);
-            load_menu_img(gMenuTexturesBorderPlayer[type - MENU_ITEM_TYPE_0B1]);
+            // @port Players five to eight: their borders are the first four's, tinted (render_cursor_player())
+            load_menu_img(gMenuTexturesBorderPlayer[(type - MENU_ITEM_TYPE_0B1) % ARRAY_COUNT(gMenuTexturesBorderPlayer)]);
             break;
         case MENU_ITEM_TYPE_0BB:
             var_ra->param1 = func_800B5020(playerHUD[0].someTimer, gCharacterSelections[0]);
@@ -7002,14 +7083,23 @@ void render_menus(MenuItem* arg0) {
             case MENU_ITEM_TYPE_0B2:
             case MENU_ITEM_TYPE_0B3:
             case MENU_ITEM_TYPE_0B4:
+            case MENU_ITEM_TYPE_0B5:
+            case MENU_ITEM_TYPE_0B6:
+            case MENU_ITEM_TYPE_0B7:
+            case MENU_ITEM_TYPE_0B8:
                 if (arg0->state != 0) {
                     var_v1 = arg0->type - MENU_ITEM_TYPE_0B1;
+                    // @port Five to eight players' portraits are drawn smaller, to fit (results_portrait_position())
+                    if (results_use_small_portraits()) {
+                        set_menu_texture_scale(RESULTS_SMALL_PORTRAIT_SCALE, arg0->column, arg0->row);
+                    }
                     gDisplayListHead = render_menu_textures(
                         gDisplayListHead,
                          D_800E7D54[D_800EFD64[gCharacterSelections[var_v1]]], arg0->column,
                         arg0->row);
                     func_8009A7EC(arg0->D_8018DEE0_index, arg0->column, arg0->row, var_v1, arg0->param1);
                     render_cursor_player(arg0, var_v1, 0x000000FF);
+                    set_menu_texture_scale(1.0f, 0, 0);
                 }
                 break;
             case MENU_ITEM_TYPE_0B9:
@@ -9311,6 +9401,10 @@ void func_800A638C(MenuItem* arg0) {
             func_800A6CC0(arg0);
             break;
         default:
+            // @port Five to eight players
+            if (results_use_small_portraits()) {
+                render_results_small_tallies();
+            }
             break;
     }
     if (arg0->state >= 10) {
@@ -9362,6 +9456,43 @@ void pause_menu_item_box_cursor(MenuItem* arg0, Unk_D_800E70A0* arg1) {
     gDPSetRenderMode(gDisplayListHead++, G_RM_CLD_SURF, G_RM_CLD_SURF2);
     gSPDisplayList(gDisplayListHead++, D_0D003090);
     FrameInterpolation_RecordCloseChild();
+}
+
+/**
+ * @port The VS and Battle tallies of five to eight players, to the right of each smaller portrait: as func_800A6E94()
+ * and func_800A6D94() draw them for three and four, the 1st, 2nd and 3rd places in VS, the wins in Battle, the place
+ * or win just made flashing.
+ */
+static void render_results_small_tallies(void) {
+    static const s32 sPlaceColors[3] = { TEXT_YELLOW, TEXT_BLUE, TEXT_RED };
+    //                                        EUC-JP: 1 st -, 2 nd -, 3 rd -
+    static const char* sPlaceLabels[3] = { "1 \xA3\xF3 \xA1\xBC", "2 \xA3\xEE \xA1\xBC", "3 \xA3\xF2 \xA1\xBC" };
+    const f32 scale = RESULTS_SMALL_PORTRAIT_SCALE;
+    char text[5];
+    s32 column;
+    s32 row;
+
+    for (s32 player = 0; (player < gPlayerCount) && (player < NUM_PLAYERS); player++) {
+        results_portrait_position(player, &column, &row);
+        column += RESULTS_SMALL_TALLY_X;
+        if (gModeSelection == VERSUS) {
+            for (s32 place = 0; place < 3; place++) {
+                const s32 y = row + 10 + (place * 11);
+
+                set_text_color((gGPCurrentRaceRankByPlayerId[player] == place) ? (gGlobalTimer % 3)
+                                                                                  : sPlaceColors[place]);
+                text_draw(column, y, (char*) sPlaceLabels[place], 0, scale, scale);
+                convert_number_to_ascii(gNmiVersusPlacesFiveToEight[(player * 3) + place], text);
+                text_draw(column + 31, y, text, 0, scale, scale);
+            }
+        } else if (gModeSelection == BATTLE) {
+            set_text_color((player == gPlayerWinningIndex) ? (gGlobalTimer % 3) : TEXT_BLUE);
+            func_800A79F4(gNmiBattleWinsFiveToEight[player], text);
+            // Centred on the space right of the portrait: text_draw() centres the wide digits on its column
+            text_draw(column + ((RESULTS_SMALL_CELL_WIDTH - RESULTS_SMALL_TALLY_X) / 2) - 2, row + 22, text, 0, 0.45f,
+                      0.45f);
+        }
+    }
 }
 
 void func_800A69C8(UNUSED MenuItem* arg0) {
@@ -9969,6 +10100,10 @@ void handle_menus_with_pri_arg(s32 priSpecial) {
             case MENU_ITEM_TYPE_0B2:
             case MENU_ITEM_TYPE_0B3:
             case MENU_ITEM_TYPE_0B4:
+            case MENU_ITEM_TYPE_0B5:
+            case MENU_ITEM_TYPE_0B6:
+            case MENU_ITEM_TYPE_0B7:
+            case MENU_ITEM_TYPE_0B8:
                 func_800ACF40(menuItem);
                 break;
             case MENU_ITEM_TYPE_0B9:
@@ -12234,7 +12369,9 @@ void func_800ACC50(MenuItem* arg0) {
                 arg0->state = 1;
                 arg0->param1 = 0;
                 for (i = 0; i < gPlayerCount; i++) {
-                    add_menu_item(i + MENU_ITEM_TYPE_0B1, 0, 0, (s8) (MENU_ITEM_PRIORITY_5 - i));
+                    // @port Players seven and eight came out at a priority below 0, which is never drawn
+                    add_menu_item(i + MENU_ITEM_TYPE_0B1, 0, 0,
+                                  (s8) MAX(MENU_ITEM_PRIORITY_5 - i, MENU_ITEM_PRIORITY_0));
                 }
             }
             break;
@@ -12299,7 +12436,6 @@ void func_800ACC50(MenuItem* arg0) {
 }
 
 void func_800ACF40(MenuItem* arg0) {
-    Unk_D_800E70A0* temp_v0_2;
     s32 temp_a2;
     s32 temp_a1;
     s32 var_v1;
@@ -12313,15 +12449,20 @@ void func_800ACF40(MenuItem* arg0) {
             arg0->row = D_800E72F8.row;
             arg0->state = 1;
             break;
-        case 1:
-            temp_v0_2 = &D_800E7300[((gPlayerCount - 2) * 4) + temp_a2];
-            func_800A9208(arg0, temp_v0_2->column);
-            func_800A9278(arg0, temp_v0_2->row);
-            if (arg0->column == temp_v0_2->column) {
+        case 1: {
+            // @port From results_portrait_position(): D_800E7300 has no rows for five to eight players
+            s32 column;
+            s32 row;
+
+            results_portrait_position(temp_a2, &column, &row);
+            func_800A9208(arg0, column);
+            func_800A9278(arg0, row);
+            if (arg0->column == column) {
                 arg0->state = 2;
                 arg0->param2 = 0;
             }
             break;
+        }
         case 2:
             var_v1 = 0;
             switch (gModeSelection) {

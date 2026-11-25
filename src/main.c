@@ -1384,6 +1384,9 @@ void thread5_game_loop(void) {
     gNmiUnknown4 = &pAppNmiBuffer[23]; // 2  u8's, tracking number of Battle mode wins by player 1/2
     gNmiUnknown5 = &pAppNmiBuffer[25]; // 3  u8's, tracking number of Battle mode wins by player 1/2/3
     gNmiUnknown6 = &pAppNmiBuffer[28]; // 4  u8's, tracking number of Battle mode wins by player 1/2/3/4
+    // @port Five to eight players, one table for all four counts
+    gNmiVersusPlacesFiveToEight = &pAppNmiBuffer[32]; // 24 u8's, 8x3, 1st/2nd/3rd places in a VS race
+    gNmiBattleWinsFiveToEight = &pAppNmiBuffer[56];   // 8  u8's, Battle mode wins
     rendering_init();
     read_controllers();
     func_800C5CB8();

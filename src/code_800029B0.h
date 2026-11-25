@@ -149,6 +149,9 @@ extern u8* gNmiUnknown3;
 extern u8* gNmiUnknown4;
 extern u8* gNmiUnknown5;
 extern u8* gNmiUnknown6;
+// @port Five to eight players' tallies, in the NMI buffer's last 32 bytes: one table for all four counts
+extern u8* gNmiVersusPlacesFiveToEight; // 24 u8's, 8x3: how often each player placed 1st/2nd/3rd in a VS race
+extern u8* gNmiBattleWinsFiveToEight;   // 8 u8's: each player's Battle wins
 
 extern Vec3f D_8015F8D0;
 extern s32 D_8015F8DC;

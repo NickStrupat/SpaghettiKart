@@ -85,6 +85,12 @@ void func_8028E028(void) {
         case 4:
             *(gNmiUnknown6 + gPlayerWinningIndex) += 1;
             break;
+        default:
+            // @port Five to eight players
+            if ((gPlayerCountSelection1 > 4) && (gPlayerWinningIndex >= 0) && (gPlayerWinningIndex < NUM_PLAYERS)) {
+                *(gNmiBattleWinsFiveToEight + gPlayerWinningIndex) += 1;
+            }
+            break;
     }
     func_800CA118((u8) gPlayerWinningIndex);
     gRaceState = RACE_FINISHED;
@@ -622,7 +628,13 @@ void func_8028EF28(void) {
                                 break;
                             default:
                                 // @port 5 to 8 players: as with 3 and 4, the race is over once all but the last have
-                                // finished. The win tallies (gNmiUnknown2/3) only have tables for 3 and 4 players.
+                                // finished, and each player's 1st, 2nd and 3rd places are counted.
+                                if (currentPosition < 3) {
+                                    *(gNmiVersusPlacesFiveToEight + i * 3 + currentPosition) += 1;
+                                    if (*(gNmiVersusPlacesFiveToEight + i * 3 + currentPosition) > 99) {
+                                        *(gNmiVersusPlacesFiveToEight + i * 3 + currentPosition) = 99;
+                                    }
+                                }
                                 if (currentPosition == gPlayerCountSelection1 - 2) {
                                     gRaceState = RACE_FINISHED;
                                     i = gPlayerPositionLUT[gPlayerCountSelection1 - 1];

@@ -1839,7 +1839,9 @@ void func_80090970(Player* player, s8 playerId, s8 arg2) {
                 player->pos[2] = player->pos[2] + coss(-player->rotation[1]) * -10.0f;
                 player->pos[0] = player->pos[0] + sins(-player->rotation[1]) * -10.0f;
             }
-            if (player->unk_0C8 == 0x00FC) {
+            // @port A battle arena has no path (null here): a kart held in Big Donut's lava this long crashed every
+            // game. It stays where Lakitu holds it.
+            if ((player->unk_0C8 == 0x00FC) && (gTrackPaths[0] != NULL)) {
                 waypoint = gTrackPaths[0];
                 player->pos[0] = waypoint->x;
                 player->pos[1] = waypoint->y;

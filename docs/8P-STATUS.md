@@ -45,6 +45,12 @@ Confirmed working this session:
   before, every item box gave nothing. A Grand Prix's CPU karts get their tyre
   spin, colour effects, hit spins, hops, smoke and sparks on the eight-screen
   split, and the split fades in and out. (2026-11-24)
+- **The VS and Battle results show five to eight players**: smaller portraits
+  in two rows of up to four, each with its tallies to the right (1st, 2nd and
+  3rd places in VS, wins in Battle), kept through a soft reset in the NMI
+  buffer's last 32 bytes. Before, one portrait showed in a corner. Checked with
+  pictures of 5 to 8 player races (2026-11-24); see `results_portrait_position()`
+  in `menu_items.c`.
 - **A stock 2P 150cc Grand Prix no longer crashes under ASan** — a pre-existing
   texture over-read, fixed engine-side (see libultraship notes).
 
@@ -132,6 +138,13 @@ by a value that now reaches eight.** Check this list before theorising:
     took Lakitu textures for all eight racers. The AddressSanitizer build has
     global redzones off (`-asan-globals=0`, snapshots copy whole sections), so it
     never reports this kind: only reading the sizes finds it.
+19. **Values made from the player index that leave their range past four.** The
+    results' portraits were menu items of type `0xB1 + player` (only four such
+    types existed) drawn at priority `MENU_ITEM_PRIORITY_5 - player` (below 0
+    for players seven and eight, never drawn), and the face queue
+    `D_8018E0E8` held four entries and an end marker: five to eight portraits
+    wrote past it into `sMenuTextureListIndex`, and with seven or eight no face
+    showed.
 
 Two engine-level over-reads this session were **not** player-count bugs but the
 same "descriptor claims more than the buffer holds" family: a display list can
@@ -175,14 +188,9 @@ fetch them — they would be lost. All are worth sending to Kenix3/libultraship.
 
 ## Known-outstanding
 
-- **Viewport reflow (in progress).** 5–8 players all render the fixed 4×2 grid
-  of eight cells, so a five-player race shows three CPU spectator cells. The next
-  change makes the grid track the human count — 5–6 → 3×2, 7–8 → 4×2 — and fills
-  the odd-count spare cell with a dedicated minimap. This touches the split-
-  screen core: `screen_grid.h` dimensions, `set_screen` cell centres, the
-  viewport-size state machine in `race_logic.c`, `spawn_multiplayer_cameras`, the
-  dividers in `func_802A4300`, the render loop in `main.c`, and a new minimap-in-
-  cell render path.
+- With six or eight players no cell is free, so the split has no minimap (with
+  five or seven it fills the spare cell; the grid is 3×2 for five and six, 4×2
+  for seven and eight, `screen_grid.h`).
 - `func_802A7728` / `func_802A7940` grab a 128-wide framebuffer region into a
   narrower cell.
 - Two item-centring sites in `render_objects.c` still need a screen id plumbed
@@ -191,8 +199,7 @@ fetch them — they would be lost. All are worth sending to Kenix3/libultraship.
   watch for it.
 - Left as they are, unless the owner asks: Moo Moo Farm spawns its trees with
   five to eight players, though the original drops them with four
-  (`MooMooFarm::BeginPlay()`, `gPlayerCountSelection1 != 4`); the win tallies in
-  `func_8028E028()` count two to four player games only.
+  (`MooMooFarm::BeginPlay()`, `gPlayerCountSelection1 != 4`).
 
 ## Things that are settled, so do not re-derive them
 

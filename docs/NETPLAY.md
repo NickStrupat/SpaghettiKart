@@ -506,7 +506,10 @@ Each of these cost a debugging round.
   smoke and sparks) looped over the human players only, leaving a Grand Prix's CPU karts out, and with 3 or 4 players
   no kart got smoke or sparks in Grand Prix; a `switch` on the player count stopped at 4 and left the race-start
   Lakitu's timing from the last race; the fades had no eight-screen arm, so leaving the results cut to black. The
-  AddressSanitizer build cannot see the Lakitu kind of overflow: its global redzones are off (below).
+  AddressSanitizer build cannot see the Lakitu kind of overflow: its global redzones are off (below). The VS and
+  Battle results showed one portrait for 5 to 8 players: their positions read past a table with rows for 2 to 4, the
+  portraits of players 5 to 8 were item types that did not exist, and their faces overflowed a 4-entry queue; they
+  now get a smaller layout of their own, with tallies (`results_portrait_position()` in `menu_items.c`).
   The audio tables in `audio/external.c` look 4 long (`f32 D_800E9DD4[] = { 0.0f, 0.0f, 0.0f, 0.0f }`) but are 8:
   `audio/external.h` declares them with `NUM_PLAYERS` entries before the definitions, which makes the definitions
   that size.
@@ -531,6 +534,9 @@ Each of these cost a debugging round.
   `gPlayerCount` for 5 to 8 players left the karts ranked below it off the minimap, humans among them, and let CPUs
   past it drive through the course's hazards (`D_8018D158`, 2026-11-21). With 3 and 4 players it was already 8.
 
+- **A battle arena has no track path**: `gTrackPaths[0]` is null there. Lakitu moved a kart held in Big Donut's lava
+  for about 250 frames to the path's first point, and every game crashed on the same frame (2026-11-24, found with
+  an idle player in a test); it now leaves the kart where it is. Race code that reads the path must check it first.
 - **Draw code changes simulation state** (`init_render_player()`, results-screen menu items, the GP points count,
   which cameras drew an actor: `actor_rendered()`, read by triple green shells and the hit voice lines).
   Never skip drawing a simulated frame. Settings that change drawing change that state too: `gNoCulling` and
@@ -713,3 +719,4 @@ Each of these cost a debugging round.
 | `6b63810f` | Character select cursors pass each other above 4 players |
 | `b2e3c4f2` | Red shells, palm trees, fruit and pausing for players 5 to 8; the pause menu over the whole window where its tables have no row |
 | `30ece859` | Lightning, look-behind camera, camera effects, seen actors and the HUD toggle for players 5 to 8; silent tests |
+| `af4e1673` | Versus items, Lakitu textures, CPU karts and fades for 5 to 8 players |

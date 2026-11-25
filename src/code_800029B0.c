@@ -156,6 +156,8 @@ u8* gNmiUnknown3;
 u8* gNmiUnknown4;
 u8* gNmiUnknown5;
 u8* gNmiUnknown6;
+u8* gNmiVersusPlacesFiveToEight;
+u8* gNmiBattleWinsFiveToEight;
 
 Vec3f D_8015F8D0;
 s32 D_8015F8DC;
@@ -345,7 +347,8 @@ void func_80002DAC(void) {
  */
 void clear_nmi_buffer(void) {
     s32 i;
-    for (i = 0; i < 16; i++) {
+    // @port All 64 bytes: the original cleared 16 words, this buffer is bytes (five to eight players use the last 32)
+    for (i = 0; i < (s32) ARRAY_COUNT(osAppNmiBuffer); i++) {
         osAppNmiBuffer[i] = 0;
     }
 }
