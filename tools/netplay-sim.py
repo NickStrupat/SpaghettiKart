@@ -254,6 +254,13 @@ SCENARIOS = [
              peer_env={-1: {"SK_NETPLAY_CONSOLE": "1"}, 0: {"SK_TEST_CONSOLE_INPUT": CONSOLE_2P_GP},
                        1: {"SK_TEST_CONSOLE_INPUT": "R_JPAD@260,A@280"}},
              expect={"consoles": 1, "cups": 1, "podiums": 1, "menus_in_sync": 1}, timeout=600),
+    # Unique characters off (the host's rules apply): both drive Mario, and each keeps points of their own.
+    Scenario("console-gp-same", "2 players on a shared console, both Mario, as the host turned unique characters off: "
+             "a whole Grand Prix, where each keeps points of their own, and the podium", 2, "gp",
+             peer_cvars={0: {"gUniqueCharacterSelections": 0}},
+             peer_env={-1: {"SK_NETPLAY_CONSOLE": "1"}, 0: {"SK_TEST_CONSOLE_INPUT": CONSOLE_2P_GP},
+                       1: {"SK_TEST_CONSOLE_INPUT": "L_JPAD@260,A@280"}},
+             expect={"consoles": 1, "cups": 1, "podiums": 1, "menus_in_sync": 1}, timeout=600),
     Scenario("console-gp-3p", "3 players on a shared console: Grand Prix chosen on Game Select, the whole cup and "
              "the podium", 3, "gp",
              peer_env={-1: {"SK_NETPLAY_CONSOLE": "1"}, 0: {"SK_TEST_CONSOLE_INPUT": CONSOLE_3P_GP},

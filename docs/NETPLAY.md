@@ -96,7 +96,7 @@ has a box to mute them; a corner of the screen names who is talking.
 The host's gameplay settings (enhancements, rules, vehicle counts, unique characters) and whether the host unlocked
 Extra mode apply to everyone in the room. Unique characters is on unless the host turned it off: with up to 4 players
 a character cursor cannot move onto another; with more, cursors pass each other and A on a character another player
-has picked is refused (`character_taken` in `src/menus.c`), as 6 cursors on 8 characters left most moves blocked. A cursor plays its move sound only when it moves: the original relied on its own spot never being free, which stopped holding once spots could be shared (above 4 players, or unique characters off), and the sound replayed every frame. During a race, the netplay window can leave it, which takes everyone back to
+has picked is refused (`character_taken` in `src/menus.c`), as 6 cursors on 8 characters left most moves blocked. A cursor plays its move sound only when it moves: the original relied on its own spot never being free, which stopped holding once spots could be shared (above 4 players, or unique characters off), and the sound replayed every frame. With unique characters off, two players can drive one character, so Grand Prix points and the overall ranking are kept by kart (`gGPPointsByPlayerId`, `gPlayerIdByGPOverallRank` in `src/menu_items.c`), where the original kept them by character: two Marios shared one total, and the standings listed a character nobody drove (`console-gp-same`). During a race, the netplay window can leave it, which takes everyone back to
 the menus.
 
 ## Decisions
@@ -375,7 +375,7 @@ keep them on the relay do not hear each other, and the netplay window says so. A
 
 | Tool | What it does |
 |---|---|
-| `tools/netplay-sim.py` | Plays whole races, cups and battles between bot-driven copies of the game through a relay, fast-forwarded (about 70× real time), and checks that every peer stayed in sync and the races ended as expected. Shared-console scenarios drive the menus with scripted buttons and compare every menu frame. 38 scenarios, run side by side: about 10 minutes on a 10-core Mac (see "Keeping the simulator fast"). **Run it after any change to netplay, menu or simulation code.** |
+| `tools/netplay-sim.py` | Plays whole races, cups and battles between bot-driven copies of the game through a relay, fast-forwarded (about 70× real time), and checks that every peer stayed in sync and the races ended as expected. Shared-console scenarios drive the menus with scripted buttons and compare every menu frame. 39 scenarios, run side by side: about 10 minutes on a 10-core Mac (see "Keeping the simulator fast"). **Run it after any change to netplay, menu or simulation code.** |
 | Determinism harness | `SK_DETERMINISM_RECORD` / `_VERIFY` / `_ROLLBACK=8`: records a race's inputs and per-frame checksums, replays them, or rolls back 8 frames after every frame. See `DeterminismHarness.h`. |
 | `tools/netplay-stress.sh` | The rollback stress run on every track and arena, 4 at a time: 16 versus tracks, 4 battle arenas, 4 Grand Prix courses with 2 players and 2 with 4, and 4 races with 5 to 8 players. Give it an AddressSanitizer build (below) to look for memory errors too. |
 | `tools/netplay-relay/test_relay.py` | Protocol tests for the relay. |
@@ -721,3 +721,4 @@ Each of these cost a debugging round.
 | `30ece859` | Lightning, look-behind camera, camera effects, seen actors and the HUD toggle for players 5 to 8; silent tests |
 | `af4e1673` | Versus items, Lakitu textures, CPU karts and fades for 5 to 8 players |
 | `b044e480` | VS and Battle results screens for 5 to 8 players, with tallies; Big Donut lava rescue without a track path |
+| `8d777c35` | Character select cursors sound only when they move |

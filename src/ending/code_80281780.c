@@ -62,8 +62,18 @@ void debug_switch_character_ceremony_cutscene(void) {
     }
 }
 
+/**
+ * The overall Grand Prix rank of human player arg0.
+ * @port Found by player id, as two players can drive one character. The search by character stays as a fallback for
+ * debug_switch_character_ceremony_cutscene(), which changes player 1's character and resets the ranking.
+ */
 s32 func_80281880(s32 arg0) {
     s32 i;
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        if ((gPlayerIdByGPOverallRank[i] == arg0) && (gCharacterIdByGPOverallRank[i] == gCharacterSelections[arg0])) {
+            return i;
+        }
+    }
     for (i = 0; i < NUM_PLAYERS; i++) {
         if (gCharacterIdByGPOverallRank[i] == gCharacterSelections[arg0]) {
             break;

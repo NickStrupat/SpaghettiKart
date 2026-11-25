@@ -25,7 +25,9 @@ Confirmed working this session:
   climbing to 8, drawn as the 4P icon plus a "N PLAYERS" label.
 - **Duplicate characters are allowed.** Two players can pick the same character;
   their karts are told apart by a per-player hue shift on the saturated palette
-  entries (`tint_duplicate_kart_palette` in `kart_dma.c`).
+  entries (`tint_duplicate_kart_palette` in `kart_dma.c`). A Grand Prix keeps
+  points and the overall ranking per kart, not per character, so two Marios
+  each have a total of their own (`gGPPointsByPlayerId` in `menu_items.c`).
 - **Character select works for all eight players** — each acts on its own
   controller, with its own tinted, numbered cursor. A cursor sounds only when it
   moves (with spots shared, the original replayed the move sound every frame).
@@ -146,6 +148,11 @@ by a value that now reaches eight.** Check this list before theorising:
     `D_8018E0E8` held four entries and an end marker: five to eight portraits
     wrote past it into `sMenuTextureListIndex`, and with seven or eight no face
     showed.
+20. **Kept by character where the kart is meant.** Duplicate characters break
+    anything that maps a character back to one kart: Grand Prix points were
+    kept per character (two Marios shared a total, and a character nobody
+    drove was listed), and `gGetPlayerByCharacterId` keeps only the last kart
+    with each character. Key such state by player id.
 
 Two engine-level over-reads this session were **not** player-count bugs but the
 same "descriptor claims more than the buffer holds" family: a display list can

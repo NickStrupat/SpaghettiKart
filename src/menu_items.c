@@ -69,12 +69,13 @@ u8 sGPPointsCopy[4];
 void* gSomeDLBuffer;
 
 /**
- * List of bytes indexed by character ID
- * Indicates number of Grand Prix points that character
- * has scored
+ * @port Grand Prix points by kart (player id), not by character as in the original: with duplicate characters, two
+ * karts with one character shared one total. A kart keeps its character for the whole cup (spawn_players.c).
  */
-s8 gGPPointsByCharacterId[8];
+s8 gGPPointsByPlayerId[8];
 s8 gCharacterIdByGPOverallRank[8];
+/** @port The karts by overall Grand Prix rank, as player ids; gCharacterIdByGPOverallRank holds their characters. */
+s8 gPlayerIdByGPOverallRank[8];
 s8 D_8018D9D8;
 s8 D_8018D9D9;
 MenuItem gMenuItems[MENU_ITEMS_MAX];
@@ -8375,11 +8376,14 @@ void func_800A34A8(MenuItem* arg0) {
     if (arg0->state != 0) {
         if (arg0->state < 9) {
             for (rank = 0; rank < NUM_PLAYERS; rank++) {
-                sp80[rank] = gPlayers[gGPCurrentRacePlayerIdByRank[rank]].characterId;
+                sp80[rank] = gGPCurrentRacePlayerIdByRank[rank];
             }
         } else {
             func_800A3A10(sp80);
-            func_800A3A10(gCharacterIdByGPOverallRank);
+            for (rank = 0; rank < NUM_PLAYERS; rank++) {
+                gPlayerIdByGPOverallRank[rank] = sp80[rank];
+                gCharacterIdByGPOverallRank[rank] = gPlayers[sp80[rank]].characterId;
+            }
         }
         set_text_color(TEXT_BLUE_GREEN_RED_CYCLE_1);
         print_text_mode_1(arg0->column + 0x19, 0x19 - arg0->row, "driver's points", 0, 0.8f, 0.8f);
@@ -8404,7 +8408,7 @@ void func_800A34A8(MenuItem* arg0) {
                     var_v1 = 0;
                 } else {
                     var_v1 = 0x0000000D;
-                    var_v0 = gGetPlayerByCharacterId[sp80[rank]];
+                    var_v0 = sp80[rank];
                 }
                 if (var_v0 < gPlayerCount) {
                     var_a0 = (s32) gGlobalTimer % 3;
@@ -8428,11 +8432,7 @@ void func_800A34A8(MenuItem* arg0) {
                 }
             }
             if (var_v0 == 0) {
-                if (arg0->state < 9) {
-                    var_v0 = gGPCurrentRacePlayerIdByRank[rank];
-                } else {
-                    var_v0 = gGetPlayerByCharacterId[sp80[rank]];
-                }
+                var_v0 = sp80[rank];
                 if (var_v0 < gPlayerCount) {
                     var_a0 = (s32) gGlobalTimer % 3;
                 } else {
@@ -8453,32 +8453,42 @@ void func_800A34A8(MenuItem* arg0) {
     }
 }
 
+/**
+ * @port Sorts the karts by Grand Prix points into arg0, as player ids, where the original sorted character ids. Karts
+ * start in character order, as the original's character ids did, and a tie keeps that order unless the later kart is
+ * a human with a lower player id, so with unique characters the order is the original's.
+ */
 void func_800A3A10(s8* arg0) {
-    s32 temp_a3;
-    s32 temp_t1;
+    s32 count = 0;
+    s32 earlier;
+    s32 later;
     s32 var_a1;
     s32 var_v0;
-    UNUSED s32 thing1;
-    UNUSED s8* new_var;
 
-    for (var_v0 = 0; var_v0 < 8; var_v0++) {
-        arg0[var_v0] = var_v0;
+    for (s32 character = 0; character < NUM_PLAYERS; character++) {
+        for (s32 player = 0; player < NUM_PLAYERS; player++) {
+            if (gPlayers[player].characterId == character) {
+                arg0[count++] = player;
+            }
+        }
+    }
+    // Karts with a character out of range, which there should be none of, go last.
+    for (s32 player = 0; player < NUM_PLAYERS; player++) {
+        if ((gPlayers[player].characterId < 0) || (gPlayers[player].characterId >= NUM_PLAYERS)) {
+            arg0[count++] = player;
+        }
+    }
+    for (var_v0 = 1; var_v0 < NUM_PLAYERS; var_v0++) {
         for (var_a1 = var_v0; var_a1 > 0; var_a1--) {
-            new_var = &arg0[var_a1];
-            temp_a3 = arg0[var_a1 - 1];
-            thing1 = gGPPointsByCharacterId[temp_a3];
-            temp_t1 = arg0[var_a1];
-            if (gGPPointsByCharacterId[temp_a3] < gGPPointsByCharacterId[temp_t1]) {
-                arg0[var_a1] = temp_a3;
-                arg0[var_a1 - 1] = temp_t1;
-            } else if (gGPPointsByCharacterId[temp_t1] == gGPPointsByCharacterId[temp_a3]) {
-                if ((gGetPlayerByCharacterId[temp_t1] < gPlayerCount) &&
-                    (gGetPlayerByCharacterId[temp_t1] < gGetPlayerByCharacterId[temp_a3])) {
-                    arg0[var_a1] = temp_a3;
-                    arg0[var_a1 - 1] = temp_t1;
-                } else {
-                    break;
-                }
+            earlier = arg0[var_a1 - 1];
+            later = arg0[var_a1];
+            if (gGPPointsByPlayerId[earlier] < gGPPointsByPlayerId[later]) {
+                arg0[var_a1] = earlier;
+                arg0[var_a1 - 1] = later;
+            } else if ((gGPPointsByPlayerId[later] == gGPPointsByPlayerId[earlier]) && (later < gPlayerCount) &&
+                       (later < earlier)) {
+                arg0[var_a1] = earlier;
+                arg0[var_a1 - 1] = later;
             } else {
                 break;
             }
@@ -8486,8 +8496,9 @@ void func_800A3A10(s8* arg0) {
     }
 }
 
-void func_800A3ADC(MenuItem* arg0, s32 arg1, s32 arg2, s32 characterId, s32 arg4, s8* arg5) {
-    UNUSED s32 stackPadding0;
+/** @port playerId and arg5 are player ids (func_800A3A10()), where the original took character ids. */
+void func_800A3ADC(MenuItem* arg0, s32 arg1, s32 arg2, s32 playerId, s32 arg4, s8* arg5) {
+    s32 characterId = gPlayers[playerId].characterId;
     s32 wut;
     char sp34[4];
     s32 phi_v1;
@@ -8497,7 +8508,7 @@ void func_800A3ADC(MenuItem* arg0, s32 arg1, s32 arg2, s32 characterId, s32 arg4
     } else {
         for (phi_v1 = arg4; phi_v1 > 0; phi_v1--) {
             wut = phi_v1 - 1;
-            if (gGPPointsByCharacterId[arg5[phi_v1]] != gGPPointsByCharacterId[arg5[wut]]) {
+            if (gGPPointsByPlayerId[arg5[phi_v1]] != gGPPointsByPlayerId[arg5[wut]]) {
                 break;
             }
         }
@@ -8507,7 +8518,7 @@ void func_800A3ADC(MenuItem* arg0, s32 arg1, s32 arg2, s32 characterId, s32 arg4
     sp34[3] = '\0';
     func_800939C8(arg1, arg2, &sp34[1], -4, 0.7f, 0.7f);
     print_text_mode_1(arg1 + 0xA, arg2, D_800E76A8[characterId], 0, 0.7f, 0.7f);
-    convert_number_to_ascii(gGPPointsByCharacterId[characterId], sp34);
+    convert_number_to_ascii(gGPPointsByPlayerId[playerId], sp34);
     func_800939C8(arg1 + 0x47, arg2, sp34, 0, 0.7f, 0.7f);
     if ((arg4 < ARRAY_COUNT(gGPPointRewards)) && (arg0->state < 9)) {
         convert_number_to_ascii(sGPPointsCopy[arg4], sp34);
@@ -12189,7 +12200,7 @@ void func_800AC458(MenuItem* arg0) {
             if (((arg0->param1 % 3) == 0) || (D_8018D9D8 != 0)) {
                 if (sGPPointsCopy[var_a1] > 0) {
                     sGPPointsCopy[var_a1]--;
-                    gGPPointsByCharacterId[gPlayers[gGPCurrentRacePlayerIdByRank[var_a1]].characterId] += 1;
+                    gGPPointsByPlayerId[gGPCurrentRacePlayerIdByRank[var_a1]] += 1;
                     play_sound2(SOUND_ACTION_COUNT_SCORE);
                     var_t1 = 0;
                     if ((sGPPointsCopy[var_a1] == 0) && (arg0->param2 == 0)) {
@@ -12237,7 +12248,7 @@ void func_800AC458(MenuItem* arg0) {
                 arg0->param1 = 0;
                 if (gCourseIndexInCup == 3) {
                     for (var_a1 = 0; var_a1 < 8; var_a1++) {
-                        if (gGetPlayerByCharacterId[gCharacterIdByGPOverallRank[var_a1]] < gPlayerCount) {
+                        if (gPlayerIdByGPOverallRank[var_a1] < gPlayerCount) {
                             func_800B536C(var_a1);
                             break;
                         }

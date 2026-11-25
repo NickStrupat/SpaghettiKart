@@ -2198,8 +2198,8 @@ void load_menu_states(s32 menuSelection) {
                 gCourseIndexInCup = 0;
             }
 
-            for (i = 0; i < ARRAY_COUNT(gGPPointsByCharacterId); i++) {
-                gGPPointsByCharacterId[i] = 0;
+            for (i = 0; i < ARRAY_COUNT(gGPPointsByPlayerId); i++) {
+                gGPPointsByPlayerId[i] = 0;
             }
             break;
         }
