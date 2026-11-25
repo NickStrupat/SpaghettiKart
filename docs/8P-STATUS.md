@@ -27,7 +27,8 @@ Confirmed working this session:
   their karts are told apart by a per-player hue shift on the saturated palette
   entries (`tint_duplicate_kart_palette` in `kart_dma.c`).
 - **Character select works for all eight players** — each acts on its own
-  controller, with its own tinted, numbered cursor.
+  controller, with its own tinted, numbered cursor. A cursor sounds only when it
+  moves (with spots shared, the original replayed the move sound every frame).
 - **Grand Prix fills the empty karts with CPUs.** A five-player GP races five
   humans against three CPU opponents on the unused characters.
 - **The per-player HUD draws on all eight screens**, positioned from each cell's

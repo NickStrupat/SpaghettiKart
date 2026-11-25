@@ -96,7 +96,7 @@ has a box to mute them; a corner of the screen names who is talking.
 The host's gameplay settings (enhancements, rules, vehicle counts, unique characters) and whether the host unlocked
 Extra mode apply to everyone in the room. Unique characters is on unless the host turned it off: with up to 4 players
 a character cursor cannot move onto another; with more, cursors pass each other and A on a character another player
-has picked is refused (`character_taken` in `src/menus.c`), as 6 cursors on 8 characters left most moves blocked. During a race, the netplay window can leave it, which takes everyone back to
+has picked is refused (`character_taken` in `src/menus.c`), as 6 cursors on 8 characters left most moves blocked. A cursor plays its move sound only when it moves: the original relied on its own spot never being free, which stopped holding once spots could be shared (above 4 players, or unique characters off), and the sound replayed every frame. During a race, the netplay window can leave it, which takes everyone back to
 the menus.
 
 ## Decisions
@@ -720,3 +720,4 @@ Each of these cost a debugging round.
 | `b2e3c4f2` | Red shells, palm trees, fruit and pausing for players 5 to 8; the pause menu over the whole window where its tables have no row |
 | `30ece859` | Lightning, look-behind camera, camera effects, seen actors and the HUD toggle for players 5 to 8; silent tests |
 | `af4e1673` | Versus items, Lakitu textures, CPU karts and fades for 5 to 8 players |
+| `b044e480` | VS and Battle results screens for 5 to 8 players, with tallies; Big Donut lava rescue without a track path |

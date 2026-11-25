@@ -1839,7 +1839,11 @@ void player_select_menu_act(struct Controller* controller, u16 controllerIdx) {
                         savedSelection = savedSelection + 4;
                     }
                     // L800B3A30
-                    if (is_character_spot_free(savedSelection)) {
+                    /* @port Only when the cursor moved: the original reached here every frame with no direction held,
+                       and relied on the cursor's own spot never being free to stay quiet. Above four players, or with
+                       unique characters off, every spot is free, which replayed the move sound every frame. */
+                    if ((savedSelection != gCharacterGridSelections[controllerIdx]) &&
+                        is_character_spot_free(savedSelection)) {
                         gCharacterGridSelections[controllerIdx] = savedSelection;
                         play_sound2(0x49008000);
                     }
