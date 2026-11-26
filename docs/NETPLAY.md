@@ -386,7 +386,19 @@ drivers, scripted buttons) are listed in `src/port/netplay/Netplay.h`. `SK_FAST=
 pacing or sound output, drawing one frame in n. `SK_TEST_SCREENSHOTS=name@frame,...` saves what the game draws as
 PNG files (`TestScreenshots.h`): it reads the game's own framebuffer, so it needs no screen-recording permission.
 It also pictures races (netplay or not), but not ImGui windows. Pictures of simulator races were taken with
-`--speed 0` (real time).
+`--speed 0` (real time) or `--speed 1`.
+
+To picture a situation no scenario reaches, a throwaway script loads `tools/netplay-sim.py` as a module, appends its
+own `Scenario`s to `SCENARIOS` and calls `main()`; run it with the scenario's name (without one, every scenario runs),
+`--work <folder>`, `--speed 1` and `SK_TEST_SCREENSHOTS=a@1100,b@1300` in the environment. Each game's pictures land in
+its settings folder (`<work>/run-*/<scenario>/home<N>/`). `gNetplay.OwnView: 0` in its cvars shows the split screen;
+`SK_NETPLAY_BOT=0` for a peer keeps it on a results screen. An 8-player Battle starts its race at about frame 1100.
+
+Track data the game loads from `mk64.o2r` (a zip) can be read without running it: each resource has a 64-byte header,
+and an `ActorSpawnData` list (such as `d_course_block_fort_item_box_spawns`) is a little-endian u32 count followed by
+8-byte entries (s16 x, y, z, then a flag word). For the floor at a point, a temporary log of
+`spawn_actor_on_surface(x, 2000.0f, z)` in a spawn function gives its height; that is how the Battle arenas' spawns
+were checked (2026-11-26).
 
 The tests play no sound, as they run on a computer that people use. The simulator's games run at volume 0
 (`gGameMasterVolume` in each settings folder, `write_home()`), which also silences the real-time `lag` scenario; a
@@ -610,6 +622,13 @@ Each of these cost a debugging round.
   engine failed to start (-10875) unless the mixer was connected to the output by hand, and then its input tap
   delivered nothing. The voice processing audio unit used directly (`VoiceDeviceMac.cpp`) starts and takes the
   format it is given.
+- **A float setting saved as a whole number reads as its default**: libultraship gives a setting the type of its JSON
+  number, and `CVarGetFloat` returns the default for a setting of another type. The simulator wrote
+  `gGameMasterVolume: 0`, so its games played at full volume (heard only in the real-time `lag` scenario); it now
+  writes `0.0`. Settings written by hand or by a tool need the decimal point wherever the game reads a float.
+- **Battle arena diagonals are not all open floor**: the 8-player Battle start ring fills the diagonals between the
+  four original spots. On Block Fort, radius 200 there is the forts' first step, beside their item boxes; the extra
+  spots there use radius 100 (`fill_battle_ring()`).
 - **The build id covers `cmake/`**: after editing a CMake file, a desktop game built before the edit no longer pairs
   with a browser build made after it (`tools/web-check/netplay.mjs` with `NATIVE=` then waits until its timeout).
   Rebuild both.
@@ -667,7 +686,10 @@ Each of these cost a debugging round.
   which runs the menus once after them: run after each screen, the results went several steps a frame; and with the
   effect count two screens leave, as menu text stops at 759 effect matrices), and the
   menu art is made at runtime (see [Shared console](#shared-console)). With 6 or 8 players no cell is free for the
-  minimap, so the grid has none; with 5 or 7 it is drawn at its usual size in the free cell, placed in window space.
+  minimap, so the grid has none, in Battle too (four players' centred map is not drawn on the grid); with 5 or 7 it is
+  drawn at its usual size in the free cell, placed in window space. An 8-player race's pause menu runs after eight
+  screens' worth of effects and could hit the 759 limit on menu text; not checked. Block Fort's new start spots are
+  checked in pictures, not yet by people.
 - libultraship's renderer reads past two texture buffers (`ImportTextureI4` at boot, `gfx_load_tlut` on some
   courses), reported by AddressSanitizer on every run; not netplay's, not fixed.
 
@@ -728,3 +750,4 @@ Each of these cost a debugging round.
 | `8d777c35` | Character select cursors sound only when they move |
 | `8c66bca4` | Grand Prix points per kart, not per character |
 | `22656ac7` | Every player's screen between Grand Prix races; the 8-player minimap in window space |
+| `af172c64` | Fair Block Fort starts and no centred minimap for 5 to 8 players; silent tests (`0.0` volume) |
