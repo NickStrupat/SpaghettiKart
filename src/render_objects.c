@@ -53,6 +53,15 @@
 #include "port/interpolation/FrameInterpolation.h"
 #include "assets/textures/tracks/sherbet_land/sherbet_land_data.h"
 
+NOT_SIM_STATE_BEGIN
+/**
+ * @port Set while draw_8p_minimap_cell() draws the minimap in the eighth-screen grid's spare cell, whose position is
+ * already in window space (hud_place_x()): the minimap's rectangles then take no edge anchoring, as the karts' icons,
+ * drawn by matrix, take none on that grid (func_80042330()).
+ */
+bool gMinimapXInWindowSpace = false;
+NOT_SIM_STATE_END
+
 Lights1 D_800E45C0[] = {
     gdSPDefLights1(100, 0, 0, 100, 0, 0, 0, -120, 0),
     gdSPDefLights1(100, 100, 0, 255, 255, 0, 0, -120, 0),
@@ -1629,7 +1638,10 @@ void render_texture_rectangle_wide(s32 x, s32 y, s32 width, s32 height, s32 arg4
                 // which stays meaningful with four columns: cells 1-2 anchor
                 // left, 3-4 right. The vertical-split arm below skips the edge
                 // adjustment entirely, which would misplace these.
-                if ((xl - (width / 2)) < (SCREEN_WIDTH / 2)) {
+                if (gMinimapXInWindowSpace) {
+                    coordX = xl << 2;
+                    coordX2 = xh << 2;
+                } else if ((xl - (width / 2)) < (SCREEN_WIDTH / 2)) {
                     coordX = (s32) OTRGetDimensionFromLeftEdge(xl) << 2;
                     coordX2 = (s32) (xh) << 2;
                 } else {
@@ -1648,19 +1660,13 @@ void render_texture_rectangle_wide(s32 x, s32 y, s32 width, s32 height, s32 arg4
         // OTRGetDimensionFromLeftEdge
         // gSPTextureRectangle(gDisplayListHead++, xl, yl, xh, yh, G_TX_RENDERTILE, arg4 << 5, (arg5 << 5), 4 << 10,
         //                     1 << 10);
+    } else if (gMinimapXInWindowSpace) { // the eighth-screen grid's minimap, placed in window space
+        gSPWideTextureRectangle(gDisplayListHead++, xl << 2, yl, xh2 << 2, yh2, G_TX_RENDERTILE, arg4 << 5, (arg5 << 5),
+                                1 << 10, 1 << 10);
     } else { // minimap
-        // DEFERRED for eight players. Confirmed to need plumbing rather than a
-        // formula: this is a generic draw helper taking only coordinates, its
-        // callers are generic too, and there is no global naming the screen
-        // currently being rendered -- so nothing here can ask which cell it is
-        // drawing into. A player or screen id has to be threaded down from the
-        // per-screen render loop before the grid helper is usable at this site.
-        // Centres below are hardcoded for a 2x2
-        // grid -- three players centre the item in the unused fourth quadrant,
-        // four centre it on the screen midline. A 4x2 grid has four column
-        // centres at 40/120/200/280 and no spare cell, so this needs the
-        // drawing player's column, which is not in scope here. Falls to the
-        // default arm meanwhile, which anchors right.
+        // Centres below are hardcoded for a 2x2 grid: three players centre the minimap in the unused fourth quadrant,
+        // four centre it on the screen midline. The eighth-screen grid draws its minimap in its spare cell, in window
+        // space (draw_8p_minimap_cell(), the branch above).
         switch (gScreenModeSelection) {
             case SCREEN_MODE_3P_4P_SPLITSCREEN:
                 if (gPlayerCount == 3) {
@@ -1707,12 +1713,9 @@ void render_texture_rectangle_wide_left(s32 x, s32 y, s32 width, s32 height, s32
     s32 coordX = 0;
     s32 coordX2 = 0;
 
-    // DEFERRED for eight players: these centres are hardcoded for a 2x2
-    // grid -- three players centre the item in the unused fourth quadrant,
-    // four centre it on the screen midline. A 4x2 grid has four column
-    // centres at 40/120/200/280 and no spare cell, so this needs the
-    // drawing player's column, which is not in scope here. Falls to the
-    // default arm meanwhile, which anchors right.
+    // Centres below are hardcoded for a 2x2 grid: three players centre the minimap in the unused fourth quadrant, four
+    // centre it on the screen midline. Only the mirrored minimap comes here (func_8004C268_wide()), never on the
+    // eighth-screen grid.
     switch (gScreenModeSelection) {
         case SCREEN_MODE_3P_4P_SPLITSCREEN:
             if (gPlayerCount == 3) {

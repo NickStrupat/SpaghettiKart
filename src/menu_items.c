@@ -2429,7 +2429,18 @@ void func_80093A30(s32 arg0) {
     func_8009E2A8(D_800F0B1C[arg0]);
 }
 
+NOT_SIM_STATE_BEGIN
+/**
+ * @port Set while render_gp_results_screens() (main.c) draws a Grand Prix's results with a screen per player: each
+ * screen skips the menus, which that function draws once afterwards, as a two-player frame does.
+ */
+bool gScreenMenusDeferred = false;
+NOT_SIM_STATE_END
+
 void func_80093A5C(u32 arg0) {
+    if (gScreenMenusDeferred) {
+        return;
+    }
     if (gNumScreens == 0) {
         func_8009C918();
     }

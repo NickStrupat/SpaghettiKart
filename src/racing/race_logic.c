@@ -283,12 +283,16 @@ void func_8028E678(void) {
                     break;
                 case SCREEN_MODE_8P:
                     // @port Grand Prix with 5 to 8 players: players one and two's screens become the top quarters of
-                    // the three- and four-player race, then end on the same two-player layout with the results.
+                    // the three- and four-player race, then end on the same two-player layout with the results, where
+                    // every player's screen is drawn (render_gp_results_screens() in main.c). Only the places: a
+                    // copy of the whole of player one's screen gave player two player one's camera.
                     gScreenOneCtx->screenStartX = SCREEN_WIDTH / 4;
                     gScreenOneCtx->screenStartY = SCREEN_HEIGHT / 4;
                     gScreenOneCtx->screenWidth = SCREEN_WIDTH / 2;
                     gScreenOneCtx->screenHeight = SCREEN_HEIGHT / 2;
-                    *gScreenTwoCtx = *gScreenOneCtx;
+                    gScreenTwoCtx->screenStartY = gScreenOneCtx->screenStartY;
+                    gScreenTwoCtx->screenWidth = gScreenOneCtx->screenWidth;
+                    gScreenTwoCtx->screenHeight = gScreenOneCtx->screenHeight;
                     gScreenTwoCtx->screenStartX = (SCREEN_WIDTH * 3) / 4;
                     gScreenAspect = (f32) SCREEN_WIDTH / SCREEN_HEIGHT;
                     D_8015F894 = 8;

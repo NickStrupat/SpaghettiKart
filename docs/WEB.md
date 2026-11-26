@@ -25,7 +25,7 @@ file records how to build and serve it, what was changed to make it run, and wha
 
 ## Building
 
-Needs Emscripten (`brew install emscripten`; 7.0.0 was used), CMake and Ninja, and the two archives a desktop build
+Needs Emscripten (`brew install emscripten`; 7.0.1 is used, 7.0.0 before), CMake and Ninja, and the two archives a desktop build
 makes, `spaghetti.o2r` and (optionally, to skip asking for the ROM on a local page) `mk64.o2r`, in the repository's
 root (see `docs/BUILDING.md`).
 
@@ -254,6 +254,12 @@ Everything specific to the browser is behind `__EMSCRIPTEN__` in the code and `S
   input that the linker rejects ("unknown file type"): write the pair as one `"SHELL:--js-library <file>"`.
 - **Uninitialized memory differs.** The Mac's happened to be zero where the browser's held leftovers: see the
   kiwano pitfall in `docs/NETPLAY.md`.
+- **A Homebrew upgrade of Emscripten breaks `build-web`**: the CMake caches keep the old version's folder
+  (`/opt/homebrew/Cellar/emscripten/<version>/`), and the build fails with "include could not find requested file
+  ... Emscripten.cmake". Move `build-web/CMakeCache.txt` and `build-web/CMakeFiles` aside and configure again with
+  `emcmake`, as above; then do the same for the extractor's (`build-web/extractor/`) and remove its configure stamp
+  (`build-web/WebExtractor-prefix/src/WebExtractor-stamp/WebExtractor-configure`), or the build skips its
+  configure and stops at "not a CMake build directory". The downloaded libraries in `build-web/_deps` stay.
 - **Netplay's undo of a drawn frame must wait for its last interpolated picture.** The browser draws a frame's
   interpolated pictures on later refreshes, from the same display list; undoing right after the first picture drew
   the others from the split-screen state (own view flickered with a zoomed-out half at 60 FPS). The main loop undoes

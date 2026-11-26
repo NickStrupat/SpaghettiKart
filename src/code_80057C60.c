@@ -965,6 +965,11 @@ void func_800590D4(void) {
  * centre and reuse the ordinary minimap draw -- the track map, the live player
  * dots, and the finish-line marker -- then put the position back so the normal
  * per-screen minimap is unaffected. Silent for even counts and other modes.
+ *
+ * @port The centre is in window space, as the grid's HUD is (hud_place_x()): the cells share the whole window, which
+ * widens past 320-space on a wide window. The map, the CPU karts' dots and the finish line skip the edge anchoring
+ * their rectangles would otherwise take (gMinimapXInWindowSpace), as the human karts' icons already do on this grid;
+ * before, those went to the right edge and the human karts' icons did not, off the map on a wide window.
  */
 void draw_8p_minimap_cell(void) {
     s32 cell;
@@ -979,14 +984,17 @@ void draw_8p_minimap_cell(void) {
     savedX = CM_GetProps()->Minimap.Pos[0].X;
     savedY = CM_GetProps()->Minimap.Pos[0].Y;
 
-    CM_GetProps()->Minimap.Pos[0].X = screen_cell_center_x(SCREEN_MODE_8P, cell);
-    CM_GetProps()->Minimap.Pos[0].Y = screen_cell_center_y(SCREEN_MODE_8P, cell);
+    CM_GetProps()->Minimap.Pos[0].X = hud_place_x(cell, 0.5f, screen_cell_center_x(SCREEN_MODE_8P, cell));
+    CM_GetProps()->Minimap.Pos[0].Y = hud_place_y(cell, 0.5f, screen_cell_center_y(SCREEN_MODE_8P, cell));
 
+    // Netplay's own view has no grid: hud_place_x() then hands back the 320-space centre, which takes the anchoring.
+    gMinimapXInWindowSpace = (gOwnViewPlayer < 0);
     func_8004EE54(0);
     if (gModeSelection != BATTLE) {
         set_minimap_finishline_position(0);
     }
     func_8004F3E4(0);
+    gMinimapXInWindowSpace = false;
 
     CM_GetProps()->Minimap.Pos[0].X = savedX;
     CM_GetProps()->Minimap.Pos[0].Y = savedY;

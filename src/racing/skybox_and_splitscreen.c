@@ -924,15 +924,16 @@ void func_802A7728(void) {
     s16 temp_v0;
 
     // NOT a level-of-detail test: D_800DC5DC is the X origin of the 128x96 region
-    // the copy_framebuffer calls below lift out of the framebuffer. The two values
-    // are real screen coordinates chosen so the grab lands inside a viewport --
-    // x=0 for a 160-wide quadrant, x=128 for the 320-wide full or half screen.
+    // the copy_framebuffer calls below lift out of the framebuffer, x=0 for a
+    // 160-wide quadrant, x=128 for the 320-wide full or half screen. Called at
+    // the start of a split-screen race, for the jumbotron's still picture.
     //
-    // Deliberately left as a screen-mode test rather than reclassified: a 4x2 grid
-    // gives 80-wide viewports, and a 128-wide grab does not fit in one at any
-    // origin, so it would read across into the neighbouring player's pixels.
-    // Neither existing value is correct for an eighth-screen mode; this needs a
-    // real capture rectangle, not a reclassification. See also func_802A7940.
+    // @port The port draws on the GPU, and these N64 framebuffers stay as
+    // main() cleared them: this copies blank pixels, in every split-screen
+    // race, whatever the player count. The live jumbotron reads the port's own
+    // framebuffers, in one-player races only (WarioStadium::Draw()). The region
+    // stays inside the 320-wide buffer at either origin, so nothing to fix for
+    // five to eight players. See also func_802A7940.
     if (gActiveScreenMode == SCREEN_MODE_3P_4P_SPLITSCREEN) {
         D_800DC5DC = 0;
     } else {
@@ -969,8 +970,8 @@ void func_802A7728(void) {
 void func_802A7940(void) {
     s16 temp_v0;
 
-    // Same framebuffer-capture geometry as func_802A7728 above, and deferred for
-    // the same reason: these are screen coordinates, not a detail level.
+    // Same framebuffer-capture geometry as func_802A7728 above, and as blank in
+    // the port: these are screen coordinates, not a detail level.
     if (gActiveScreenMode == SCREEN_MODE_3P_4P_SPLITSCREEN) {
         D_800DC5DC = 0;
     } else {

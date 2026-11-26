@@ -15,7 +15,7 @@ details live in the headers under `src/port/netplay/`, which each start with a d
 |---|---|
 | Versus 2–4 players, Battle 2–4, Grand Prix 1–2 players + CPUs (whole cups, podium) | Works, tested by the simulator and by hand |
 | Grand Prix 3–4 players + CPUs (the port's own: the original game had none) | Works in the simulator; not yet played by hand |
-| 5–8 players: Versus, Battle, Grand Prix + CPUs, in an eight-screen split (`SCREEN_MODE_8P`), from up to 8 controllers on one computer | Works in the simulator (`gp-5p`, `battle-6p`, `pause-6p`, `room-8`, `local-6p`) and the rollback stress run; not yet played by hand. Online each computer shows its own player full screen; between Grand Prix races, the results and points show on players 1 and 2's screens, as with 3 and 4 |
+| 5–8 players: Versus, Battle, Grand Prix + CPUs, in an eight-screen split (`SCREEN_MODE_8P`), from up to 8 controllers on one computer | Works in the simulator (`gp-5p`, `battle-6p`, `pause-6p`, `room-8`, `local-6p`) and the rollback stress run; not yet played by hand. Online each computer shows its own player full screen; between Grand Prix races, on a shared screen, every player's screen shows beside the results, a quarter of the size, with 3 to 8 players |
 | Rollback, desync detection | Works; an 8-frame rollback every frame stays in sync on every track and mode |
 | Desync recovery (everyone takes over the host's state, the race goes on) | Works, tested by the simulator on one Mac; not yet tried between two |
 | Room list, ONLINE screen (Z on Game Select), relay server | Works; tested with scripted buttons |
@@ -662,8 +662,11 @@ Each of these cost a debugging round.
   resolution they are small.
 - 5 to 8 players: controllers 5 to 8 have been tested only with scripted input (`local-6p`), not real gamepads.
   The fork's own between-race points screen and 5 to 8 player menu art were not taken: the results reuse the 3 and
-  4 player path, and the menu art is made at runtime (see [Shared console](#shared-console)). With 6 or 8 players no
-  cell is free for the minimap, so the grid has none; with 5 or 7 it is drawn at its usual size in the free cell.
+  4 player path, with every player's screen drawn small in players 1 and 2's places (`render_gp_results_screens()`,
+  which runs the menus once after them: run after each screen, the results went several steps a frame; and with the
+  effect count two screens leave, as menu text stops at 759 effect matrices), and the
+  menu art is made at runtime (see [Shared console](#shared-console)). With 6 or 8 players no cell is free for the
+  minimap, so the grid has none; with 5 or 7 it is drawn at its usual size in the free cell, placed in window space.
 - libultraship's renderer reads past two texture buffers (`ImportTextureI4` at boot, `gfx_load_tlut` on some
   courses), reported by AddressSanitizer on every run; not netplay's, not fixed.
 
@@ -722,3 +725,4 @@ Each of these cost a debugging round.
 | `af4e1673` | Versus items, Lakitu textures, CPU karts and fades for 5 to 8 players |
 | `b044e480` | VS and Battle results screens for 5 to 8 players, with tallies; Big Donut lava rescue without a track path |
 | `8d777c35` | Character select cursors sound only when they move |
+| `8c66bca4` | Grand Prix points per kart, not per character |

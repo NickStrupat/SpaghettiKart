@@ -54,6 +54,13 @@ Confirmed working this session:
   buffer's last 32 bytes. Before, one portrait showed in a corner. Checked with
   pictures of 5 to 8 player races (2026-11-24); see `results_portrait_position()`
   in `menu_items.c`.
+- **Between Grand Prix races every player's screen shows** (2026-11-25): the
+  results end on the two-player layout, whose two screen places now each hold
+  half the players' screens, a quarter of the size, in rows of two
+  (`render_gp_results_screens()` in `main.c`). Before, only players one and two
+  had a screen, and with five to eight player two's showed player one's camera.
+  The spare cell's minimap is placed in window space, so on a wide window the
+  karts' icons stay on the map (`gMinimapXInWindowSpace`).
 - **A stock 2P 150cc Grand Prix no longer crashes under ASan** — a pre-existing
   texture over-read, fixed engine-side (see libultraship notes).
 
@@ -153,6 +160,12 @@ by a value that now reaches eight.** Check this list before theorising:
     kept per character (two Marios shared a total, and a character nobody
     drove was listed), and `gGetPlayerByCharacterId` keeps only the last kart
     with each character. Key such state by player id.
+21. **Per-frame limits sized for the original's screens.** Menu text stops at
+    759 effect matrices (`func_80095BD0()`, the N64's pool, which the port no
+    longer has), and every screen's smoke and sparks count towards it: drawn
+    after eight screens, the Grand Prix results had no text. The results now
+    count from where two screens leave it. An eight-player race's own menus
+    (the pause menu) also run after eight screens; not checked.
 
 Two engine-level over-reads this session were **not** player-count bugs but the
 same "descriptor claims more than the buffer holds" family: a display list can
@@ -199,10 +212,6 @@ fetch them — they would be lost. All are worth sending to Kenix3/libultraship.
 - With six or eight players no cell is free, so the split has no minimap (with
   five or seven it fills the spare cell; the grid is 3×2 for five and six, 4×2
   for seven and eight, `screen_grid.h`).
-- `func_802A7728` / `func_802A7940` grab a 128-wide framebuffer region into a
-  narrower cell.
-- Two item-centring sites in `render_objects.c` still need a screen id plumbed
-  through the generic draw helpers.
 - A top-row viewport was once seen rendering mostly black; not observed recently,
   watch for it.
 - Left as they are, unless the owner asks: Moo Moo Farm spawns its trees with
@@ -210,6 +219,13 @@ fetch them — they would be lost. All are worth sending to Kenix3/libultraship.
   (`MooMooFarm::BeginPlay()`, `gPlayerCountSelection1 != 4`).
 
 ## Things that are settled, so do not re-derive them
+
+- The split-screen jumbotron copy (`func_802A7728` / `func_802A7940`) reads the
+  N64 framebuffers, which the port never draws into: it copies blank pixels in
+  every split-screen race, 2 to 8 players alike, and stays inside the buffer.
+  The live jumbotron is one-player only. Not a five-to-eight-player bug.
+- The Versus winner's take-over works with five to eight players: the winner's
+  cell grows over the others to the whole window (pictures of 5 and 8, 2026-11-25).
 
 - The original game's quirks stay unless online play or five to eight players
   need a change (the owner's call). The Battle red shell's distance check adds

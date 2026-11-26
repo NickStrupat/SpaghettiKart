@@ -832,6 +832,89 @@ static bool race_frame_needs_readback(void) {
 }
 
 /**
+ * @port Places one player's screen in a Grand Prix's results: a quarter of the size of the screen it shares (anchor),
+ * index of count, in rows of two centred in it.
+ */
+static void place_gp_results_screen(ScreenContext* screen, const ScreenContext* anchor, s32 index, s32 count) {
+    s32 width = anchor->screenWidth / 2;
+    s32 height = anchor->screenHeight / 2;
+    s32 rows = (count + 1) / 2;
+    s32 row = index / 2;
+    s32 inRow = ((row == rows - 1) && (count & 1)) ? 1 : 2;
+
+    screen->screenWidth = width;
+    screen->screenHeight = height;
+    screen->screenStartX = anchor->screenStartX - ((inRow * width) / 2) + (width / 2) + ((index % 2) * width);
+    screen->screenStartY = anchor->screenStartY - ((rows * height) / 2) + (height / 2) + (row * height);
+}
+
+/**
+ * @port A Grand Prix with three or more players ends on the two-player layout (func_8028E678()), whose two screens
+ * are players one and two's. Every player's screen is drawn there instead, each a quarter of the size: the first half
+ * of the players share the place of player one's screen and the rest that of player two's, which the results slide
+ * about as they always have. Players one and two's own places are put back after drawing, for that sliding, before
+ * the menus are drawn and run once, as after a two-player frame's two screens (func_80093A5C()): run after every
+ * screen, the results went several steps a frame, and their sliding was lost when the places were put back.
+ * @returns false outside such a Grand Prix's end, which draws its two screens as usual.
+ */
+static bool render_gp_results_screens(void) {
+    ScreenContext anchors[2];
+    s32 humans = gPlayerCount;
+    s32 firstGroup;
+    s32 effectsAfterTwoScreens = 0;
+    s32 effectsOfOtherScreens;
+    s32 i;
+
+    if ((gModeSelection != GRAND_PRIX) || (humans < 3)) {
+        return false;
+    }
+    if (humans > NUM_PLAYERS) {
+        humans = NUM_PLAYERS;
+    }
+    firstGroup = (humans + 1) / 2;
+    anchors[0] = gScreenContexts[0];
+    anchors[1] = gScreenContexts[1];
+    for (i = PLAYER_ONE; i < humans; i++) {
+        if (i < firstGroup) {
+            place_gp_results_screen(&gScreenContexts[i], &anchors[0], i, firstGroup);
+        } else {
+            place_gp_results_screen(&gScreenContexts[i], &anchors[1], i - firstGroup, humans - firstGroup);
+        }
+    }
+    gScreenMenusDeferred = true;
+    for (i = PLAYER_ONE; i < humans; i++) {
+        if (i < firstGroup) {
+            render_screens(&gScreenContexts[i], RENDER_SCREEN_MODE_2P_VERTICAL_PLAYER_ONE, 1, i);
+        } else {
+            render_screens(&gScreenContexts[i], RENDER_SCREEN_MODE_2P_VERTICAL_PLAYER_TWO, 2, i);
+        }
+        if (i == PLAYER_TWO) {
+            effectsAfterTwoScreens = gMatrixEffectCount;
+        }
+    }
+    gScreenMenusDeferred = false;
+    for (i = 0; i < 2; i++) {
+        gScreenContexts[i].screenStartX = anchors[i].screenStartX;
+        gScreenContexts[i].screenStartY = anchors[i].screenStartY;
+        gScreenContexts[i].screenWidth = anchors[i].screenWidth;
+        gScreenContexts[i].screenHeight = anchors[i].screenHeight;
+    }
+    // The menus' text stops at 759 effect matrices, the N64's pool (func_80095BD0()), which up to eight screens' smoke
+    // and sparks pass: they count from where two screens leave it, as the two-player frame's do, and the other
+    // screens' share is added back after.
+    effectsOfOtherScreens = gMatrixEffectCount - effectsAfterTwoScreens;
+    gMatrixEffectCount = effectsAfterTwoScreens;
+    // What func_80093A5C() does after a two-player frame's first and second screens
+    gNumScreens = 0;
+    func_80093A5C(RENDER_SCREEN_MODE_2P_VERTICAL_PLAYER_ONE);
+    gNumScreens = 1;
+    func_80093A5C(RENDER_SCREEN_MODE_2P_VERTICAL_PLAYER_TWO);
+    gNumScreens = 2;
+    gMatrixEffectCount += effectsOfOtherScreens;
+    return true;
+}
+
+/**
  * Builds the display list for the race frame produced by race_sim_frame().
  */
 void race_render_frame(void) {
@@ -860,6 +943,9 @@ void race_render_frame(void) {
             }
             break;
         case SCREEN_MODE_2P_SPLITSCREEN_VERTICAL:
+            if (render_gp_results_screens()) {
+                break;
+            }
             if (gPlayerWinningIndex == 0) {
                 render_screens(gScreenTwoCtx, RENDER_SCREEN_MODE_2P_VERTICAL_PLAYER_TWO, 2, 1);
                 render_screens(gScreenOneCtx, RENDER_SCREEN_MODE_2P_VERTICAL_PLAYER_ONE, 1, 0);

@@ -720,6 +720,7 @@ extern void* gSomeDLBuffer;
 extern s8 gGPPointsByPlayerId[8];
 extern s8 gCharacterIdByGPOverallRank[];
 extern s8 gPlayerIdByGPOverallRank[8];
+extern bool gScreenMenusDeferred;
 extern s8 D_8018D9D8;
 extern s8 D_8018D9D9;
 extern MenuItem gMenuItems[MENU_ITEMS_MAX];

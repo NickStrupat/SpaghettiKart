@@ -266,6 +266,7 @@ void func_8004EB38(s32);
 void render_digital_speedometer(s32 playerIdx);
 void render_speedometer(s32);
 void func_8004EE54(s32);
+extern bool gMinimapXInWindowSpace;
 
 void func_8004EF9C(s32);
 void set_minimap_finishline_position(s32);
