@@ -606,6 +606,9 @@ Each of these cost a debugging round.
   (`ALIGN_ASSET(2)`, `alignas(8)`).
 - **`PLATFORM_IOS` is defined by `<mach-o/loader.h>`** (a platform number), so `!defined(PLATFORM_IOS)` is false in
   any file that includes the Mach-O headers, even on macOS. Use `TARGET_OS_OSX` there.
+- **`small` is a macro on Windows** (`#define small char` in `rpcndr.h`, via `windows.h`), so a variable named `small`
+  builds on the Mac and fails the Windows CI jobs (`'bool' followed by 'char' is illegal`). The same goes for `near`,
+  `far`, `min`, `max` and `interface`. Every push from 2026-11-17 to 2026-11-26 failed on Windows this way.
 - **The frame counter is not simulation state** (`gGlobalTimer`, it picks the gfx pool), but the menus' flashing
   colors follow it; a shared console restarts it at each menu session.
 - **A reset to Game Select only takes effect at the top of the next game frame** (`CM_RequestReset`). A menu session

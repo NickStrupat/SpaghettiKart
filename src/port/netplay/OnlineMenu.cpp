@@ -285,14 +285,14 @@ void ActCode(const Controller* controller) {
 }
 
 /** A room code's arrows, left to right from this corner, this far apart. */
-void DrawCodeArrows(const std::string& code, s32 column, s32 row, s32 spacing, bool small) {
+void DrawCodeArrows(const std::string& code, s32 column, s32 row, s32 spacing, bool useSmall) {
     for (size_t i = 0; i < code.size(); i++) {
         const char* letter = strchr(RelayProtocol::kCodeAlphabet, code[i]);
         if ((letter == nullptr) || (code[i] == 0)) {
             continue;
         }
         const size_t direction = (size_t) (letter - RelayProtocol::kCodeAlphabet);
-        MenuTexture* texture = small ? sSmallArrows[direction] : sArrows[direction];
+        MenuTexture* texture = useSmall ? sSmallArrows[direction] : sArrows[direction];
         gDisplayListHead = func_8009BC9C(gDisplayListHead, texture, column + (s32) i * spacing, row, 2, 0);
     }
 }
