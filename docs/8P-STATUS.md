@@ -61,6 +61,15 @@ Confirmed working this session:
   had a screen, and with five to eight player two's showed player one's camera.
   The spare cell's minimap is placed in window space, so on a wide window the
   karts' icons stay on the map (`gMinimapXInWindowSpace`).
+- **Battle with five to eight starts fairly and keeps the screens clear**
+  (2026-11-26): Block Fort's four extra start spots, on the ring's diagonals,
+  were up on the forts' first step beside their item boxes; they now sit at
+  radius 100 on the middle plaza (`fill_battle_ring()` in `spawn_players.c`;
+  the other arenas' diagonals are on the same floor as their axis spots,
+  checked by probing the floor). Four players' centred Battle minimap is no
+  longer drawn on the grid: with six or eight it landed over the screens, its
+  map anchored to the window's right edge while the karts' dots did not
+  (`func_800591B4()`); with five or seven it doubled the spare cell's.
 - **A stock 2P 150cc Grand Prix no longer crashes under ASan** — a pre-existing
   texture over-read, fixed engine-side (see libultraship notes).
 
@@ -209,9 +218,9 @@ fetch them — they would be lost. All are worth sending to Kenix3/libultraship.
 
 ## Known-outstanding
 
-- With six or eight players no cell is free, so the split has no minimap (with
-  five or seven it fills the spare cell; the grid is 3×2 for five and six, 4×2
-  for seven and eight, `screen_grid.h`).
+- With six or eight players no cell is free, so the split has no minimap, in
+  Battle too (with five or seven it fills the spare cell; the grid is 3×2 for
+  five and six, 4×2 for seven and eight, `screen_grid.h`).
 - A top-row viewport was once seen rendering mostly black; not observed recently,
   watch for it.
 - Left as they are, unless the owner asks: Moo Moo Farm spawns its trees with

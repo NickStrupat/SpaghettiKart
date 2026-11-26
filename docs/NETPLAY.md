@@ -390,7 +390,8 @@ It also pictures races (netplay or not), but not ImGui windows. Pictures of simu
 
 The tests play no sound, as they run on a computer that people use. The simulator's games run at volume 0
 (`gGameMasterVolume` in each settings folder, `write_home()`), which also silences the real-time `lag` scenario; a
-scenario can set its own. The browser checks start Chrome with `--mute-audio`: the sound is mixed but not played.
+scenario can set its own. It must be written as `0.0`: libultraship reads a float setting stored as a whole number as
+its default, so `0` played at full volume. The browser checks start Chrome with `--mute-audio`: the sound is mixed but not played.
 
 When a session fails, each peer writes `<prefix>.seg<N>.kept.txt`, the checksum breakdown of every frame it still
 kept; diffing the peers' files shows the first component that differs. A peer that detects a desync also writes
@@ -726,3 +727,4 @@ Each of these cost a debugging round.
 | `b044e480` | VS and Battle results screens for 5 to 8 players, with tallies; Big Donut lava rescue without a track path |
 | `8d777c35` | Character select cursors sound only when they move |
 | `8c66bca4` | Grand Prix points per kart, not per character |
+| `22656ac7` | Every player's screen between Grand Prix races; the 8-player minimap in window space |

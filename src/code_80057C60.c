@@ -1030,7 +1030,10 @@ void func_800591B4(void) {
                     func_800514BC();
                 }
                 if ((!gDemoMode) && (D_801657E8 != false)) {
-                    if (D_80165800[0] != 0) {
+                    // @port Not the eighth-screen grid's: four players' centred minimap would land on the middle of
+                    // the grid, over the screens, and its map and dots take different anchoring on a wide window. The
+                    // grid draws its minimap only in its spare cell (draw_8p_minimap_cell()).
+                    if ((D_80165800[0] != 0) && (gScreenModeSelection != SCREEN_MODE_8P)) {
                         func_8004EE54(0);
                         if (gModeSelection != BATTLE) {
                             set_minimap_finishline_position(0);

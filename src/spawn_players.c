@@ -962,15 +962,20 @@ void func_8003B870(f32* arg0, f32* arg1, f32 arg2) {
  * exactly -- (0,-r) at 0x0000, (r,0) at 0x4000, (0,r) at 0x8000, (-r,0) at
  * 0xC000 -- which is a kart standing on the ring and facing the middle. Index i
  * of eight therefore sits at i/8 of a turn with that same angle as its yaw.
+ *
+ * The diagonals take their own radius: on Block Fort the ring's diagonals at 200 are up on the forts' first step,
+ * beside their item boxes, so a kart started there with an item. Skyscraper, Double Deck and Big Donut have the same
+ * floor at the diagonals as at the axis points, and pass the same radius twice.
  */
-static void fill_battle_ring(f32* x, f32* z, f32 radius) {
+static void fill_battle_ring(f32* x, f32* z, f32 radius, f32 diagonalRadius) {
     s32 i;
 
     for (i = 0; i < NUM_PLAYERS; i++) {
         u16 yaw = (u16) (i * (0x10000 / NUM_PLAYERS));
+        f32 r = (i & 1) ? diagonalRadius : radius;
 
-        x[i] = radius * sins(yaw);
-        z[i] = -radius * coss(yaw);
+        x[i] = r * sins(yaw);
+        z[i] = -r * coss(yaw);
     }
 }
 
@@ -985,7 +990,6 @@ static void fill_battle_ring(f32* x, f32* z, f32 radius) {
  */
 void spawn_players_8p_battle(f32* arg0, f32* arg1, f32 arg2) {
     s32 i;
-
     for (i = PLAYER_ONE; i < NUM_PLAYERS; i++) {
         u16 yaw = (u16) (i * (0x10000 / NUM_PLAYERS));
 
@@ -1238,7 +1242,9 @@ void spawn_and_set_player_spawns(void) {
                 break;
             case SCREEN_MODE_8P:
                 temp = 5;
-                fill_battle_ring(D_80165210, D_80165230, 200.0f);
+                // @port The plaza's floor runs out to about 120 on the diagonals; 100 is about as far from the nearest
+                // item box (110) as the axis points are (150), and clear of the forts.
+                fill_battle_ring(D_80165210, D_80165230, 200.0f, 100.0f);
                 spawn_players_8p_battle(D_80165210, D_80165230, temp);
                 break;
         }
@@ -1273,7 +1279,7 @@ void spawn_and_set_player_spawns(void) {
                 break;
             case SCREEN_MODE_8P:
                 temp = 0x1E0;
-                fill_battle_ring(D_80165210, D_80165230, 400.0f);
+                fill_battle_ring(D_80165210, D_80165230, 400.0f, 400.0f);
                 spawn_players_8p_battle(D_80165210, D_80165230, temp);
                 break;
         }
@@ -1308,7 +1314,7 @@ void spawn_and_set_player_spawns(void) {
                 break;
             case SCREEN_MODE_8P:
                 temp = 0x37;
-                fill_battle_ring(D_80165210, D_80165230, 160.0f);
+                fill_battle_ring(D_80165210, D_80165230, 160.0f, 160.0f);
                 spawn_players_8p_battle(D_80165210, D_80165230, temp);
                 break;
         }
@@ -1343,7 +1349,7 @@ void spawn_and_set_player_spawns(void) {
                 break;
             case SCREEN_MODE_8P:
                 temp = 0xC8;
-                fill_battle_ring(D_80165210, D_80165230, 575.0f);
+                fill_battle_ring(D_80165210, D_80165230, 575.0f, 575.0f);
                 spawn_players_8p_battle(D_80165210, D_80165230, temp);
                 break;
         }
