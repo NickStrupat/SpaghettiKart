@@ -30,7 +30,8 @@ determinism, which only shows up between two running games.
 
 1. `python3 tools/netplay-sim.py`: 39 scenarios, run side by side, about 10 minutes; every one must pass. Changes to the menus count
    too: a room's shared console runs them in lockstep.
-2. For relay or protocol changes: `python3 tools/netplay-relay/test_relay.py build-relay/netplay-relay`.
+2. For relay or protocol changes: `python3 tools/netplay-relay/test_relay.py build-relay/netplay-relay`, and again
+   with an AddressSanitizer build of the relay (the command is in the Testing table of `docs/NETPLAY.md`).
 3. For a new kind of race state, or memory handling: `tools/netplay-stress.sh`, the rollback stress run on every track
    (`SK_DETERMINISM_ROLLBACK=8`, see `src/port/netplay/DeterminismHarness.h`), ideally with the AddressSanitizer build
    described in `docs/NETPLAY.md`.

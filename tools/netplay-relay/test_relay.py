@@ -129,9 +129,14 @@ class Peer:
 class WebSocketPeer(Peer):
     """A browser's connection: the same messages, each in one binary WebSocket message over TCP."""
 
-    def __init__(self, port, extra_headers=""):
+    def __init__(self, port, extra_headers="", receive_buffer=None):
+        """@param receive_buffer Size of the socket's receive buffer, to make a browser that falls behind sooner."""
         super().__init__(port)
-        self.sock = socket.create_connection(("127.0.0.1", port), timeout=1.0)
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        if receive_buffer is not None:
+            self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, receive_buffer)
+        self.sock.settimeout(1.0)
+        self.sock.connect(("127.0.0.1", port))
         key = base64.b64encode(os.urandom(16)).decode()
         self.sock.sendall((f"GET / HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nUpgrade: websocket\r\n"
                            f"Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n"
@@ -345,6 +350,59 @@ def test_failed_join_limit(port):
     print("relay failed join limit test: PASS")
 
 
+def test_moved_clients(port):
+    """A client whose address changed, then left, is forgotten under the address it joined from too: a repeat of its
+    first request from there is a new request, not an answer about a client that is gone (which stopped the relay)."""
+    host = Peer(port)
+    host.create(request=90)
+    first_token = host.token
+    guest = Peer(port)
+    guest.join(host.code, request=91)
+    guest.joined(guest.receive(JOINED))
+    # The same tokens from other sockets: the relay takes both clients to have moved there (NAT rebinding).
+    moved_host, moved_guest = Peer(port), Peer(port)
+    moved_host.token, moved_guest.token = host.token, guest.token
+    moved_guest.room_state(echo=1)
+    moved_host.room_state(echo=2)
+    moved_host.send(header(LEAVE) + struct.pack("<Q", host.token))
+    assert moved_guest.receive(ROOM_CLOSED) == bytes([HOST_LEFT])
+    host.create(request=90)
+    assert host.slot == 0 and host.token != first_token, "a repeat from the old address of a host that left is new"
+    guest.join(host.code, request=91)
+    guest.joined(guest.receive(JOINED))
+    assert guest.slot == 1, "and of a guest its room closed under"
+    print("relay moved clients test: PASS")
+
+
+def test_stuck_browser_host(port):
+    """A browser that hosts and stops reading is closed once its queue is full, with its room, without the relay
+    using the room after it is gone (an AddressSanitizer build of the relay reports it if it does)."""
+    browser = WebSocketPeer(port, receive_buffer=4096)
+    browser.create(request=95)
+    guest = Peer(port)
+    guest.join(browser.code, request=96)
+    guest.joined(guest.receive(JOINED))
+    payload = b"x" * 1100
+    closed = False
+    for _ in range(200):
+        for _ in range(200):
+            guest.relay(0xFF, payload)
+        guest.sock.settimeout(0.01)
+        try:
+            while not closed:
+                data, _ = guest.sock.recvfrom(2048)
+                closed = data[3] == ROOM_CLOSED
+        except socket.timeout:
+            pass
+        finally:
+            guest.sock.settimeout(1.0)
+        if closed:
+            break
+    assert closed, "the room closes once its host's browser falls too far behind"
+    Peer(port).create(request=97)
+    print("relay stuck browser host test: PASS")
+
+
 def start_relay(*arguments):
     """@returns (process, port) of a relay running on a free port."""
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
@@ -363,6 +421,17 @@ def main():
     finally:
         relay.terminate()
         relay.wait()
+
+    # These fill a browser's queue, faster than the rate limits allow.
+    relay, port = start_relay("--no-rate-limits")
+    try:
+        test_moved_clients(port)
+        test_stuck_browser_host(port)
+    finally:
+        relay.terminate()
+        relay.wait()
+        log = relay.stdout.read()
+    assert "closed: host too slow to read" in log, "the stuck browser's room closes for that reason"
 
     relay, port = start_relay("--trusted-proxy", "127.0.0.1")
     try:

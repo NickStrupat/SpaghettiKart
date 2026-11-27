@@ -113,6 +113,8 @@ struct Client {
     std::string RoomKey;
     uint8_t Slot = 0;
     uint32_t Request = 0; // The Create or Join that made this client, to answer repeats
+    // Where that request came from: mRequests keeps it under this address, which stays when Endpoint moves
+    Address RequestFrom;
     Clock::time_point LastSeen;
 };
 
@@ -214,6 +216,8 @@ struct WebSocketConnection {
     std::array<uint8_t, 4096> ReadBuffer;
     std::deque<std::vector<uint8_t>> Outgoing; // The front one is being written
     bool Closing = false;                       // Closes once Outgoing has gone out
+    // Why the connection is about to close, once a send found it stuck; nullptr until then (see QueueWebSocket)
+    const char* PendingClose = nullptr;
     Clock::time_point LastHeard;
 };
 
@@ -302,7 +306,8 @@ class RelayServer {
                 if (HandleWebSocketData(*connection)) {
                     ReadWebSocket(connection);
                 } else {
-                    CloseWebSocket(connection->Id, "closed");
+                    CloseWebSocket(connection->Id,
+                                   (connection->PendingClose != nullptr) ? connection->PendingClose : "closed");
                 }
             });
     }
@@ -339,8 +344,8 @@ class RelayServer {
             switch (frame.Op) {
                 case WebSocket::Opcode::Binary:
                     Handle(frame.Payload.data(), frame.Payload.size(), connection.From);
-                    // Handling it may have closed this connection (a full queue).
-                    if (mWebSockets.count(connection.Id) == 0) {
+                    // Answering it may have found this connection stuck (a full queue).
+                    if (connection.PendingClose != nullptr) {
                         return false;
                     }
                     break;
@@ -386,12 +391,19 @@ class RelayServer {
         return (address.to_v4().to_uint() & mask) == (mOptions.TrustedProxy.to_uint() & mask);
     }
 
+    /**
+     * Queues a message. A connection whose queue is full is closed, but not here: sends happen while the caller walks
+     * a room's members, and closing removes clients, which can close the room (when the stuck browser hosts it).
+     */
     void QueueWebSocket(WebSocketConnection& connection, std::vector<uint8_t> data) {
-        if (connection.Closing) {
+        if (connection.Closing || (connection.PendingClose != nullptr)) {
             return;
         }
         if (connection.Outgoing.size() >= kMaxWebSocketQueue) {
-            CloseWebSocket(connection.Id, "too slow to read");
+            connection.PendingClose = "too slow to read";
+            asio::post(mIo, [this, id = connection.Id, reason = connection.PendingClose]() {
+                CloseWebSocket(id, reason);
+            });
             return;
         }
         connection.Outgoing.push_back(std::move(data));
@@ -834,6 +846,7 @@ class RelayServer {
         client.RoomKey = ToString(room.Code);
         client.Slot = slot;
         client.Request = request;
+        client.RequestFrom = from;
         client.LastSeen = now;
         room.Members[slot] = token;
         mRequests[{ from, request }] = token;
@@ -846,7 +859,7 @@ class RelayServer {
             return;
         }
         const Client client = it->second;
-        mRequests.erase({ client.Endpoint, client.Request });
+        mRequests.erase({ client.RequestFrom, client.Request });
         mClients.erase(it);
 
         Room& room = mRooms.at(client.RoomKey);
@@ -866,7 +879,7 @@ class RelayServer {
             if (member != 0) {
                 const Client& guest = mClients.at(member);
                 Send(guest.Endpoint, packet, writer.GetSize());
-                mRequests.erase({ guest.Endpoint, guest.Request });
+                mRequests.erase({ guest.RequestFrom, guest.Request });
                 mClients.erase(member);
             }
         }

@@ -405,7 +405,8 @@ struct RelayClient::Impl {
                 const u32 echo = reader.Read32();
                 const u8 slot = reader.Read8();
                 const u8 occupied = reader.Read8();
-                if (!reader.Failed() && (State == Status::InRoom)) {
+                // The slot indexes the lobby's members, as in Joined.
+                if (!reader.Failed() && (State == Status::InRoom) && (slot < kMaxSlots)) {
                     Slot = slot;
                     Occupied = occupied;
                     ReadMembers(reader, occupied);

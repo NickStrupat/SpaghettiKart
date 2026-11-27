@@ -378,7 +378,7 @@ keep them on the relay do not hear each other, and the netplay window says so. A
 | `tools/netplay-sim.py` | Plays whole races, cups and battles between bot-driven copies of the game through a relay, fast-forwarded (about 70× real time), and checks that every peer stayed in sync and the races ended as expected. Shared-console scenarios drive the menus with scripted buttons and compare every menu frame. 39 scenarios, run side by side: about 10 minutes on a 10-core Mac (see "Keeping the simulator fast"). **Run it after any change to netplay, menu or simulation code.** |
 | Determinism harness | `SK_DETERMINISM_RECORD` / `_VERIFY` / `_ROLLBACK=8`: records a race's inputs and per-frame checksums, replays them, or rolls back 8 frames after every frame. See `DeterminismHarness.h`. |
 | `tools/netplay-stress.sh` | The rollback stress run on every track and arena, 4 at a time: 16 versus tracks, 4 battle arenas, 4 Grand Prix courses with 2 players and 2 with 4, and 4 races with 5 to 8 players. Give it an AddressSanitizer build (below) to look for memory errors too. |
-| `tools/netplay-relay/test_relay.py` | Protocol tests for the relay. |
+| `tools/netplay-relay/test_relay.py` | Protocol tests for the relay. Give it an AddressSanitizer build of the relay too (`clang++ -fsanitize=address -DASIO_STANDALONE -std=gnu++20 -Ibuild-relay/_deps/asio-src/asio/include tools/netplay-relay/main.cpp`): the stuck-browser test only shows a use-after-free there. |
 | `tools/netplay-diff.py` | Names the variables that differ between two peers' start states (`SK_NETPLAY_DUMP=1`) or in a rollback trace. |
 
 The test environment variables (direct peers, lobby bots, simulated lag and loss, scripted leave/restart, bot
@@ -635,6 +635,15 @@ Each of these cost a debugging round.
 - **The build id covers `cmake/`**: after editing a CMake file, a desktop game built before the edit no longer pairs
   with a browser build made after it (`tools/web-check/netplay.mjs` with `NATIVE=` then waits until its timeout).
   Rebuild both.
+- **The relay forgot clients under the address they had moved to** (2026-11-27): it keeps each Create, Join or
+  Matchmake under the address it came from, to answer repeats, but removed it under the client's current address. After
+  a NAT rebinding and a leave, a repeat from the old address looked up a client that was gone, and the uncaught
+  exception stopped the relay: four packets from one computer closed every room. Clients now keep the address their
+  request was filed under (`Client::RequestFrom`).
+- **Closing a stuck WebSocket in the middle of a send freed the room being sent to** (2026-11-27): a browser whose
+  queue is full was closed at once, which removes its clients and, for a host, the room, while `HandleRelay` and
+  `BroadcastRoomState` were still walking it (AddressSanitizer: heap-use-after-free). The close is now posted to run
+  after the current message (`WebSocketConnection::PendingClose`). Nothing that sends may remove clients.
 
 ## Platforms
 
